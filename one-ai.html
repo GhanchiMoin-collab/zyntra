@@ -16,6 +16,47 @@
     nav { display:flex; align-items:center; justify-content:space-between; gap:18px; } .brand { display:flex; align-items:center; gap:11px; font-weight:800; font-size:21px; letter-spacing:-.4px; }
     .spark { width:40px; height:40px; display:grid; place-items:center; border-radius:13px; background:linear-gradient(135deg,var(--violet),var(--pink)); box-shadow:0 8px 25px #8b5cf655; font-size:20px; }
     .profile { width:37px; height:37px; display:grid; place-items:center; border-radius:50%; background:#252b4a; color:#d7d8f2; }
+    .about-popup {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.about-content {
+  background: #121629;
+  color: white;
+  width: 90%;
+  max-width: 500px;
+  padding: 25px;
+  border-radius: 16px;
+  border: 1px solid #272d4b;
+  text-align: center;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+}
+
+.about-content h2 {
+  margin-top: 0;
+  color: #c4b5fd;
+}
+
+.close-btn {
+  float: right;
+  background: #ef4444;
+  color: white;
+  width: 35px;
+  height: 35px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.close-btn:hover {
+  background: #dc2626;
+}
     .about-btn {
   padding: 8px 15px;
   margin-right: 10px;
@@ -98,13 +139,13 @@
 
     if (role === 'assistant') {
         const copyBtn = document.createElement('button');
-        copyBtn.textContent = '📋 Copy';
+        copyBtn.textContent = '📋';
         copyBtn.style.marginTop = '8px';
         copyBtn.onclick = () => {
             navigator.clipboard.writeText(text);
             copyBtn.textContent = '✅ Copied!';
             setTimeout(() => {
-                copyBtn.textContent = '📋 Copy';
+                copyBtn.textContent = '📋';
             }, 2000);
         };
         el.appendChild(copyBtn);
@@ -150,6 +191,35 @@ window.lastPrompt = text;
     const micButton=document.querySelector('#micButton');
     const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
     if(SpeechRecognition){const recognition=new SpeechRecognition();recognition.lang='en-IN';recognition.interimResults=true;recognition.onstart=()=>{micButton.classList.add('listening');chatInput.placeholder='Listening…'};recognition.onresult=e=>{chatInput.value=Array.from(e.results).map(r=>r[0].transcript).join('')};recognition.onend=()=>{micButton.classList.remove('listening');chatInput.placeholder='Message One AI…'};recognition.onerror=()=>{micButton.classList.remove('listening');chatInput.placeholder='Microphone access was not available.'};micButton.onclick=()=>recognition.start()}else{micButton.onclick=()=>alert('Voice input is supported in Chrome and Microsoft Edge.');}
-  </script>
-</body>
+  function openAbout() {
+  document.getElementById("aboutPopup").style.display = "flex";
+}
+
+function closeAbout() {
+  document.getElementById("aboutPopup").style.display = "none";
+}
+</script>
+<div id="aboutPopup" class="about-popup">
+  <div class="about-content">
+    <button class="close-btn" onclick="closeAbout()">✖</button>
+
+    <h2>About One AI</h2>
+
+    <p><strong>Welcome to One AI!</strong></p>
+
+    <p>
+      One AI is a personal AI assistant created by
+      <strong>Ghanchi Moin</strong>.
+    </p>
+
+    <p>
+      It helps users with learning, coding, writing,
+      business ideas, and everyday questions.
+    </p>
+
+    <p>
+      🚀 Thank you for using One AI!
+    </p>
+  </div>
+</div></body>
 </html>
