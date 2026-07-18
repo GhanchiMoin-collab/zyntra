@@ -54,7 +54,31 @@
       'Business Tools':{intro:'Let’s turn your business idea into a plan.',ideas:['Give me startup ideas','Write a business plan','Create a marketing post']}
     };
     function openChat(tool='AI Chat', first=''){title.textContent=tool;modal.classList.add('show');modal.setAttribute('aria-hidden','false');const setup=toolSetup[tool]||toolSetup['AI Chat'];messages.innerHTML='';add(setup.intro,'assistant');suggestions.innerHTML='';setup.ideas.forEach(idea=>{const button=document.createElement('button');button.textContent=idea;button.onclick=()=>send(idea);suggestions.appendChild(button)});chatInput.focus();if(first)send(first);}
-    function add(text,role){const el=document.createElement('div');el.className='message '+role;el.textContent=text;messages.appendChild(el);messages.scrollTop=messages.scrollHeight;}
+    function add(text, role) {
+    const el = document.createElement('div');
+    el.className = 'message ' + role;
+
+    const content = document.createElement('div');
+    content.textContent = text;
+    el.appendChild(content);
+
+    if (role === 'assistant') {
+        const copyBtn = document.createElement('button');
+        copyBtn.textContent = '📋 Copy';
+        copyBtn.style.marginTop = '8px';
+        copyBtn.onclick = () => {
+            navigator.clipboard.writeText(text);
+            copyBtn.textContent = '✅ Copied!';
+            setTimeout(() => {
+                copyBtn.textContent = '📋 Copy';
+            }, 2000);
+        };
+        el.appendChild(copyBtn);
+    }
+
+    messages.appendChild(el);
+    messages.scrollTop = messages.scrollHeight;
+}
     
     async function send(text){
       if(!text.trim())return;
