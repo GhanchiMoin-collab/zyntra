@@ -83,6 +83,7 @@
     async function send(text){
       if(!text.trim())return;
       add(text,'user');
+window.lastPrompt = text;
       chatInput.value='';
       const wait=document.createElement('div');
       wait.className='typing';
