@@ -63,6 +63,45 @@
     el.appendChild(content);
 
     if (role === 'assistant') {
+
+        // 📋 Copy Button
+        const copyBtn = document.createElement('button');
+        copyBtn.textContent = '📋 Copy';
+        copyBtn.style.marginRight = '8px';
+        copyBtn.onclick = () => {
+            navigator.clipboard.writeText(text);
+            copyBtn.textContent = '✅ Copied!';
+            setTimeout(() => copyBtn.textContent = '📋 Copy', 2000);
+        };
+
+        // 🔄 Regenerate Button
+        const regenBtn = document.createElement('button');
+        regenBtn.textContent = '🔄 Regenerate';
+        regenBtn.onclick = () => {
+            if (window.lastPrompt) {
+                send(window.lastPrompt);
+            }
+        };
+
+        const actions = document.createElement('div');
+        actions.style.marginTop = '8px';
+        actions.appendChild(copyBtn);
+        actions.appendChild(regenBtn);
+
+        el.appendChild(actions);
+    }
+
+    messages.appendChild(el);
+    messages.scrollTop = messages.scrollHeight;
+} {
+    const el = document.createElement('div');
+    el.className = 'message ' + role;
+
+    const content = document.createElement('div');
+    content.textContent = text;
+    el.appendChild(content);
+
+    if (role === 'assistant') {
         const copyBtn = document.createElement('button');
         copyBtn.textContent = '📋 Copy';
         copyBtn.style.marginTop = '8px';
