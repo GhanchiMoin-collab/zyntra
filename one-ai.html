@@ -62,7 +62,7 @@
       chatInput.value='';
       const wait=document.createElement('div');
       wait.className='typing';
-      wait.textContent='One AI is thinking…';
+      wait.textContent='🤖 One AI is thinking...';
       messages.appendChild(wait);
       messages.scrollTop=messages.scrollHeight;
       try {
@@ -79,9 +79,9 @@
         const aiMessage = data.choices[0].message.content;
         add(aiMessage, 'assistant');
       } catch (error) {
-        console.error(error);
-        add('Error connecting to AI. Please verify your Vercel logs and API key settings.', 'assistant');
-      } finally {
+  console.error(error);
+  add(`❌ Error: ${error.message}`, 'assistant');
+} finally {
         wait.remove();
       }
     }
