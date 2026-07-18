@@ -1,10 +1,21 @@
 {
-  "manifest_version": 3,
-  "name": "One AI Assistant",
-  "version": "1.0",
-  "description": "My custom AI chat assistant powered by Groq.",
-  "action": {
-    "popup": "one-ai.html"
-  },
-  "permissions": []
+  "name": "One AI",
+  "short_name": "One AI",
+  "description": "Your Personal AI Assistant",
+  "start_url": "/one-ai.html",
+  "display": "standalone",
+  "background_color": "#080a17",
+  "theme_color": "#8b5cf6",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
 }
