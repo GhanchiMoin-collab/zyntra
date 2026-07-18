@@ -245,6 +245,14 @@ function closeAbout() {
 function closeAbout() {
   document.getElementById("aboutPopup").style.display = "none";
 }
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js")
+      .then(() => console.log("✅ Service Worker registered"))
+      .catch(err => console.error("❌ Service Worker failed:", err));
+  });
+}
 </script>
 <div id="aboutPopup" class="about-popup">
   <div class="about-content">
