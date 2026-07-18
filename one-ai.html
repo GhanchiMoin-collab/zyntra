@@ -42,6 +42,7 @@
     </section><footer>One AI • Your all-in-one assistant</footer>
   </main>
   <section class="modal" id="modal" aria-hidden="true"><div class="window"><header class="top"><h2 id="toolTitle">AI Chat</h2><button class="close" id="close" aria-label="Close">×</button></header><div class="messages" id="messages"><div class="message assistant">Hi! I’m One AI. How can I help you today?</div></div><div class="suggestions" id="suggestions"></div><form class="composer" id="chatForm"><input id="chatInput" autocomplete="off" placeholder="Message One AI…"><button class="mic" type="button" id="micButton" title="Speak your message" aria-label="Speak your message">◉</button><button>Send</button></form></div></section>
+  
   <script>
     const modal=document.querySelector('#modal'), messages=document.querySelector('#messages'), title=document.querySelector('#toolTitle'), chatInput=document.querySelector('#chatInput'), suggestions=document.querySelector('#suggestions');
     const toolSetup={
@@ -54,7 +55,37 @@
     };
     function openChat(tool='AI Chat', first=''){title.textContent=tool;modal.classList.add('show');modal.setAttribute('aria-hidden','false');const setup=toolSetup[tool]||toolSetup['AI Chat'];messages.innerHTML='';add(setup.intro,'assistant');suggestions.innerHTML='';setup.ideas.forEach(idea=>{const button=document.createElement('button');button.textContent=idea;button.onclick=()=>send(idea);suggestions.appendChild(button)});chatInput.focus();if(first)send(first);}
     function add(text,role){const el=document.createElement('div');el.className='message '+role;el.textContent=text;messages.appendChild(el);messages.scrollTop=messages.scrollHeight;}
-    async function send(text){if(!text.trim())return;add(text,'user');chatInput.value='';const wait=document.createElement('div');wait.className='typing';wait.textContent='One AI is thinking…';messages.appendChild(wait);messages.scrollTop=messages.scrollHeight;try{const res=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})});const data=await res.json();if(!res.ok)throw new Error(data.error||'Unable to get an answer.');add(data.text,'assistant')}catch(error){add('One AI is ready for its secure server connection. Publish this site and add OPENAI_API_KEY in the server environment settings to enable real answers.','assistant')}finally{wait.remove();}}
+    
+    async function send(text){
+      if(!text.trim())return;
+      add(text,'user');
+      chatInput.value='';
+      const wait=document.createElement('div');
+      wait.className='typing';
+      wait.textContent='One AI is thinking…';
+      messages.appendChild(wait);
+      messages.scrollTop=messages.scrollHeight;
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            messages: [{ role: 'user', content: text }] 
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Unable to get an answer.');
+        
+        const aiMessage = data.choices[0].message.content;
+        add(aiMessage, 'assistant');
+      } catch (error) {
+        console.error(error);
+        add('Error connecting to AI. Please verify your Vercel logs and API key settings.', 'assistant');
+      } finally {
+        wait.remove();
+      }
+    }
+    
     document.querySelectorAll('[data-tool]').forEach(x=>x.addEventListener('click',()=>openChat(x.dataset.tool))); document.querySelector('#close').onclick=()=>modal.classList.remove('show'); modal.onclick=e=>{if(e.target===modal)modal.classList.remove('show')};
     document.querySelector('#chatForm').onsubmit=e=>{e.preventDefault();send(chatInput.value)}; document.querySelector('#quickForm').onsubmit=e=>{e.preventDefault();const q=document.querySelector('#quickInput').value;openChat('AI Chat',q);document.querySelector('#quickInput').value='';};
     const micButton=document.querySelector('#micButton');
