@@ -96,7 +96,36 @@
 .about-btn:hover {
   opacity: 0.9;
 }
-  </style>
+ .about-popup {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.about-content {
+  background: #121629;
+  color: white;
+  padding: 25px;
+  border-radius: 15px;
+  width: 90%;
+  max-width: 450px;
+  text-align: center;
+}
+
+.close-btn {
+  float: right;
+  width: 35px;
+  height: 35px;
+  border: none;
+  border-radius: 50%;
+  background: red;
+  color: white;
+  cursor: pointer;
+} </style>
 </head>
 <body>
   <main class="shell">
@@ -204,6 +233,12 @@ window.lastPrompt = text;
     const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
     if(SpeechRecognition){const recognition=new SpeechRecognition();recognition.lang='en-IN';recognition.interimResults=true;recognition.onstart=()=>{micButton.classList.add('listening');chatInput.placeholder='Listening…'};recognition.onresult=e=>{chatInput.value=Array.from(e.results).map(r=>r[0].transcript).join('')};recognition.onend=()=>{micButton.classList.remove('listening');chatInput.placeholder='Message One AI…'};recognition.onerror=()=>{micButton.classList.remove('listening');chatInput.placeholder='Microphone access was not available.'};micButton.onclick=()=>recognition.start()}else{micButton.onclick=()=>alert('Voice input is supported in Chrome and Microsoft Edge.');}
   function openAbout() {
+  document.getElementById("aboutPopup").style.display = "flex";
+}
+
+function closeAbout() {
+  document.getElementById("aboutPopup").style.display = "none";
+}function openAbout() {
   document.getElementById("aboutPopup").style.display = "flex";
 }
 
