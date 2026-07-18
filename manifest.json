@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "One AI Assistant",
+  "version": "1.0",
+  "description": "My custom AI chat assistant powered by Groq.",
+  "action": {
+    "popup": "one-ai.html"
+  },
+  "permissions": []
+}
