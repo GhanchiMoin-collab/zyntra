@@ -266,7 +266,31 @@ if ("serviceWorker" in navigator) {
       .catch(err => console.error("❌ Service Worker failed:", err));
   });
 }
-</script>
+<div id="pricingPopup" class="about-popup">
+  <div class="about-content">
+    <button class="close-btn" onclick="closePricing()">✖</button>
+
+    <h2>One AI Plans</h2>
+
+    <hr>
+
+    <h3>🟢 Free</h3>
+    <p>✔ 20 AI chats per day</p>
+    <p>✔ Basic AI features</p>
+
+    <hr>
+
+    <h3>🟣 Pro — ₹199/month</h3>
+    <p>✔ Unlimited AI chats</p>
+    <p>✔ Faster responses</p>
+    <p>✔ Image generation</p>
+
+    <button class="about-btn" onclick="alert('Coming Soon!')">
+      Subscribe Now
+    </button>
+  </div>
+</div>
+  </script>
 <div id="aboutPopup" class="about-popup">
   <div class="about-content">
     <button class="close-btn" onclick="closeAbout()">✖</button>
@@ -328,5 +352,6 @@ if ("serviceWorker" in navigator) {
 
   </div>
 </div>
+  
 </body>
 </html>
