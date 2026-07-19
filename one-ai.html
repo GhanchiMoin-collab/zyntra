@@ -251,6 +251,14 @@ function closeAbout() {
   document.getElementById("aboutPopup").style.display = "none";
 }
 
+function openPricing() {
+  document.getElementById("pricingPopup").style.display = "flex";
+}
+
+function closePricing() {
+  document.getElementById("pricingPopup").style.display = "none";
+}
+
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js")
