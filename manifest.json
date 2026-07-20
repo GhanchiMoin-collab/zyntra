@@ -1,7 +1,7 @@
 {
-  "name": "One AI",
-  "short_name": "One AI",
-  "description": "Your Personal AI Assistant",
+  "name": "ZYNTRA",
+"short_name": "ZYNTRA",
+"description": "The Future of Intelligence"
   "start_url": "/one-ai.html",
   "display": "standalone",
   "background_color": "#080a17",
