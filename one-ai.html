@@ -144,16 +144,10 @@
 <body>
   <main class="shell">
   <nav>
- <div style="display:flex;align-items:center;gap:10px;">
-    <button class="pricing-btn" onclick="openPricing()">Pricing</button>
+ <div style="display:flex; align-items:center; gap:10px;">
     <button class="about-btn" onclick="openAbout()">About</button>
     <button class="profile" title="Profile">◉</button>
 </div>
-
-  <div style="display:flex; align-items:center; gap:10px;">
-    <button class="about-btn" onclick="openAbout()">About</button>
-    <button class="profile" title="Profile">◉</button>
-  </div>
 </nav>
     <section class="hero"><div class="eyebrow">One place. Every possibility.</div><h1>Your ideas, <span class="gradient">powered by AI.</span></h1><p>Chat, create images, learn faster, write better, and build your next big idea—all with One AI.</p><form class="quick" id="quickForm"><input id="quickInput" aria-label="Ask One AI" placeholder="Ask One AI anything…"><button>Ask AI →</button></form></section>
     <h2 class="section-title">Explore your tools</h2>
@@ -249,14 +243,6 @@ window.lastPrompt = text;
 
 function closeAbout() {
   document.getElementById("aboutPopup").style.display = "none";
-}
-
-function openPricing() {
-  document.getElementById("pricingPopup").style.display = "flex";
-}
-
-function closePricing() {
-  document.getElementById("pricingPopup").style.display = "none";
 }
 
 if ("serviceWorker" in navigator) {
