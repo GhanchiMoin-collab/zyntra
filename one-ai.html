@@ -151,14 +151,118 @@
   background: red;
   color: white;
   cursor: pointer;
-} </style>
+}.profile-wrap{
+position:relative;
+}
+
+.profile{
+width:40px;
+height:40px;
+border-radius:50%;
+background:#232946;
+color:white;
+font-weight:700;
+display:flex;
+align-items:center;
+justify-content:center;
+cursor:pointer;
+}
+
+.profile-menu{
+
+position:absolute;
+right:0;
+top:55px;
+
+width:260px;
+
+background:#151a2f;
+
+border:1px solid #2e365f;
+
+border-radius:16px;
+
+padding:18px;
+
+display:none;
+
+box-shadow:0 20px 50px rgba(0,0,0,.4);
+
+z-index:9999;
+
+}
+
+.profile-menu.show{
+
+display:block;
+
+}
+
+.user-name{
+
+font-weight:700;
+font-size:16px;
+
+margin-bottom:5px;
+
+}
+
+.user-email{
+
+font-size:13px;
+
+color:#98a3d1;
+
+margin-bottom:12px;
+
+word-break:break-all;
+
+}
+
+.profile-menu button{
+
+width:100%;
+
+background:#8b5cf6;
+
+color:white;
+
+padding:12px;
+
+border-radius:12px;
+
+margin-top:10px;
+
+}
+  </style>
 </head>
 <body>
   <main class="shell">
   <nav>
- <div style="display:flex; align-items:center; gap:10px;">
-    <button class="about-btn" onclick="openAbout()">About</button>
-    <button class="profile" title="Profile">◉</button>
+<div class="profile-wrap">
+
+<button class="profile" id="profileBtn">
+👤
+</button>
+
+<div class="profile-menu" id="profileMenu">
+
+<div class="user-name" id="userName">
+Loading...
+</div>
+
+<div class="user-email" id="userEmail">
+Loading...
+</div>
+
+<hr>
+
+<button id="logoutBtn">
+🚪 Logout
+</button>
+
+</div>
+
 </div>
 </nav>
     <section class="hero"><div class="eyebrow">One Intelligence. Infinite Possibilities.</div><h1>Your ideas, <span class="gradient">powered by AI.</span></h1><p>Chat, create images, learn faster, write better, and build your next big idea—all with ZYNTRA.</p><form class="quick" id="quickForm"><input id="quickInput" aria-label="Ask ZYNTRA" placeholder="Ask ZYNTRA anything…"><button>Ask AI →</button></form></section>
