@@ -210,8 +210,8 @@ window.location.href="one-ai.html";
 
 }catch(err){
 
-alert(err.message);
-
+console.error(err);
+alert(err.code + "\n" + err.message);
 }
 
 };
