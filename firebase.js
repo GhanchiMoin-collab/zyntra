@@ -1,6 +1,8 @@
-// Firebase SDK
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-import { getAuth } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+import {
+  getAuth,
+  GoogleAuthProvider
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAWuJOkwON5KLALez5_p4rQYA7vNoGgjvM",
@@ -14,3 +16,4 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
+export const provider = new GoogleAuthProvider();
