@@ -1,12 +1,143 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta http-equiv="refresh" content="0; url=one-ai.html">
-<title>ZYNTRA</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZYNTRA • Login</title>
+
+<style>
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:Inter,Arial,sans-serif;
+}
+
+body{
+height:100vh;
+display:flex;
+justify-content:center;
+align-items:center;
+background:
+radial-gradient(circle at top,#32206b 0%,transparent 35%),
+#080a17;
+overflow:hidden;
+color:white;
+}
+
+.card{
+width:420px;
+max-width:95%;
+background:#121629;
+border:1px solid #2d3355;
+border-radius:24px;
+padding:40px;
+box-shadow:0 20px 60px rgba(0,0,0,.45);
+}
+
+.logo{
+width:75px;
+height:75px;
+margin:auto;
+border-radius:22px;
+display:flex;
+justify-content:center;
+align-items:center;
+font-size:34px;
+background:linear-gradient(135deg,#8b5cf6,#ec4899);
+}
+
+h1{
+text-align:center;
+margin-top:20px;
+font-size:34px;
+}
+
+p{
+text-align:center;
+color:#aab2d8;
+margin-top:10px;
+margin-bottom:30px;
+}
+
+input{
+width:100%;
+padding:15px;
+margin-bottom:15px;
+background:#1d2340;
+border:1px solid #333b64;
+border-radius:14px;
+color:white;
+font-size:15px;
+outline:none;
+}
+
+input:focus{
+border-color:#8b5cf6;
+}
+
+button{
+width:100%;
+padding:15px;
+border:none;
+border-radius:14px;
+font-size:16px;
+font-weight:bold;
+cursor:pointer;
+}
+
+#loginBtn{
+background:linear-gradient(135deg,#8b5cf6,#ec4899);
+color:white;
+margin-bottom:12px;
+}
+
+#googleBtn{
+background:white;
+color:black;
+}
+
+.small{
+margin-top:25px;
+font-size:14px;
+}
+
+a{
+color:#b794ff;
+text-decoration:none;
+}
+</style>
+
 </head>
 
 <body>
-<p>Opening <a href="one-ai.html">ZYNTRA</a>…</p>
+
+<div class="card">
+
+<div class="logo">✦</div>
+
+<h1>ZYNTRA</h1>
+
+<p>The Future of Intelligence</p>
+
+<input id="email" placeholder="Email">
+
+<input id="password" type="password" placeholder="Password">
+
+<button id="loginBtn">
+Login
+</button>
+
+<button id="googleBtn">
+Continue with Google
+</button>
+
+<p class="small">
+Don't have an account?
+<a href="#">Create Account</a>
+</p>
+
+</div>
+
 </body>
 </html>
