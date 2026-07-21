@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://one-ai-blond.vercel.app/sitemap.xml
