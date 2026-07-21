@@ -134,7 +134,7 @@ Continue with Google
 
 <p class="small">
 Don't have an account?
-<a href="#">Create Account</a>
+<a href="#" id="signupLink">Create Account</a>
 </p>
 
 </div>
@@ -146,11 +146,12 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/fireba
 import {
 getAuth,
 signInWithEmailAndPassword,
+createUserWithEmailAndPassword,
 GoogleAuthProvider,
 signInWithPopup,
 onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
-
+  
 const firebaseConfig = {
 apiKey: "AIzaSyAWuJOkwON5KLALez5_p4rQYA7vNoGgjvM",
 authDomain: "zyntra-98cad.firebaseapp.com",
@@ -168,6 +169,33 @@ if(user){
 window.location.href="one-ai.html";
 }
 });
+document.getElementById("signupLink").onclick = async (e) => {
+
+e.preventDefault();
+
+const email = document.getElementById("email").value;
+const password = document.getElementById("password").value;
+
+if(email === "" || password === ""){
+    alert("Please enter your email and password first.");
+    return;
+}
+
+try{
+
+await createUserWithEmailAndPassword(auth, email, password);
+
+alert("🎉 Account created successfully!");
+
+window.location.href = "one-ai.html";
+
+}catch(err){
+
+alert(err.message);
+
+}
+
+};
 
 document.getElementById("loginBtn").onclick=async()=>{
 
