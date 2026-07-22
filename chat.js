@@ -21,13 +21,14 @@ window.saveChat = async function(prompt){
 
     try{
 
-        await addDoc(
-            collection(db,"users",user.uid,"chats"),
-            {
-                prompt: prompt,
-                createdAt: Date.now()
-            }
-        );
+       await addDoc(
+    collection(db,"users",user.uid,"chats"),
+    {
+        title: prompt.substring(0,30),
+        prompt: prompt,
+        createdAt: Date.now()
+    }
+);
 
         console.log("✅ Chat Saved");
 
