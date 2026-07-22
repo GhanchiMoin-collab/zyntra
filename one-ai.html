@@ -353,6 +353,12 @@ new URLSearchParams(window.location.search).get("guest") === "true";
       if(!text.trim())return;
       add(text,'user');
 window.lastPrompt = text;
+
+      if(window.saveChat){
+
+    window.saveChat(text);
+
+}
       const latestChat = history.firstElementChild;
 
 if (latestChat && latestChat.textContent === "💬 New Chat") {
