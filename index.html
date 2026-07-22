@@ -154,6 +154,20 @@ color:white;
 cursor:pointer;
 text-align:left;
 }
+.close-btn{
+background:#8b5cf6;
+color:white;
+padding:12px;
+border:none;
+border-radius:12px;
+margin-bottom:20px;
+cursor:pointer;
+font-weight:bold;
+}
+
+.menu-btn.hide{
+display:none;
+}
 </style>
 
 </head>
@@ -164,15 +178,18 @@ text-align:left;
 
 <div id="sideMenu" class="side-menu">
 
+<button id="closeMenu" class="close-btn">✖ Close</button>
+
 <h2>ZYNTRA</h2>
 
 <button id="howBtn">📖 How to Login</button>
 
 <button id="guestBtn">👤 Continue as Guest</button>
 
-<button id="aboutBtn">ℹ About ZYNTRA</button>
+<button id="featureBtn">⭐ Features</button>
 
 </div>
+  
   <div class="card">
 
 <div class="logo">✦</div>
@@ -295,11 +312,26 @@ alert(err.message);
 
 };
 
-const menu = document.getElementById("sideMenu");
+const menu=document.getElementById("sideMenu");
 
-document.getElementById("menuBtn").onclick = () => {
-    menu.classList.toggle("open");
+const menuBtn=document.getElementById("menuBtn");
+
+document.getElementById("menuBtn").onclick=()=>{
+
+menu.classList.add("open");
+
+menuBtn.classList.add("hide");
+
 };
+
+document.getElementById("closeMenu").onclick=()=>{
+
+menu.classList.remove("open");
+
+menuBtn.classList.remove("hide");
+
+};
+  
 </script>
 </body>
 </html>
