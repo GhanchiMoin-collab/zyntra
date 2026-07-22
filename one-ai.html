@@ -311,7 +311,12 @@ Loading...
   <script>
     const guestMode =
 new URLSearchParams(window.location.search).get("guest") === "true";
-    const modal=document.querySelector('#modal'), messages=document.querySelector('#messages'), title=document.querySelector('#toolTitle'), chatInput=document.querySelector('#chatInput'), suggestions=document.querySelector('#suggestions');
+    const modal=document.querySelector('#modal'),
+messages=document.querySelector('#messages'),
+title=document.querySelector('#toolTitle'),
+chatInput=document.querySelector('#chatInput'),
+suggestions=document.querySelector('#suggestions'),
+history=document.getElementById("chatHistory");
     const toolSetup={
       'AI Chat':{intro:'Hi! I’m ZYNTRA. Ask me anything.',ideas:['Explain a topic simply','Plan my day','Give me an idea']},
       'Create Image':{intro:'Describe the image you want, including style, colours, and details.',ideas:['A futuristic city at night','A logo for ZYNTRA','A cute cat astronaut']},
@@ -489,6 +494,19 @@ item.className = "chatItem";
 item.textContent = "💬 Welcome Chat";
 
 history.appendChild(item);
+window.addEventListener("load", () => {
+
+    if(window.loadChatHistory){
+
+        setTimeout(() => {
+
+            window.loadChatHistory();
+
+        },1000);
+
+    }
+
+});
 </script>
 
 <script type="module" src="chat.js"></script>
