@@ -33,8 +33,10 @@ window.saveChat = async function(prompt){
 
     }catch(err){
 
-        console.error(err);
+    console.error(err);
 
-    }
+    alert(err.code + "\n" + err.message);
+
+}
 
 };
