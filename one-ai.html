@@ -238,7 +238,13 @@ margin-top:10px;
 </head>
 <body>
   <main class="shell">
-  <nav>
+ <div id="guestBanner" style="display:none;background:#ffb703;color:#000;padding:12px;border-radius:12px;margin:15px 0;font-weight:bold;text-align:center;">
+
+👤 Guest Mode — Chat history is disabled.
+Sign in anytime to save your conversations.
+
+</div>
+    <nav>
 <div class="profile-wrap">
 
 <button class="profile" id="profileBtn">
@@ -279,6 +285,8 @@ Loading...
   <section class="modal" id="modal" aria-hidden="true"><div class="window"><header class="top"><h2 id="toolTitle">AI Chat</h2><button class="close" id="close" aria-label="Close">×</button></header><div class="messages" id="messages"><div class="message assistant">Hi! I’m ZYNTRA. How can I help you today?</div></div><div class="suggestions" id="suggestions"></div><form class="composer" id="chatForm"><input id="chatInput" autocomplete="off" placeholder="Message ZYNTRA…"><button class="mic" type="button" id="micButton" title="Speak your message" aria-label="Speak your message">◉</button><button>Send</button></form></div></section>
   
   <script>
+    const guestMode =
+new URLSearchParams(window.location.search).get("guest") === "true";
     const modal=document.querySelector('#modal'), messages=document.querySelector('#messages'), title=document.querySelector('#toolTitle'), chatInput=document.querySelector('#chatInput'), suggestions=document.querySelector('#suggestions');
     const toolSetup={
       'AI Chat':{intro:'Hi! I’m ZYNTRA. Ask me anything.',ideas:['Explain a topic simply','Plan my day','Give me an idea']},
@@ -367,6 +375,13 @@ if ("serviceWorker" in navigator) {
       .then(() => console.log("✅ Service Worker registered"))
       .catch(err => console.error("❌ Service Worker failed:", err));
   });
+}
+   
+    // Guest Mode
+if (guestMode) {
+
+    document.getElementById("guestBanner").style.display = "block";
+
 }
   </script>
 <div id="aboutPopup" class="about-popup">
