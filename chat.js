@@ -1,6 +1,38 @@
 import { auth, db } from "./firebase.js";
 
+import {
+  collection,
+  addDoc
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
 console.log("✅ Firestore Connected");
 console.log("✅ chat.js loaded");
-console.log(auth);
-console.log(db);
+
+window.saveChat = async function(prompt){
+
+    const user = auth.currentUser;
+
+    if(!user){
+        console.log("Guest Mode - Chat not saved");
+        return;
+    }
+
+    try{
+
+        await addDoc(
+            collection(db,"users",user.uid,"chats"),
+            {
+                prompt: prompt,
+                createdAt: Date.now()
+            }
+        );
+
+        console.log("✅ Chat Saved");
+
+    }catch(err){
+
+        console.error(err);
+
+    }
+
+};
