@@ -359,6 +359,12 @@ window.lastPrompt = text;
     window.saveChat(text);
 
 }
+      
+      if(window.loadChatHistory){
+
+    window.loadChatHistory();
+
+}
       const latestChat = history.firstElementChild;
 
 if (latestChat && latestChat.textContent === "💬 New Chat") {
