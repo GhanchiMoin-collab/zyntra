@@ -106,13 +106,74 @@ a{
 color:#b794ff;
 text-decoration:none;
 }
+.menu-btn{
+position:fixed;
+top:20px;
+left:20px;
+width:50px;
+height:50px;
+border:none;
+border-radius:14px;
+background:#1d2340;
+color:white;
+font-size:24px;
+cursor:pointer;
+z-index:1000;
+}
+
+.side-menu{
+position:fixed;
+top:0;
+left:-300px;
+width:280px;
+height:100%;
+background:#121629;
+border-right:1px solid #2d3355;
+padding:30px;
+transition:.3s;
+display:flex;
+flex-direction:column;
+gap:15px;
+z-index:999;
+}
+
+.side-menu.open{
+left:0;
+}
+
+.side-menu h2{
+margin-bottom:20px;
+}
+
+.side-menu button{
+padding:15px;
+background:#1d2340;
+border:none;
+border-radius:12px;
+color:white;
+cursor:pointer;
+text-align:left;
+}
 </style>
 
 </head>
 
 <body>
 
-<div class="card">
+<button id="menuBtn" class="menu-btn">☰</button>
+
+<div id="sideMenu" class="side-menu">
+
+<h2>ZYNTRA</h2>
+
+<button id="howBtn">📖 How to Login</button>
+
+<button id="guestBtn">👤 Continue as Guest</button>
+
+<button id="aboutBtn">ℹ About ZYNTRA</button>
+
+</div>
+  <div class="card">
 
 <div class="logo">✦</div>
 
@@ -234,6 +295,11 @@ alert(err.message);
 
 };
 
+const menu = document.getElementById("sideMenu");
+
+document.getElementById("menuBtn").onclick = () => {
+    menu.classList.toggle("open");
+};
 </script>
 </body>
 </html>
