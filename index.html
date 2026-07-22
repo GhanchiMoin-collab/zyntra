@@ -168,6 +168,49 @@ font-weight:bold;
 .menu-btn.hide{
 display:none;
 }
+.popup{
+display:none;
+position:fixed;
+inset:0;
+background:rgba(0,0,0,.65);
+justify-content:center;
+align-items:center;
+z-index:3000;
+}
+
+.popup.show{
+display:flex;
+}
+
+.popup-box{
+width:420px;
+max-width:90%;
+background:#121629;
+padding:30px;
+border-radius:22px;
+border:1px solid #30385f;
+text-align:center;
+}
+
+.popup-box h2{
+margin-bottom:20px;
+}
+
+.popup-box p{
+line-height:1.8;
+color:#cfd5f7;
+}
+
+.popup-box button{
+margin-top:20px;
+padding:14px 25px;
+background:linear-gradient(135deg,#8b5cf6,#ec4899);
+border:none;
+border-radius:12px;
+color:white;
+cursor:pointer;
+font-weight:bold;
+}
 </style>
 
 </head>
@@ -332,6 +375,57 @@ menuBtn.classList.remove("hide");
 
 };
   
+const help=document.getElementById("helpPopup");
+
+document.getElementById("howBtn").onclick=()=>{
+
+help.classList.add("show");
+
+};
+
+document.getElementById("closeHelp").onclick=()=>{
+
+help.classList.remove("show");
+
+};
+
 </script>
+<div id="helpPopup" class="popup">
+
+<div class="popup-box">
+
+<h2>📖 How to Login</h2>
+
+<p>
+
+1️⃣ Enter your Email
+
+<br><br>
+
+2️⃣ Enter your Password
+
+<br><br>
+
+3️⃣ If you're new, click
+<b>Create Account</b>
+
+<br><br>
+
+4️⃣ If you already have an account,
+click <b>Login</b>
+
+<br><br>
+
+5️⃣ Or continue with Google.
+
+</p>
+
+<button id="closeHelp">
+OK
+</button>
+
+</div>
+
+</div>
 </body>
 </html>
