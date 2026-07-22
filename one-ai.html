@@ -353,6 +353,13 @@ new URLSearchParams(window.location.search).get("guest") === "true";
       if(!text.trim())return;
       add(text,'user');
 window.lastPrompt = text;
+      const latestChat = history.firstElementChild;
+
+if (latestChat && latestChat.textContent === "💬 New Chat") {
+
+    latestChat.textContent = "💬 " + text.substring(0, 25);
+
+}
       chatInput.value='';
       const wait=document.createElement('div');
       wait.className='typing';
@@ -444,7 +451,32 @@ if (guestMode) {
   </div>
 </div>
   
-<script type="module" src="chat.js"></script>
+<script type="module" src="chat.js">
+ document.getElementById("newChatBtn").onclick = () => {
+
+    messages.innerHTML = "";
+
+    add("Hi! I'm ZYNTRA. Ask me anything.", "assistant");
+
+    const chat = document.createElement("div");
+
+    chat.className = "chatItem";
+
+    chat.textContent = "💬 New Chat";
+
+    history.prepend(chat);
+
+};
+  const history = document.getElementById("chatHistory");
+
+const item = document.createElement("div");
+
+item.className = "chatItem";
+
+item.textContent = "💬 Welcome Chat";
+
+history.appendChild(item);
+</script>
 
 </body>
 </html>
