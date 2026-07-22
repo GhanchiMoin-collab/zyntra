@@ -10,6 +10,8 @@ console.log("✅ chat.js loaded");
 
 window.saveChat = async function(prompt){
 
+  console.log("🔥 saveChat called");
+
     const user = auth.currentUser;
 
     if(!user){
