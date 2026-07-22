@@ -457,8 +457,8 @@ if (guestMode) {
   </div>
 </div>
   
-<script type="module" src="chat.js">
- document.getElementById("newChatBtn").onclick = () => {
+<script>
+document.getElementById("newChatBtn").onclick = () => {
 
     messages.innerHTML = "";
 
@@ -473,7 +473,8 @@ if (guestMode) {
     history.prepend(chat);
 
 };
-  const history = document.getElementById("chatHistory");
+
+const history = document.getElementById("chatHistory");
 
 const item = document.createElement("div");
 
@@ -483,6 +484,8 @@ item.textContent = "💬 Welcome Chat";
 
 history.appendChild(item);
 </script>
+
+<script type="module" src="chat.js"></script>
 
 </body>
 </html>
