@@ -234,6 +234,27 @@ border-radius:12px;
 margin-top:10px;
 
 }
+  #newChatBtn{
+width:100%;
+padding:14px;
+margin:15px 0;
+border:none;
+border-radius:12px;
+background:linear-gradient(135deg,#8b5cf6,#ec4899);
+color:white;
+font-size:16px;
+font-weight:bold;
+cursor:pointer;
+transition:.3s;
+}
+
+#newChatBtn:hover{
+transform:scale(1.02);
+}
+
+#chatHistory{
+margin-top:15px;
+}
   </style>
 </head>
 <body>
@@ -271,6 +292,9 @@ Loading...
 
 </div>
 </nav>
+    <button id="newChatBtn">💬 New Chat</button>
+
+<div id="chatHistory"></div>
     <section class="hero"><div class="eyebrow">One Intelligence. Infinite Possibilities.</div><h1>Your ideas, <span class="gradient">powered by AI.</span></h1><p>Chat, create images, learn faster, write better, and build your next big idea—all with ZYNTRA.</p><form class="quick" id="quickForm"><input id="quickInput" aria-label="Ask ZYNTRA" placeholder="Ask ZYNTRA anything…"><button>Ask AI →</button></form></section>
     <h2 class="section-title">Explore your tools</h2>
     <section class="grid">
