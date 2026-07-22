@@ -13,7 +13,20 @@ self.addEventListener("install", event => {
 });
 
 self.addEventListener("fetch", event => {
+
+  // 🚫 Never cache Firebase or Google API requests
+  if (
+    event.request.url.includes("firebase") ||
+    event.request.url.includes("googleapis.com") ||
+    event.request.url.includes("gstatic.com")
+  ) {
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then(response => response || fetch(event.request))
+    caches.match(event.request).then(response => {
+      return response || fetch(event.request);
+    })
   );
+
 });
