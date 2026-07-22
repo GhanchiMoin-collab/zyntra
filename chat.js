@@ -44,3 +44,35 @@ window.saveChat = async function(prompt){
 }
 
 };
+window.loadChatHistory = async function(){
+
+    const user = auth.currentUser;
+
+    if(!user) return;
+
+    const history = document.getElementById("chatHistory");
+
+    history.innerHTML = "";
+
+    const q = query(
+        collection(db,"users",user.uid,"chats"),
+        orderBy("createdAt","desc")
+    );
+
+    const snapshot = await getDocs(q);
+
+    snapshot.forEach((doc)=>{
+
+        const data = doc.data();
+
+        const item = document.createElement("div");
+
+        item.className = "chatItem";
+
+        item.textContent = "💬 " + data.title;
+
+        history.appendChild(item);
+
+    });
+
+};
