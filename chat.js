@@ -2,7 +2,10 @@ import { auth, db } from "./firebase.js";
 
 import {
   collection,
-  addDoc
+  addDoc,
+  getDocs,
+  orderBy,
+  query
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 console.log("✅ Firestore Connected");
