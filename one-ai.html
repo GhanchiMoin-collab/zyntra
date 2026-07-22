@@ -365,8 +365,8 @@ window.lastPrompt = text;
     window.loadChatHistory();
 
 }
-      const latestChat = history.firstElementChild;
-
+      const history = document.getElementById("chatHistory");
+      
 if (latestChat && latestChat.textContent === "💬 New Chat") {
 
     latestChat.textContent = "💬 " + text.substring(0, 25);
