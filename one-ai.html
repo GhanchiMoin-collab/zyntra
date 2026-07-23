@@ -255,9 +255,130 @@ transform:scale(1.02);
 #chatHistory{
 margin-top:15px;
 }
+ /* ================= SIDEBAR ================= */
+
+.sidebar{
+position:fixed;
+left:0;
+top:0;
+width:260px;
+height:100vh;
+background:#0b1020;
+border-right:1px solid rgba(255,255,255,.08);
+padding:20px;
+overflow-y:auto;
+z-index:999;
+}
+
+.logo{
+margin-bottom:25px;
+}
+
+.logo h2{
+color:#fff;
+font-size:28px;
+font-weight:700;
+margin:0;
+}
+
+.sideBtn{
+width:100%;
+display:flex;
+align-items:center;
+gap:12px;
+padding:14px 16px;
+margin-bottom:8px;
+background:transparent;
+border:none;
+border-radius:12px;
+color:#fff;
+font-size:17px;
+cursor:pointer;
+transition:.25s;
+}
+
+.sideBtn:hover{
+background:#1b2340;
+}
+
+.sideBtn span{
+font-weight:500;
+}
+
+.sidebar hr{
+border:none;
+border-top:1px solid rgba(255,255,255,.08);
+margin:18px 0;
+}
+
+.recentTitle{
+color:#aaa;
+font-size:14px;
+margin-bottom:12px;
+font-weight:600;
+}
+
+#chatHistory{
+display:flex;
+flex-direction:column;
+gap:8px;
+}
+
+.chatItem{
+padding:12px;
+border-radius:10px;
+cursor:pointer;
+color:#fff;
+background:#131b34;
+transition:.25s;
+}
+
+.chatItem:hover{
+background:#232d52;
+}
+
+/* Move whole website right */
+
+.shell{
+margin-left:260px;
+}
   </style>
 </head>
 <body>
+  <!-- ===== Sidebar ===== -->
+<aside id="sidebar" class="sidebar">
+
+  <div class="logo">
+    <h2>ZYNTRA</h2>
+  </div>
+
+  <button class="sideBtn" id="newChatBtn">
+    ✏️ <span>New Chat</span>
+  </button>
+
+  <button class="sideBtn">
+    🖼️ <span>Images</span>
+  </button>
+
+  <button class="sideBtn">
+    📚 <span>Library</span>
+  </button>
+
+  <button class="sideBtn">
+    📁 <span>Projects</span>
+  </button>
+
+  <button class="sideBtn">
+    🧩 <span>Plugins</span>
+  </button>
+
+  <hr>
+
+  <h3 class="recentTitle">Recents</h3>
+
+  <div id="chatHistory"></div>
+
+</aside>
   <main class="shell">
  <div id="guestBanner" style="display:none;background:#ffb703;color:#000;padding:12px;border-radius:12px;margin:15px 0;font-weight:bold;text-align:center;">
 
@@ -294,7 +415,6 @@ Loading...
 </nav>
     <button id="newChatBtn">💬 New Chat</button>
 
-<div id="chatHistory"></div>
     <section class="hero"><div class="eyebrow">One Intelligence. Infinite Possibilities.</div><h1>Your ideas, <span class="gradient">powered by AI.</span></h1><p>Chat, create images, learn faster, write better, and build your next big idea—all with ZYNTRA.</p><form class="quick" id="quickForm"><input id="quickInput" aria-label="Ask ZYNTRA" placeholder="Ask ZYNTRA anything…"><button>Ask AI →</button></form></section>
     <h2 class="section-title">Explore your tools</h2>
     <section class="grid">
