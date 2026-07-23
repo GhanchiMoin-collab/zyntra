@@ -293,20 +293,21 @@ font-weight:700;
 color:#fff;
 }
 
-.nav-btn{
-display:flex;
-align-items:center;
-gap:14px;
+.navBtn{
 width:100%;
-padding:13px 15px;
-margin-bottom:8px;
+padding:10px 12px;
+margin-bottom:2px;
 border:none;
-background:none;
-border-radius:12px;
-color:#fff;
+border-radius:10px;
+background:transparent;
+color:white;
+text-align:left;
 font-size:16px;
 cursor:pointer;
-transition:.25s;
+display:flex;
+align-items:center;
+gap:12px;
+transition:.2s;
 }
 
 .nav-btn:hover{
@@ -314,15 +315,16 @@ background:#1e293b;
 }
 
 .recent{
-margin-top:20px;
+margin-top:12px;
 flex:1;
 overflow-y:auto;
 }
 
 .recent h4{
-color:#94a3b8;
-margin-bottom:10px;
-font-size:14px;
+margin:10px 0 8px;
+font-size:15px;
+font-weight:600;
+color:#b5b5b5;
 }
 
 #chatHistory{
@@ -332,13 +334,12 @@ gap:8px;
 }
 
 .chatItem{
-padding:10px;
-background:#1e293b;
+padding:10px 12px;
+font-size:15px;
 border-radius:10px;
-color:#fff;
-cursor:pointer;
+margin-bottom:4px;
 }
-
+    
 .chatItem:hover{
 background:#334155;
 }
@@ -351,6 +352,12 @@ padding-top:15px;
 .shell{
 margin-left:260px;
 transition:.3s;
+}
+    
+    .bottom{
+margin-top:auto;
+padding-top:10px;
+border-top:1px solid rgba(255,255,255,.08);
 }
   /* ===========================
    ZYNTRA Chat Layout
