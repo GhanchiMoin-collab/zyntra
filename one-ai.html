@@ -234,28 +234,9 @@ border-radius:12px;
 margin-top:10px;
 
 }
-  #newChatBtn{
-width:100%;
-padding:14px;
-margin:15px 0;
-border:none;
-border-radius:12px;
-background:linear-gradient(135deg,#8b5cf6,#ec4899);
-color:white;
-font-size:16px;
-font-weight:bold;
-cursor:pointer;
-transition:.3s;
-}
-
-#newChatBtn:hover{
-transform:scale(1.02);
-}
-
-#chatHistory{
-margin-top:15px;
-}
- /* ================= SIDEBAR ================= */
+ /* ===========================
+   ZYNTRA Premium Sidebar
+=========================== */
 
 .sidebar{
 position:fixed;
@@ -263,59 +244,85 @@ left:0;
 top:0;
 width:260px;
 height:100vh;
-background:#0b1020;
+background:#0f172a;
 border-right:1px solid rgba(255,255,255,.08);
-padding:20px;
-overflow-y:auto;
-z-index:999;
+display:flex;
+flex-direction:column;
+padding:18px;
+box-sizing:border-box;
+transition:.3s;
+overflow:hidden;
+z-index:1000;
 }
 
-.logo{
+.sidebar-header{
+display:flex;
+align-items:center;
+gap:14px;
 margin-bottom:25px;
 }
 
-.logo h2{
+.toggle-btn{
+width:42px;
+height:42px;
+border:none;
+background:#1e293b;
 color:#fff;
-font-size:28px;
-font-weight:700;
-margin:0;
+border-radius:10px;
+font-size:22px;
+cursor:pointer;
 }
 
-.sideBtn{
-width:100%;
+.toggle-btn:hover{
+background:#334155;
+}
+
+.brand{
 display:flex;
 align-items:center;
-gap:12px;
-padding:14px 16px;
+gap:10px;
+}
+
+.logo{
+font-size:28px;
+}
+
+.brand-name{
+font-size:22px;
+font-weight:700;
+color:#fff;
+}
+
+.nav-btn{
+display:flex;
+align-items:center;
+gap:14px;
+width:100%;
+padding:13px 15px;
 margin-bottom:8px;
-background:transparent;
 border:none;
+background:none;
 border-radius:12px;
 color:#fff;
-font-size:17px;
+font-size:16px;
 cursor:pointer;
 transition:.25s;
 }
 
-.sideBtn:hover{
-background:#1b2340;
+.nav-btn:hover{
+background:#1e293b;
 }
 
-.sideBtn span{
-font-weight:500;
+.recent{
+margin-top:20px;
+flex:1;
+overflow-y:auto;
 }
 
-.sidebar hr{
-border:none;
-border-top:1px solid rgba(255,255,255,.08);
-margin:18px 0;
-}
-
-.recentTitle{
-color:#aaa;
+.recent h4{
+color:#94a3b8;
+margin-bottom:10px;
 font-size:14px;
-margin-bottom:12px;
-font-weight:600;
 }
 
 #chatHistory{
@@ -325,124 +332,37 @@ gap:8px;
 }
 
 .chatItem{
-padding:12px;
+padding:10px;
+background:#1e293b;
 border-radius:10px;
-cursor:pointer;
 color:#fff;
-background:#131b34;
-transition:.25s;
+cursor:pointer;
 }
 
 .chatItem:hover{
-background:#232d52;
+background:#334155;
 }
 
-/* Move whole website right */
+.sidebar-footer{
+border-top:1px solid rgba(255,255,255,.08);
+padding-top:15px;
+}
 
 .shell{
 margin-left:260px;
-}
-  /* ===== ChatGPT Style Sidebar ===== */
-
-.sidebarTop{
-display:flex;
-align-items:center;
-gap:14px;
-margin-bottom:25px;
-}
-
-.menuBtn{
-width:42px;
-height:42px;
-border:none;
-border-radius:10px;
-background:#171f38;
-color:#fff;
-font-size:22px;
-cursor:pointer;
-position:relative;
-z-index:9999;
-}
-
-.menuBtn:hover{
-background:#262f55;
-}
-
-.logoText{
-color:#fff;
-font-size:24px;
-margin:0;
-}
-
-.sidebar.closed{
-width:75px;
-overflow:visible;
-}
-
-.sidebar{
-transition:all .3s ease;
-}
-
-.sidebar.closed{
-width:75px;
-}
-
-.sidebar.closed .logoText,
-.sidebar.closed .recentTitle,
-.sidebar.closed #chatHistory,
-.sidebar.closed .sideBtn span{
-display:none;
-}
-
-.sidebar.closed .sideBtn{
-justify-content:center;
-padding:14px 0;
-}
-
-.shell{
-transition:margin-left .3s ease;
+transition:.3s;
 }
   </style>
 </head>
 <body>
-  <!-- ===== Sidebar ===== -->
+ <!-- NEW SIDEBAR HERE -->
+
 <aside id="sidebar" class="sidebar">
 
-  <div class="sidebarTop">
-
-    <button id="menuBtn" class="menuBtn">☰</button>
-
-    <h2 class="logoText">ZYNTRA</h2>
-
-</div>
-  
-  <button class="sideBtn" id="newChatBtn">
-    ✏️ <span>New Chat</span>
-  </button>
-
-  <button class="sideBtn">
-    🖼️ <span>Images</span>
-  </button>
-
-  <button class="sideBtn">
-    📚 <span>Library</span>
-  </button>
-
-  <button class="sideBtn">
-    📁 <span>Projects</span>
-  </button>
-
-  <button class="sideBtn">
-    🧩 <span>Plugins</span>
-  </button>
-
-  <hr>
-
-  <h3 class="recentTitle">Recents</h3>
-
-  <div id="chatHistory"></div>
+    ...new code...
 
 </aside>
+  
   <main class="shell">
  <div id="guestBanner" style="display:none;background:#ffb703;color:#000;padding:12px;border-radius:12px;margin:15px 0;font-weight:bold;text-align:center;">
 
