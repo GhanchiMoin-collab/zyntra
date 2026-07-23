@@ -377,23 +377,28 @@ margin:0;
 width:75px;
 }
 
-.sidebar.closed span,
-.sidebar.closed .recentTitle,
+.sidebar{
+transition:all .3s ease;
+}
+
+.sidebar.closed{
+width:75px;
+}
+
 .sidebar.closed .logoText,
-.sidebar.closed #chatHistory{
+.sidebar.closed .recentTitle,
+.sidebar.closed #chatHistory,
+.sidebar.closed .sideBtn span{
 display:none;
 }
 
 .sidebar.closed .sideBtn{
 justify-content:center;
+padding:14px 0;
 }
 
 .shell{
-transition:.3s;
-}
-
-.shell.full{
-margin-left:75px;
+transition:margin-left .3s ease;
 }
   </style>
 </head>
@@ -687,13 +692,21 @@ const sidebar = document.getElementById("sidebar");
 const menuBtn = document.getElementById("menuBtn");
 const shell = document.querySelector(".shell");
 
-menuBtn.onclick = () => {
+menuBtn.addEventListener("click", () => {
 
-    sidebar.classList.toggle("closed");
+    if (sidebar.classList.contains("closed")) {
 
-    shell.classList.toggle("full");
+        sidebar.classList.remove("closed");
+        shell.style.marginLeft = "260px";
 
-};
+    } else {
+
+        sidebar.classList.add("closed");
+        shell.style.marginLeft = "75px";
+
+    }
+
+});
 </script>
 
 <script type="module" src="chat.js"></script>
