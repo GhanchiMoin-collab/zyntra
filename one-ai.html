@@ -487,79 +487,257 @@ align-self:flex-start;
 background:#1f2937;
 color:white;
 }
+  /* ===========================
+   ZYNTRA V2 UI
+=========================== */
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:Inter,sans-serif;
+}
+
+body{
+background:#0f172a;
+color:white;
+overflow:hidden;
+}
+
+.app{
+display:flex;
+height:100vh;
+}
+
+/* Sidebar */
+
+.sidebar{
+width:260px;
+background:#111827;
+display:flex;
+flex-direction:column;
+padding:18px;
+border-right:1px solid rgba(255,255,255,.08);
+}
+
+.top{
+display:flex;
+align-items:center;
+gap:12px;
+margin-bottom:25px;
+}
+
+.top h2{
+font-size:24px;
+}
+
+#menuBtn{
+width:42px;
+height:42px;
+border:none;
+border-radius:10px;
+background:#1f2937;
+color:white;
+cursor:pointer;
+font-size:20px;
+}
+
+.navBtn{
+width:100%;
+padding:14px;
+margin-bottom:8px;
+border:none;
+border-radius:12px;
+background:transparent;
+color:white;
+text-align:left;
+cursor:pointer;
+font-size:16px;
+transition:.25s;
+}
+
+.navBtn:hover{
+background:#1f2937;
+}
+
+.recent{
+margin-top:20px;
+flex:1;
+overflow:auto;
+}
+
+.recent h4{
+margin-bottom:10px;
+color:#94a3b8;
+}
+
+#chatHistory{
+display:flex;
+flex-direction:column;
+gap:8px;
+}
+
+.chatItem{
+padding:12px;
+background:#1f2937;
+border-radius:10px;
+cursor:pointer;
+}
+
+.chatItem:hover{
+background:#334155;
+}
+
+.bottom{
+margin-top:auto;
+}
+
+/* Main */
+
+.chatPage{
+flex:1;
+display:flex;
+flex-direction:column;
+background:#0b1020;
+}
+
+.chatPage header{
+height:70px;
+display:flex;
+align-items:center;
+padding:0 25px;
+border-bottom:1px solid rgba(255,255,255,.08);
+}
+
+.chatPage h1{
+font-size:28px;
+}
+
+#chatMessages{
+flex:1;
+overflow:auto;
+padding:35px;
+display:flex;
+flex-direction:column;
+gap:18px;
+}
+
+.chatBubble{
+max-width:75%;
+padding:15px 18px;
+border-radius:18px;
+line-height:1.6;
+}
+
+.chatBubble.user{
+align-self:flex-end;
+background:#8b5cf6;
+}
+
+.chatBubble.ai{
+align-self:flex-start;
+background:#1f2937;
+}
+
+.inputArea{
+display:flex;
+gap:15px;
+padding:20px;
+border-top:1px solid rgba(255,255,255,.08);
+background:#111827;
+}
+
+.inputArea input{
+flex:1;
+height:55px;
+border:none;
+border-radius:14px;
+padding:0 18px;
+background:#1f2937;
+color:white;
+font-size:17px;
+outline:none;
+}
+
+.inputArea button{
+width:60px;
+height:55px;
+border:none;
+border-radius:14px;
+background:#8b5cf6;
+color:white;
+font-size:22px;
+cursor:pointer;
+}
   </style>
 </head>
 <body>
- <!-- NEW SIDEBAR HERE -->
 
-<aside id="sidebar" class="sidebar">
+<div class="app">
 
-</aside>
-  
-  <main class="shell">
- <div id="guestBanner" style="display:none;background:#ffb703;color:#000;padding:12px;border-radius:12px;margin:15px 0;font-weight:bold;text-align:center;">
+    <aside class="sidebar">
 
-👤 Guest Mode — Chat history is disabled.
-Sign in anytime to save your conversations.
+        <div class="top">
 
-</div>
-    <nav>
-<div class="profile-wrap">
+            <button id="menuBtn">☰</button>
 
-<button class="profile" id="profileBtn">
-👤
-</button>
+            <h2>ZYNTRA</h2>
 
-<div class="profile-menu" id="profileMenu">
+        </div>
 
-<div class="user-name" id="userName">
-Loading...
-</div>
+        <button id="newChatBtn" class="navBtn">✏️ New Chat</button>
 
-<div class="user-email" id="userEmail">
-Loading...
-</div>
+        <button class="navBtn">🖼 Images</button>
 
-<hr>
+        <button class="navBtn">📚 Library</button>
 
-<button id="logoutBtn">
-🚪 Logout
-</button>
+        <button class="navBtn">📁 Projects</button>
 
-</div>
+        <button class="navBtn">🧩 Plugins</button>
 
-</div>
-</nav>
+        <div class="recent">
 
-<div class="chatContainer">
+            <h4>Recent Chats</h4>
 
-    <div class="chatHeader">
+            <div id="chatHistory"></div>
 
-        <h1>ZYNTRA AI</h1>
+        </div>
 
-        <button id="newChatTop">+ New Chat</button>
+        <div class="bottom">
 
-    </div>
+            <button class="navBtn">👤 Profile</button>
 
-    <div id="mainChat" class="mainChat">
+            <button class="navBtn">⚙ Settings</button>
+
+        </div>
+
+    </aside>
+
+    <main class="chatPage">
+
+        <header>
+
+            <h1>ZYNTRA AI</h1>
+
+        </header>
 
         <div id="chatMessages"></div>
 
-    </div>
+        <div class="inputArea">
 
-    <div class="chatInputBar">
+            <input
+                id="mainInput"
+                placeholder="Message ZYNTRA..."
+                autocomplete="off"
+            >
 
-        <input
-            id="mainInput"
-            placeholder="Message ZYNTRA..."
-            autocomplete="off"
-        >
+            <button id="sendMain">
+                ➤
+            </button>
 
-        <button id="sendMain">
-            ➤
-        </button>
+        </div>
 
-    </div>
+    </main>
 
 </div>
   <script>
