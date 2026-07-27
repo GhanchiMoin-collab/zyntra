@@ -697,6 +697,30 @@ cursor:pointer;
 
       <div class="user-name" id="userName">
         Loading...
+      <div id="chatPage" style="display:none;">
+
+  <div class="chatContainer">
+
+    <div class="chatHeader">
+      <h2>ZYNTRA AI</h2>
+      <button id="newChatTop">+ New Chat</button>
+    </div>
+
+    <div id="chatMessages" class="mainChat"></div>
+
+    <div class="chatInputBar">
+      <input
+        id="mainInput"
+        placeholder="Message ZYNTRA..."
+        autocomplete="off"
+      >
+
+      <button id="sendMain">➤</button>
+    </div>
+
+  </div>
+
+</div>
       </div>
 
       <div class="user-email" id="userEmail">
@@ -1122,6 +1146,31 @@ newChatTop.onclick=()=>{
     document.getElementById("chatMessages").innerHTML="";
 
 };
+// ---------- HOME <-> CHAT ----------
+
+const homePage = document.getElementById("homePage");
+const chatPage = document.getElementById("chatPage");
+
+function openMainChat() {
+    homePage.style.display = "none";
+    chatPage.style.display = "block";
+}
+
+// Ask AI button
+document.querySelector("#quickForm").addEventListener("submit", function(e) {
+    e.preventDefault();
+    openMainChat();
+});
+
+// Sidebar New Chat
+document.getElementById("newChatBtn").onclick = openMainChat;
+
+// Top New Chat
+document.getElementById("newChatTop").onclick = openMainChat;
+
+// AI Chat card
+document.querySelector('[data-tool="AI Chat"]').onclick = openMainChat;
+
 </script>
 
 <script type="module" src="chat.js"></script>
