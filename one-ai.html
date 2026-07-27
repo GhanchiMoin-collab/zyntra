@@ -680,17 +680,121 @@ cursor:pointer;
 </head>
 <body>
 
-<div class="app">
+  <aside id="sidebar" class="sidebar">
+</aside>
 
-    <aside class="sidebar">
+<main class="shell">
+  <div id="homePage">
 
-        <div class="top">
+<nav>
+  <div class="profile-wrap">
 
-            <button id="menuBtn">☰</button>
+    <button class="profile" id="profileBtn">
+      👤
+    </button>
 
-            <h2>ZYNTRA</h2>
+    <div class="profile-menu" id="profileMenu">
 
-        </div>
+      <div class="user-name" id="userName">
+        Loading...
+      </div>
+
+      <div class="user-email" id="userEmail">
+        Loading...
+      </div>
+
+      <hr>
+
+      <button id="logoutBtn">
+        🚪 Logout
+      </button>
+
+    </div>
+
+  </div>
+</nav>
+
+<section class="hero">
+
+<div class="eyebrow">
+ONE PLACE. EVERY POSSIBILITY.
+</div>
+
+<h1>
+Your ideas,
+<span class="gradient">
+powered by AI.
+</span>
+</h1>
+
+<p>
+Chat, create images, learn faster,
+write better,
+and build your next big idea—all with ZYNTRA.
+</p>
+
+<form class="quick" id="quickForm">
+
+<input
+id="quickInput"
+placeholder="Ask ZYNTRA anything..."
+>
+
+<button>
+Ask AI →
+</button>
+
+</form>
+
+</section>
+
+<h2 class="section-title">
+Explore your tools
+</h2>
+
+<section class="grid">
+
+<button class="card" data-tool="AI Chat">
+<div class="icon">✦</div>
+<h3>AI Chat</h3>
+<p>Ask anything. Get clear answers.</p>
+</button>
+
+<button class="card" data-tool="Create Image">
+<div class="icon">🖼</div>
+<h3>Create Image</h3>
+<p>Turn ideas into images.</p>
+</button>
+
+<button class="card" data-tool="Study Helper">
+<div class="icon">📚</div>
+<h3>Study Helper</h3>
+<p>Learn smarter.</p>
+</button>
+
+<button class="card" data-tool="Write Better">
+<div class="icon">✍</div>
+<h3>Write Better</h3>
+<p>Improve your writing.</p>
+</button>
+
+<button class="card" data-tool="Voice Assistant">
+<div class="icon">🎤</div>
+<h3>Voice Assistant</h3>
+<p>Talk naturally.</p>
+</button>
+
+<button class="card" data-tool="Business Tools">
+<div class="icon">💼</div>
+<h3>Business Tools</h3>
+<p>Grow your business.</p>
+</button>
+
+</section>
+
+</div>
+
+   </main>
 
         <button id="newChatBtn" class="navBtn">✏️ New Chat</button>
 
