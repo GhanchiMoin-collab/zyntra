@@ -227,24 +227,27 @@ window.lastPrompt = text;
     const micButton=document.querySelector('#micButton');
     const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
     if(SpeechRecognition){const recognition=new SpeechRecognition();recognition.lang='en-IN';recognition.interimResults=true;recognition.onstart=()=>{micButton.classList.add('listening');chatInput.placeholder='Listening…'};recognition.onresult=e=>{chatInput.value=Array.from(e.results).map(r=>r[0].transcript).join('')};recognition.onend=()=>{micButton.classList.remove('listening');chatInput.placeholder='Message Zyntra AI…'};recognition.onerror=()=>{micButton.classList.remove('listening');chatInput.placeholder='Microphone access was not available.'};micButton.onclick=()=>recognition.start()}else{micButton.onclick=()=>alert('Voice input is supported in Chrome and Microsoft Edge.');}
-  const aboutBtn = document.getElementById("aboutBtn");
+ const aboutBtn = document.getElementById("aboutBtn");
 const aboutPopup = document.getElementById("aboutPopup");
 const closeAbout = document.getElementById("closeAbout");
 
-aboutBtn.onclick = function () {
-    aboutPopup.style.display = "flex";
-};
+if (aboutBtn && aboutPopup && closeAbout) {
 
-closeAbout.onclick = function () {
-    aboutPopup.style.display = "none";
-};
+    aboutBtn.addEventListener("click", function () {
+        aboutPopup.style.display = "flex";
+    });
 
-window.addEventListener("click", function (e) {
-    if (e.target === aboutPopup) {
+    closeAbout.addEventListener("click", function () {
         aboutPopup.style.display = "none";
-    }
-});
-  
+    });
+
+    aboutPopup.addEventListener("click", function (e) {
+        if (e.target === aboutPopup) {
+            aboutPopup.style.display = "none";
+        }
+    });
+
+}
   </script>
 </body>
 </html>
