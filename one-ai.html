@@ -84,31 +84,23 @@
     color:white;
     font-weight:700;
 }
-  .copy-btn{
-margin-top:12px;
+.copy-btn{
+display:inline-block;
+margin-top:10px;
 padding:8px 14px;
-border:none;
-border-radius:12px;
-
 background:linear-gradient(135deg,#8b5cf6,#ec4899);
-
 color:#fff;
-
-font-size:14px;
-
+border:none;
+border-radius:10px;
+font-size:13px;
 font-weight:700;
-
 cursor:pointer;
-
 transition:.25s;
 }
 
 .copy-btn:hover{
-
 transform:translateY(-2px);
-
-box-shadow:0 10px 20px rgba(139,92,246,.4);
-
+box-shadow:0 10px 20px rgba(139,92,246,.35);
 }
   .messages{
 
@@ -234,30 +226,29 @@ About
       'Business Tools':{intro:'Let’s turn your business idea into a plan.',ideas:['Give me startup ideas','Write a business plan','Create a marketing post']}
     };
     function openChat(tool='AI Chat', first=''){title.textContent=tool;modal.classList.add('show');modal.setAttribute('aria-hidden','false');const setup=toolSetup[tool]||toolSetup['AI Chat'];messages.innerHTML='';add(setup.intro,'assistant');suggestions.innerHTML='';setup.ideas.forEach(idea=>{const button=document.createElement('button');button.textContent=idea;button.onclick=()=>send(idea);suggestions.appendChild(button)});chatInput.focus();if(first)send(first);}
-   function add(text, role) {
-    const el = document.createElement('div');
-    el.className = 'message ' + role;
+  function add(text, role) {
+    const el = document.createElement("div");
+    el.className = "message " + role;
 
-    const content = document.createElement('div');
+    const content = document.createElement("div");
     content.textContent = text;
     el.appendChild(content);
 
-    if (role === 'assistant') {
-        const copyBtn = document.createElement('button');
-      const copyBtn = document.createElement('button');
-
-copyBtn.className = "copy-btn";
-copyBtn.innerHTML = "📋 Copy";
-
-copyBtn.onclick = () => {
-    navigator.clipboard.writeText(text);
-
-    copyBtn.innerHTML = "✅ Copied!";
-
-    setTimeout(() => {
+    if (role === "assistant") {
+        const copyBtn = document.createElement("button");
+        copyBtn.className = "copy-btn";
         copyBtn.innerHTML = "📋 Copy";
-    }, 2000);
-};
+
+        copyBtn.onclick = () => {
+            navigator.clipboard.writeText(text);
+
+            copyBtn.innerHTML = "✅ Copied!";
+
+            setTimeout(() => {
+                copyBtn.innerHTML = "📋 Copy";
+            }, 2000);
+        };
+
         el.appendChild(copyBtn);
     }
 
