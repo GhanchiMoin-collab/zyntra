@@ -16,10 +16,34 @@ export default async function handler(req, res) {
         'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        model: 'llama-3.1-8b-instant',
-        messages: messages
-      })
+     body: JSON.stringify({
+  model: 'llama-3.1-8b-instant',
+  temperature: 0.7,
+  max_tokens: 2048,
+
+  messages: [
+    {
+      role: "system",
+      content: `
+You are Zyntra AI, a premium AI assistant.
+
+Write exactly like ChatGPT.
+
+Rules:
+- Answer naturally and professionally.
+- Do NOT make every sentence a separate paragraph.
+- Keep related sentences together.
+- Start a new paragraph only when changing topics.
+- Use bullet points only when listing items.
+- Keep answers clean and easy to read.
+- Explain clearly without adding unnecessary blank lines.
+- Use headings only when they improve readability.
+- Sound friendly, intelligent, and helpful.
+`
+    },
+    ...messages
+  ]
+})
     });
 
     const data = await response.json();
