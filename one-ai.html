@@ -244,16 +244,20 @@ About
 
     if (role === 'assistant') {
         const copyBtn = document.createElement('button');
-       copyBtn.textContent = "📋";
-        copyBtn.style.marginTop = '8px';
-        copyBtn.onclick = () => {
-            navigator.clipboard.writeText(text);
-            copyBtn.textContent = '✅ Copied!';
-            setTimeout(() => {
-                copyBtn.innerHTML="📋 Copy";
-copyBtn.className="copy-btn";
-            }, 2000);
-        };
+      const copyBtn = document.createElement('button');
+
+copyBtn.className = "copy-btn";
+copyBtn.innerHTML = "📋 Copy";
+
+copyBtn.onclick = () => {
+    navigator.clipboard.writeText(text);
+
+    copyBtn.innerHTML = "✅ Copied!";
+
+    setTimeout(() => {
+        copyBtn.innerHTML = "📋 Copy";
+    }, 2000);
+};
         el.appendChild(copyBtn);
     }
 
