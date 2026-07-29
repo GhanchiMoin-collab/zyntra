@@ -22,9 +22,124 @@
     .quick { margin-top:29px; width:100%; max-width:660px; display:flex; gap:10px; padding:8px; border:1px solid var(--line); border-radius:17px; background:#101428cc; box-shadow:0 15px 35px #0004; }
     .quick input { min-width:0; flex:1; padding:10px 12px; border:0; outline:0; color:white; background:transparent; } .quick button { border-radius:12px; padding:10px 16px; font-weight:750; background:linear-gradient(135deg,var(--violet),#a855f7); }
     .section-title { margin:0 0 15px; font-size:20px; letter-spacing:-.3px; }
-    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; } .card { min-height:190px; padding:20px; text-align:left; background:linear-gradient(145deg,#151a31,#101326); border:1px solid var(--line); border-radius:20px; transition:.18s transform,.18s border-color,.18s background; }
-    .card:hover { transform:translateY(-4px); border-color:#8b5cf6; background:#191d38; } .icon { width:45px; height:45px; display:grid; place-items:center; border-radius:14px; margin-bottom:30px; font-size:22px; }
-    .card h3 { margin:0 0 5px; font-size:17px; }.card p { margin:0; color:var(--muted); font-size:14px; }.chat{background:#8b5cf625}.image{background:#ec489925}.study{background:#3b82f625}.write{background:#f59e0b25}.voice{background:#10b98125}.business{background:#ef444425}
+    .grid{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:28px;
+margin-top:35px;
+} 
+    .card{
+
+position:relative;
+
+overflow:hidden;
+
+padding:32px;
+
+min-height:250px;
+
+border-radius:26px;
+
+background:
+rgba(22,28,50,.75);
+
+backdrop-filter:blur(18px);
+
+border:1px solid rgba(255,255,255,.08);
+
+box-shadow:
+
+0 15px 40px rgba(0,0,0,.35);
+
+transition:.35s;
+
+}
+    .card::before{
+
+content:"";
+
+position:absolute;
+
+inset:0;
+
+background:
+
+linear-gradient(
+135deg,
+rgba(139,92,246,.08),
+rgba(236,72,153,.08));
+
+opacity:0;
+
+transition:.35s;
+
+}
+
+.card:hover{
+
+transform:
+translateY(-10px)
+scale(1.02);
+
+border-color:#8b5cf6;
+
+box-shadow:
+
+0 25px 60px rgba(139,92,246,.25);
+
+}
+
+.card:hover::before{
+
+opacity:1;
+
+}
+    .card:hover { transform:translateY(-4px); border-color:#8b5cf6; background:#191d38; } .icon{
+
+width:78px;
+
+height:78px;
+
+display:flex;
+
+align-items:center;
+
+justify-content:center;
+
+border-radius:22px;
+
+margin-bottom:28px;
+
+font-size:38px;
+
+color:white;
+
+box-shadow:
+
+0 12px 30px rgba(0,0,0,.25);
+
+}
+    .card h3{
+
+font-size:26px;
+
+font-weight:800;
+
+margin-bottom:14px;
+
+color:white;
+
+}
+    .card p{
+
+font-size:16px;
+
+line-height:1.8;
+
+color:#b7bfd9;
+
+}
+    .chat{background:#8b5cf625}.image{background:#ec489925}.study{background:#3b82f625}.write{background:#f59e0b25}.voice{background:#10b98125}.business{background:#ef444425}
     .modal { position:fixed; inset:0; display:none; place-items:center; padding:20px; background:#02030bb8; backdrop-filter:blur(8px); }.modal.show { display:grid; }.window { width:min(720px,100%); height:min(680px,88vh); display:flex; flex-direction:column; overflow:hidden; border:1px solid #3a3260; border-radius:24px; background:#11152b; box-shadow:0 30px 90px #0009; }.top { display:flex; align-items:center; justify-content:space-between; padding:18px 20px; border-bottom:1px solid var(--line); }.top h2 { margin:0; font-size:18px; }.close { width:33px; height:33px; border-radius:50%; background:#282d48; font-size:20px; }
     .messages { flex:1; overflow:auto; padding:25px 20px; }.message { max-width:82%; margin-bottom:15px; padding:12px 15px; border-radius:16px; }.assistant { background:#222843; border-bottom-left-radius:4px; }.user { margin-left:auto; color:white; background:linear-gradient(135deg,#7545e9,#a84be0); border-bottom-right-radius:4px; }.typing { color:var(--muted); font-size:14px; }.suggestions{display:flex;gap:8px;overflow:auto;padding:0 15px 13px}.suggestions button{white-space:nowrap;padding:8px 11px;border-radius:999px;border:1px solid #393f61;background:#1b2038;color:#d9dcf3;font-size:12px}.suggestions button:hover{border-color:#a78bfa;background:#29204b}
     .composer { display:flex; gap:9px; padding:14px; border-top:1px solid var(--line); }.composer input { flex:1; min-width:0; border:1px solid #303658; outline:0; border-radius:13px; padding:12px; color:white; background:#0c1020; }.composer button { border-radius:12px; padding:0 18px; font-weight:750; background:var(--violet); }.composer .mic{width:45px;padding:0;background:#252b47;font-size:18px}.composer .mic.listening{background:#e34b72;animation:pulse 1s infinite}@keyframes pulse{50%{transform:scale(1.07)}}
