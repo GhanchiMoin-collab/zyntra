@@ -1,26 +1,13 @@
-import { auth } from "./firebase.js";
+// Login system removed for Zyntra AI
 
-import {
-  onAuthStateChanged,
-  signOut
-} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
-
-// Protect AI page
 export function protectPage() {
-  onAuthStateChanged(auth, (user) => {
-    if (!user) {
-      window.location.href = "index.html";
-    }
-  });
+  // No login required
 }
 
-// Logout
-export async function logout() {
-  await signOut(auth);
-  window.location.href = "index.html";
+export function logout() {
+  // Logout disabled
 }
 
-// Get current user
 export function getCurrentUser(callback) {
-  onAuthStateChanged(auth, callback);
+  callback(null);
 }
