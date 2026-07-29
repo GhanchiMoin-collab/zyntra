@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Zyntra ai • Your Personal AI Assistant</title>
+  <title>Zyntra AI • Your Personal AI Assistant</title>
 
   <meta name="msvalidate.01" content="618FDE382678826B6FA278B896462732" />
 
@@ -33,25 +33,25 @@
 </head>
 <body>
   <main class="shell">
-    <nav><div class="brand"><div class="spark">✦</div> Zyntra ai</div><button class="profile" title="Profile">◉</button></nav>
-    <section class="hero"><div class="eyebrow">One place. Every possibility.</div><h1>Your ideas, <span class="gradient">powered by AI.</span></h1><p>Chat, create images, learn faster, write better, and build your next big idea—all with Zyntra ai.</p><form class="quick" id="quickForm"><input id="quickInput" aria-label="Ask Zyntra ai" placeholder="Ask Zyntra ai anything…"><button>Ask AI →</button></form></section>
+    <nav><div class="brand"><div class="spark">✦</div> Zyntra AI</div><button class="profile" title="Profile">◉</button></nav>
+    <section class="hero"><div class="eyebrow">One place. Every possibility.</div><h1>Your ideas, <span class="gradient">powered by AI.</span></h1><p>Chat, create images, learn faster, write better, and build your next big idea—all with Zyntra AI.</p><form class="quick" id="quickForm"><input id="quickInput" aria-label="Ask Zyntra AI" placeholder="Ask Zyntra AI anything…"><button>Ask AI →</button></form></section>
     <h2 class="section-title">Explore your tools</h2>
     <section class="grid">
       <button class="card" data-tool="AI Chat"><div class="icon chat">✦</div><h3>AI Chat</h3><p>Ask anything. Get clear answers.</p></button>
       <button class="card" data-tool="Create Image"><div class="icon image">▧</div><h3>Create Image</h3><p>Turn an idea into an image.</p></button>
       <button class="card" data-tool="Study Helper"><div class="icon study">▣</div><h3>Study Helper</h3><p>Learn, explain, and practise.</p></button>
       <button class="card" data-tool="Write Better"><div class="icon write">✎</div><h3>Write Better</h3><p>Draft, rewrite, and translate.</p></button>
-      <button class="card" data-tool="Voice Assistant"><div class="icon voice">◉</div><h3>Voice Assistant</h3><p>Speak naturally with Zyntra ai.</p></button>
+      <button class="card" data-tool="Voice Assistant"><div class="icon voice">◉</div><h3>Voice Assistant</h3><p>Speak naturally with Zyntra AI.</p></button>
       <button class="card" data-tool="Business Tools"><div class="icon business">▤</div><h3>Business Tools</h3><p>Ideas, plans, and smart tasks.</p></button>
-    </section><footer>Zyntra ai • Your all-in-one assistant</footer>
+    </section><footer>Zyntra AI • Your all-in-one assistant</footer>
   </main>
-  <section class="modal" id="modal" aria-hidden="true"><div class="window"><header class="top"><h2 id="toolTitle">AI Chat</h2><button class="close" id="close" aria-label="Close">×</button></header><div class="messages" id="messages"><div class="message assistant">Hi! I’m Zyntra ai. How can I help you today?</div></div><div class="suggestions" id="suggestions"></div><form class="composer" id="chatForm"><input id="chatInput" autocomplete="off" placeholder="Message Zyntra ai…"><button class="mic" type="button" id="micButton" title="Speak your message" aria-label="Speak your message">◉</button><button>Send</button></form></div></section>
+  <section class="modal" id="modal" aria-hidden="true"><div class="window"><header class="top"><h2 id="toolTitle">AI Chat</h2><button class="close" id="close" aria-label="Close">×</button></header><div class="messages" id="messages"><div class="message assistant">Hi! I’m Zyntra AI. How can I help you today?</div></div><div class="suggestions" id="suggestions"></div><form class="composer" id="chatForm"><input id="chatInput" autocomplete="off" placeholder="Message Zyntra AI…"><button class="mic" type="button" id="micButton" title="Speak your message" aria-label="Speak your message">◉</button><button>Send</button></form></div></section>
   
   <script>
     const modal=document.querySelector('#modal'), messages=document.querySelector('#messages'), title=document.querySelector('#toolTitle'), chatInput=document.querySelector('#chatInput'), suggestions=document.querySelector('#suggestions');
     const toolSetup={
-      'AI Chat':{intro:'Hi! I’m Zyntra ai. Ask me anything.',ideas:['Explain a topic simply','Plan my day','Give me an idea']},
-      'Create Image':{intro:'Describe the image you want, including style, colours, and details.',ideas:['A futuristic city at night','A logo for Zyntra ai','A cute cat astronaut']},
+      'AI Chat':{intro:'Hi! I’m Zyntra AI. Ask me anything.',ideas:['Explain a topic simply','Plan my day','Give me an idea']},
+      'Create Image':{intro:'Describe the image you want, including style, colours, and details.',ideas:['A futuristic city at night','A logo for Zyntra AI','A cute cat astronaut']},
       'Study Helper':{intro:'Tell me what you are studying and I’ll help you learn step by step.',ideas:['Explain photosynthesis','Make a maths quiz','Help with English grammar']},
       'Write Better':{intro:'Paste your writing or tell me what you want to create.',ideas:['Write an email','Improve my paragraph','Translate to Hindi']},
       'Voice Assistant':{intro:'Voice mode is coming next. For now, type what you would like to say.',ideas:['Set a reminder idea','Practise English','Tell me a story']},
@@ -97,7 +97,7 @@ window.lastPrompt = text;
       chatInput.value='';
       const wait=document.createElement('div');
       wait.className='typing';
-      wait.textContent='🤖 Zyntra ai is thinking...';
+      wait.textContent='🤖 Zyntra AI is thinking...';
       messages.appendChild(wait);
       messages.scrollTop=messages.scrollHeight;
       try {
@@ -125,7 +125,7 @@ window.lastPrompt = text;
     document.querySelector('#chatForm').onsubmit=e=>{e.preventDefault();send(chatInput.value)}; document.querySelector('#quickForm').onsubmit=e=>{e.preventDefault();const q=document.querySelector('#quickInput').value;openChat('AI Chat',q);document.querySelector('#quickInput').value='';};
     const micButton=document.querySelector('#micButton');
     const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(SpeechRecognition){const recognition=new SpeechRecognition();recognition.lang='en-IN';recognition.interimResults=true;recognition.onstart=()=>{micButton.classList.add('listening');chatInput.placeholder='Listening…'};recognition.onresult=e=>{chatInput.value=Array.from(e.results).map(r=>r[0].transcript).join('')};recognition.onend=()=>{micButton.classList.remove('listening');chatInput.placeholder='Message Zyntra ai…'};recognition.onerror=()=>{micButton.classList.remove('listening');chatInput.placeholder='Microphone access was not available.'};micButton.onclick=()=>recognition.start()}else{micButton.onclick=()=>alert('Voice input is supported in Chrome and Microsoft Edge.');}
+    if(SpeechRecognition){const recognition=new SpeechRecognition();recognition.lang='en-IN';recognition.interimResults=true;recognition.onstart=()=>{micButton.classList.add('listening');chatInput.placeholder='Listening…'};recognition.onresult=e=>{chatInput.value=Array.from(e.results).map(r=>r[0].transcript).join('')};recognition.onend=()=>{micButton.classList.remove('listening');chatInput.placeholder='Message Zyntra AI…'};recognition.onerror=()=>{micButton.classList.remove('listening');chatInput.placeholder='Microphone access was not available.'};micButton.onclick=()=>recognition.start()}else{micButton.onclick=()=>alert('Voice input is supported in Chrome and Microsoft Edge.');}
   </script>
 </body>
 </html>
