@@ -33,7 +33,26 @@
 </head>
 <body>
   <main class="shell">
-    <nav><div class="brand"><div class="spark">✦</div> Zyntra AI</div><button class="profile" title="Profile">◉</button></nav>
+    <nav>
+
+<div class="brand">
+<div class="spark">✦</div>
+Zyntra AI
+</div>
+
+<div style="display:flex;align-items:center;gap:12px;">
+
+<button id="aboutBtn" class="about-btn">
+About
+</button>
+
+<button class="profile" title="Profile">
+◉
+</button>
+
+</div>
+
+</nav>
     <section class="hero"><div class="eyebrow">One place. Every possibility.</div><h1>Your ideas, <span class="gradient">powered by AI.</span></h1><p>Chat, create images, learn faster, write better, and build your next big idea—all with Zyntra AI.</p><form class="quick" id="quickForm"><input id="quickInput" aria-label="Ask Zyntra AI" placeholder="Ask Zyntra AI anything…"><button>Ask AI →</button></form></section>
     <h2 class="section-title">Explore your tools</h2>
     <section class="grid">
@@ -46,7 +65,33 @@
     </section><footer>Zyntra AI • Your all-in-one assistant</footer>
   </main>
   <section class="modal" id="modal" aria-hidden="true"><div class="window"><header class="top"><h2 id="toolTitle">AI Chat</h2><button class="close" id="close" aria-label="Close">×</button></header><div class="messages" id="messages"><div class="message assistant">Hi! I’m Zyntra AI. How can I help you today?</div></div><div class="suggestions" id="suggestions"></div><form class="composer" id="chatForm"><input id="chatInput" autocomplete="off" placeholder="Message Zyntra AI…"><button class="mic" type="button" id="micButton" title="Speak your message" aria-label="Speak your message">◉</button><button>Send</button></form></div></section>
-  
+  <div id="aboutPopup" class="about-popup" style="display:none;">
+
+  <div class="about-content">
+
+    <h2>About Zyntra AI</h2>
+
+    <p>
+      <strong>Zyntra AI</strong> is a personal AI assistant created by
+      <strong>Ghanchi Moin</strong>, an independent developer passionate about building useful AI-powered experiences.
+    </p>
+
+    <p>
+      Zyntra AI is designed to help users with questions, learning,
+      creativity, productivity, and everyday tasks through modern artificial intelligence technology.
+    </p>
+
+    <p>
+      The goal of Zyntra AI is to make AI simple, helpful, and accessible for everyone.
+    </p>
+
+    <p><strong>Developed by:</strong> Ghanchi Moin</p>
+
+    <button id="closeAbout">Close</button>
+
+  </div>
+
+</div>
   <script>
     const modal=document.querySelector('#modal'), messages=document.querySelector('#messages'), title=document.querySelector('#toolTitle'), chatInput=document.querySelector('#chatInput'), suggestions=document.querySelector('#suggestions');
     const toolSetup={
@@ -74,13 +119,14 @@
 
     if (role === 'assistant') {
         const copyBtn = document.createElement('button');
-        copyBtn.textContent = '📋 Copy';
+        copyBtn.textContent = '📋
+          ';
         copyBtn.style.marginTop = '8px';
         copyBtn.onclick = () => {
             navigator.clipboard.writeText(text);
             copyBtn.textContent = '✅ Copied!';
             setTimeout(() => {
-                copyBtn.textContent = '📋 Copy';
+                copyBtn.textContent = '📋';
             }, 2000);
         };
         el.appendChild(copyBtn);
@@ -126,6 +172,24 @@ window.lastPrompt = text;
     const micButton=document.querySelector('#micButton');
     const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
     if(SpeechRecognition){const recognition=new SpeechRecognition();recognition.lang='en-IN';recognition.interimResults=true;recognition.onstart=()=>{micButton.classList.add('listening');chatInput.placeholder='Listening…'};recognition.onresult=e=>{chatInput.value=Array.from(e.results).map(r=>r[0].transcript).join('')};recognition.onend=()=>{micButton.classList.remove('listening');chatInput.placeholder='Message Zyntra AI…'};recognition.onerror=()=>{micButton.classList.remove('listening');chatInput.placeholder='Microphone access was not available.'};micButton.onclick=()=>recognition.start()}else{micButton.onclick=()=>alert('Voice input is supported in Chrome and Microsoft Edge.');}
+  const aboutBtn = document.getElementById("aboutBtn");
+const aboutPopup = document.getElementById("aboutPopup");
+const closeAbout = document.getElementById("closeAbout");
+
+aboutBtn.onclick = function () {
+    aboutPopup.style.display = "flex";
+};
+
+closeAbout.onclick = function () {
+    aboutPopup.style.display = "none";
+};
+
+window.addEventListener("click", function (e) {
+    if (e.target === aboutPopup) {
+        aboutPopup.style.display = "none";
+    }
+});
+  
   </script>
 </body>
 </html>
