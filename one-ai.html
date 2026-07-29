@@ -84,6 +84,82 @@
     color:white;
     font-weight:700;
 }
+  .copy-btn{
+margin-top:12px;
+padding:8px 14px;
+border:none;
+border-radius:12px;
+
+background:linear-gradient(135deg,#8b5cf6,#ec4899);
+
+color:#fff;
+
+font-size:14px;
+
+font-weight:700;
+
+cursor:pointer;
+
+transition:.25s;
+}
+
+.copy-btn:hover{
+
+transform:translateY(-2px);
+
+box-shadow:0 10px 20px rgba(139,92,246,.4);
+
+}
+  .messages{
+
+scrollbar-width:thin;
+
+scrollbar-color:#8b5cf6 transparent;
+
+}
+
+.messages::-webkit-scrollbar{
+
+width:8px;
+
+}
+
+.messages::-webkit-scrollbar-track{
+
+background:transparent;
+
+}
+
+.messages::-webkit-scrollbar-thumb{
+
+background:linear-gradient(
+180deg,
+#8b5cf6,
+#ec4899
+);
+
+border-radius:999px;
+
+}
+
+.messages::-webkit-scrollbar-thumb:hover{
+
+background:#a855f7;
+
+}
+  .assistant{
+
+background:#1c223b;
+
+border:1px solid rgba(139,92,246,.2);
+
+padding:16px;
+
+border-radius:18px;
+
+margin-bottom:18px;
+
+}
   </style>
 </head>
 <body>
@@ -174,7 +250,8 @@ About
             navigator.clipboard.writeText(text);
             copyBtn.textContent = '✅ Copied!';
             setTimeout(() => {
-                copyBtn.textContent = '📋';
+                copyBtn.innerHTML="📋 Copy";
+copyBtn.className="copy-btn";
             }, 2000);
         };
         el.appendChild(copyBtn);
