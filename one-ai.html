@@ -499,6 +499,16 @@ About
     
     async function send(text){
       if(!text.trim())return;
+      if (title.textContent === "Create Image") {
+
+    const imageUrl =
+        "https://image.pollinations.ai/prompt/" +
+        encodeURIComponent(text);
+
+    add(imageUrl, "assistant");
+
+    return;
+}
       add(text,'user');
 window.lastPrompt = text;
       chatInput.value='';
