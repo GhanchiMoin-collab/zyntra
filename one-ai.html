@@ -532,24 +532,8 @@ messages.appendChild(wait);
         
         const aiMessage = data.choices[0].message.content;
 
-// Break into paragraphs
-const parts = aiMessage.split("\n");
-
-let delay = 0;
-
-parts.forEach(part => {
-
-    if(part.trim() !== ""){
-
-        setTimeout(() => {
-            add(part, "assistant");
-        }, delay);
-
-        delay += 300;
-
-    }
-
-});
+const aiMessage = data.choices[0].message.content;
+add(aiMessage, "assistant");
       } catch (error) {
   console.error(error);
   add(`❌ Error: ${error.message}`, "assistant");
