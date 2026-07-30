@@ -204,7 +204,12 @@ About
     el.className = "message " + role;
 
     const content = document.createElement("div");
+
+if(role==="assistant"){
+    content.innerHTML = marked.parse(text);
+}else{
     content.textContent = text;
+}
     el.appendChild(content);
 
     if (role === "assistant") {
@@ -238,7 +243,7 @@ window.lastPrompt = text;chatInput.value='';const wait=document.createElement('d
     add(aiMessage, 'assistant');
   } catch (error) {
 
-console.error(error);add(❌ Error: ${error.message}, "assistant");} finally {wait.remove();}}
+console.error(error)add(`❌ Error: ${error.message}`, "assistant");} finally {wait.remove();}}
     document.querySelectorAll('[data-tool]').forEach(x=>x.addEventListener('click',()=>openChat(x.dataset.tool))); document.querySelector('#close').onclick=()=>modal.classList.remove('show'); modal.onclick=e=>{if(e.target===modal)modal.classList.remove('show')};
 document.querySelector('#chatForm').onsubmit=e=>{e.preventDefault();send(chatInput.value)}; document.querySelector('#quickForm').onsubmit=e=>{e.preventDefault();const q=document.querySelector('#quickInput').value;openChat('AI Chat',q);document.querySelector('#quickInput').value='';};
 const micButton=document.querySelector('#micButton');
