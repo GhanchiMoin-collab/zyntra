@@ -444,15 +444,22 @@ About
       'Study Helper':{intro:'Tell me what you are studying and I’ll help you learn step by step.',ideas:['Explain photosynthesis','Make a maths quiz','Help with English grammar']},
       'Write Better':{intro:'Paste your writing or tell me what you want to create.',ideas:['Write an email','Improve my paragraph','Translate to Hindi']},
       'Voice Assistant':{intro:'Voice mode is coming next. For now, type what you would like to say.',ideas:['Set a reminder idea','Practise English','Tell me a story']},
-      'Business Tools':{intro:'Let’s turn your business idea into a plan.',ideas:['Give me startup ideas','Write a business plan','Create a marketing post']}
-   'AI Video':{
+      'Business Tools':{
+intro:'Let’s turn your business idea into a plan.',
+ideas:[
+'Give me startup ideas',
+'Write a business plan',
+'Create a marketing post'
+]},
+
+'AI Video':{
 intro:'Describe the video you want to create. Zyntra AI will generate an AI video from your prompt.',
 ideas:[
 'Create a cinematic lion walking in snow',
 'Create a futuristic flying city',
 'Create an anime boy walking in the rain'
-]}
-    };
+]
+},
     function openChat(tool='AI Chat', first=''){title.textContent=tool;modal.classList.add('show');modal.setAttribute('aria-hidden','false');const setup=toolSetup[tool]||toolSetup['AI Chat'];messages.innerHTML='';add(setup.intro,'assistant');suggestions.innerHTML='';setup.ideas.forEach(idea=>{const button=document.createElement('button');button.textContent=idea;button.onclick=()=>send(idea);suggestions.appendChild(button)});chatInput.focus();if(first)send(first);}
 function add(text, role) {
 
