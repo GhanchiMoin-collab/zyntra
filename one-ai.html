@@ -1,13 +1,14 @@
 <!doctype html>
-
 <html lang="en">
 <head>
+  <link rel="icon" type="image/png" href="favicon.png">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Zyntra AI • Your Personal AI Assistant</title>
 
   <meta name="msvalidate.01" content="618FDE382678826B6FA278B896462732" />
 
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
   <style>
     :root { --bg:#080a17; --panel:#121629; --line:#272d4b; --text:#f7f7ff; --muted:#a9afcb; --violet:#8b5cf6; --pink:#ec4899; }
@@ -23,92 +24,184 @@
     .quick { margin-top:29px; width:100%; max-width:660px; display:flex; gap:10px; padding:8px; border:1px solid var(--line); border-radius:17px; background:#101428cc; box-shadow:0 15px 35px #0004; }
     .quick input { min-width:0; flex:1; padding:10px 12px; border:0; outline:0; color:white; background:transparent; } .quick button { border-radius:12px; padding:10px 16px; font-weight:750; background:linear-gradient(135deg,var(--violet),#a855f7); }
     .section-title { margin:0 0 15px; font-size:20px; letter-spacing:-.3px; }
-    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; } .card { min-height:190px; padding:20px; text-align:left; background:linear-gradient(145deg,#151a31,#101326); border:1px solid var(--line); border-radius:20px; transition:.18s transform,.18s border-color,.18s background; }
-    .card:hover { transform:translateY(-4px); border-color:#8b5cf6; background:#191d38; } .icon { width:45px; height:45px; display:grid; place-items:center; border-radius:14px; margin-bottom:30px; font-size:22px; }
-    .card h3 { margin:0 0 5px; font-size:17px; }.card p { margin:0; color:var(--muted); font-size:14px;
-    }.chat{background:#8b5cf625}.image{background:#ec489925}.study{background:#3b82f625}.write{background:#f59e0b25}.voice{background:#10b98125}.business{background:#ef444425}
+    .grid{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:28px;
+margin-top:35px;
+} 
+    .card{
+
+position:relative;
+
+overflow:hidden;
+
+padding:32px;
+
+min-height:250px;
+
+border-radius:26px;
+
+background:
+rgba(22,28,50,.75);
+
+backdrop-filter:blur(18px);
+
+border:1px solid rgba(255,255,255,.08);
+
+box-shadow:
+
+0 15px 40px rgba(0,0,0,.35);
+
+transition:.35s;
+
+}
+    .card::before{
+
+content:"";
+
+position:absolute;
+
+inset:0;
+
+background:
+
+linear-gradient(
+135deg,
+rgba(139,92,246,.08),
+rgba(236,72,153,.08));
+
+opacity:0;
+
+transition:.35s;
+
+}
+
+.card:hover{
+
+transform:
+translateY(-10px)
+scale(1.02);
+
+border-color:#8b5cf6;
+
+box-shadow:
+
+0 25px 60px rgba(139,92,246,.25);
+
+}
+
+.card:hover::before{
+
+opacity:1;
+
+}
+    .card:hover { transform:translateY(-4px); border-color:#8b5cf6; background:#191d38; } .icon{
+
+width:78px;
+
+height:78px;
+
+display:flex;
+
+align-items:center;
+
+justify-content:center;
+
+border-radius:22px;
+
+margin-bottom:28px;
+
+font-size:38px;
+
+color:white;
+
+box-shadow:
+
+0 12px 30px rgba(0,0,0,.25);
+
+}
+    .card h3{
+
+font-size:26px;
+
+font-weight:800;
+
+margin-bottom:14px;
+
+color:white;
+
+}
+    .card p{
+
+font-size:16px;
+
+line-height:1.8;
+
+color:#b7bfd9;
+
+}
+    .chat{background:#8b5cf625}.image{background:#ec489925}.study{background:#3b82f625}.write{background:#f59e0b25}.voice{background:#10b98125}.business{background:#ef444425}
     .modal { position:fixed; inset:0; display:none; place-items:center; padding:20px; background:#02030bb8; backdrop-filter:blur(8px); }.modal.show { display:grid; }.window { width:min(720px,100%); height:min(680px,88vh); display:flex; flex-direction:column; overflow:hidden; border:1px solid #3a3260; border-radius:24px; background:#11152b; box-shadow:0 30px 90px #0009; }.top { display:flex; align-items:center; justify-content:space-between; padding:18px 20px; border-bottom:1px solid var(--line); }.top h2 { margin:0; font-size:18px; }.close { width:33px; height:33px; border-radius:50%; background:#282d48; font-size:20px; }
     .messages { flex:1; overflow:auto; padding:25px 20px; }.message { max-width:82%; margin-bottom:15px; padding:12px 15px; border-radius:16px; }.assistant { background:#222843; border-bottom-left-radius:4px; }.user { margin-left:auto; color:white; background:linear-gradient(135deg,#7545e9,#a84be0); border-bottom-right-radius:4px; }.typing { color:var(--muted); font-size:14px; }.suggestions{display:flex;gap:8px;overflow:auto;padding:0 15px 13px}.suggestions button{white-space:nowrap;padding:8px 11px;border-radius:999px;border:1px solid #393f61;background:#1b2038;color:#d9dcf3;font-size:12px}.suggestions button:hover{border-color:#a78bfa;background:#29204b}
     .composer { display:flex; gap:9px; padding:14px; border-top:1px solid var(--line); }.composer input { flex:1; min-width:0; border:1px solid #303658; outline:0; border-radius:13px; padding:12px; color:white; background:#0c1020; }.composer button { border-radius:12px; padding:0 18px; font-weight:750; background:var(--violet); }.composer .mic{width:45px;padding:0;background:#252b47;font-size:18px}.composer .mic.listening{background:#e34b72;animation:pulse 1s infinite}@keyframes pulse{50%{transform:scale(1.07)}}
     footer { margin-top:50px; text-align:center; color:#737a9e; font-size:13px; } @media(max-width:700px){ .shell{padding:20px 16px 36px}.hero{margin:55px 0 36px} h1{letter-spacing:-1.8px}.grid{grid-template-columns:repeat(2,1fr)}.card{min-height:175px;padding:16px}.icon{margin-bottom:24px} } @media(max-width:380px){.grid{grid-template-columns:1fr}.card{min-height:140px}}
   /* About Button */
-    .about-btn{padding:10px 22px;border;border-radius:14px;background(135deg,#8b5cf6,#ec4899);color:#fff;font-size:16px;font-weight:700;cursor;transition:.3s;}
 
-.about-btn{transform(-2px);box-shadow:0 10px 25px rgba(139,92,246,.4);}
+.about-btn{
+    padding:10px 22px;
+    border:none;
+    border-radius:14px;
+    background:linear-gradient(135deg,#8b5cf6,#ec4899);
+    color:#fff;
+    font-size:16px;
+    font-weight:700;
+    cursor:pointer;
+    transition:.3s;
+}
+
+.about-btn:hover{
+    transform:translateY(-2px);
+    box-shadow:0 10px 25px rgba(139,92,246,.4);
+}
 
 /* About Popup */
 
-.about-popup{display;position;inset:0;background(0,0,0,.75);justify-content;align-items;z-index:9999;}
+.about-popup{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.75);
+    justify-content:center;
+    align-items:center;
+    z-index:9999;
+}
 
-.about-content{width:90%;max-width:520px;background:#121629;border:1px solid #272d4b;border-radius:20px;padding:30px;color;text-align;}
+.about-content{
+    width:90%;
+    max-width:520px;
+    background:#121629;
+    border:1px solid #272d4b;
+    border-radius:20px;
+    padding:30px;
+    color:white;
+    text-align:left;
+}
 
-.about-content h2{margin-top:0;}
+.about-content h2{
+    margin-top:0;
+}
 
-.about-content button{margin-top:20px;padding:10px 20px;border;border-radius:12px;background(135deg,#8b5cf6,#ec4899);color;font-weight:700;}.copy-btn{margin-top:12px;padding:8px 14px;border;border-radius:12px;
-
-background(135deg,#8b5cf6,#ec4899);
-
-color:#fff;
-
-font-size:14px;
-
-font-weight:700;
-
-cursor;
-
-transition:.25s;}
-
+.about-content button{
+    margin-top:20px;
+    padding:10px 20px;
+    border:none;
+    border-radius:12px;
+    background:linear-gradient(135deg,#8b5cf6,#ec4899);
+    color:white;
+    font-weight:700;
+}
 .copy-btn{
-
-transform(-2px);
-
-box-shadow:0 10px 20px rgba(139,92,246,.4);
-
-}.messages{
-
-scrollbar-width;
-
-scrollbar-color:#8b5cf6 transparent;
-
-}
-
-.messages::-webkit-scrollbar{
-
-width:8px;
-
-}
-
-.messages::-webkit-scrollbar-track{
-
-background;
-
-}
-
-.messages::-webkit-scrollbar-thumb{
-
-background(180deg,#8b5cf6,#ec4899);
-
-border-radius:999px;
-
-}
-
-.messages::-webkit-scrollbar-thumb{
-
-background:#a855f7;
-
-}.assistant{
-
-background:#1c223b;
-
-border:1px solid rgba(139,92,246,.2);
-
-padding:16px;
-
-border-radius:18px;
-
-margin-bottom:18px;
-
-}.copy-btn{
 display:inline-block;
 margin-top:10px;
 padding:8px 14px;
@@ -125,6 +218,153 @@ transition:.25s;
 .copy-btn:hover{
 transform:translateY(-2px);
 box-shadow:0 10px 20px rgba(139,92,246,.35);
+}
+  .messages{
+
+scrollbar-width:thin;
+
+scrollbar-color:#8b5cf6 transparent;
+
+}
+
+.messages::-webkit-scrollbar{
+
+width:8px;
+
+}
+
+.messages::-webkit-scrollbar-track{
+
+background:transparent;
+
+}
+
+.messages::-webkit-scrollbar-thumb{
+
+background:linear-gradient(
+180deg,
+#8b5cf6,
+#ec4899
+);
+
+border-radius:999px;
+
+}
+
+.messages::-webkit-scrollbar-thumb:hover{
+
+background:#a855f7;
+
+}
+  .assistant{
+
+background:#1c223b;
+
+border:1px solid rgba(139,92,246,.2);
+
+padding:16px;
+
+border-radius:18px;
+
+margin-bottom:18px;
+
+}
+  /* ===== Premium Typing Animation ===== */
+
+.typing-box{
+
+display:flex;
+
+align-items:center;
+
+gap:14px;
+
+padding:14px;
+
+margin-top:12px;
+
+background:#1b2341;
+
+border:1px solid rgba(139,92,246,.25);
+
+border-radius:18px;
+
+width:max-content;
+
+}
+
+.typing-avatar{
+
+width:42px;
+
+height:42px;
+
+border-radius:50%;
+
+display:flex;
+
+align-items:center;
+
+justify-content:center;
+
+background:linear-gradient(135deg,#8b5cf6,#ec4899);
+
+font-size:18px;
+
+}
+
+.typing-dots{
+
+display:flex;
+
+gap:6px;
+
+}
+
+.typing-dots span{
+
+width:10px;
+
+height:10px;
+
+border-radius:50%;
+
+background:#a78bfa;
+
+animation:typingBounce 1.2s infinite;
+
+}
+
+.typing-dots span:nth-child(2){
+
+animation-delay:.2s;
+
+}
+
+.typing-dots span:nth-child(3){
+
+animation-delay:.4s;
+
+}
+
+@keyframes typingBounce{
+
+0%,80%,100%{
+
+transform:scale(.4);
+
+opacity:.4;
+
+}
+
+40%{
+
+transform:scale(1);
+
+opacity:1;
+
+}
+
 }
   </style>
 </head>
@@ -166,28 +406,29 @@ About
 
   <div class="about-content">
 
-<h2>About Zyntra AI</h2>
+    <h2>About Zyntra AI</h2>
 
-<p>
-  <strong>Zyntra AI</strong> is a personal AI assistant created by
-  <strong>Ghanchi Moin</strong>, an independent developer passionate about building useful AI-powered experiences.
-</p>
+    <p>
+      <strong>Zyntra AI</strong> is a personal AI assistant created by
+      <strong>Ghanchi Moin</strong>, an independent developer passionate about building useful AI-powered experiences.
+    </p>
 
-<p>
-  Zyntra AI is designed to help users with questions, learning,
-  creativity, productivity, and everyday tasks through modern artificial intelligence technology.
-</p>
+    <p>
+      Zyntra AI is designed to help users with questions, learning,
+      creativity, productivity, and everyday tasks through modern artificial intelligence technology.
+    </p>
 
-<p>
-  The goal of Zyntra AI is to make AI simple, helpful, and accessible for everyone.
-</p>
+    <p>
+      The goal of Zyntra AI is to make AI simple, helpful, and accessible for everyone.
+    </p>
 
-<p><strong>Developed by:</strong> Ghanchi Moin</p>
+    <p><strong>Developed by:</strong> Ghanchi Moin</p>
 
-<button id="closeAbout">Close</button>
+    <button id="closeAbout">Close</button>
 
   </div>
-  </div>
+
+</div>
   <script>
     const modal=document.querySelector('#modal'), messages=document.querySelector('#messages'), title=document.querySelector('#toolTitle'), chatInput=document.querySelector('#chatInput'), suggestions=document.querySelector('#suggestions');
     const toolSetup={
@@ -199,76 +440,203 @@ About
       'Business Tools':{intro:'Let’s turn your business idea into a plan.',ideas:['Give me startup ideas','Write a business plan','Create a marketing post']}
     };
     function openChat(tool='AI Chat', first=''){title.textContent=tool;modal.classList.add('show');modal.setAttribute('aria-hidden','false');const setup=toolSetup[tool]||toolSetup['AI Chat'];messages.innerHTML='';add(setup.intro,'assistant');suggestions.innerHTML='';setup.ideas.forEach(idea=>{const button=document.createElement('button');button.textContent=idea;button.onclick=()=>send(idea);suggestions.appendChild(button)});chatInput.focus();if(first)send(first);}
-   function add(text, role) {
+ function add(text, role) {
     const el = document.createElement("div");
     el.className = "message " + role;
 
     const content = document.createElement("div");
-
-if(role==="assistant"){
-    content.innerHTML = marked.parse(text);
-}else{
-    content.textContent = text;
-}
     el.appendChild(content);
-
-    if (role === "assistant") {
-        const copyBtn = document.createElement("button");
-        copyBtn.className = "copy-btn";
-        copyBtn.innerHTML = "📋 Copy";
-
-        copyBtn.onclick = () => {
-            navigator.clipboard.writeText(text);
-
-            copyBtn.innerHTML = "✅ Copied!";
-
-            setTimeout(() => {
-                copyBtn.innerHTML = "📋 Copy";
-            }, 2000);
-        };
-
-        el.appendChild(copyBtn);
-    }
 
     messages.appendChild(el);
     messages.scrollTop = messages.scrollHeight;
+
+    if (role === "assistant") {
+
+    if (text.startsWith("https://image.pollinations.ai")) {
+
+        content.innerHTML = `
+        <img src="${text}"
+             style="
+             width:100%;
+             max-width:512px;
+             border-radius:18px;
+             display:block;
+             margin-top:10px;
+             ">
+        `;
+
+    } else {
+
+        let i = 0;
+
+        function typing(){
+
+            if(i <= text.length){
+
+                content.innerHTML =
+                    marked.parse(text.substring(0,i));
+
+                messages.scrollTop = messages.scrollHeight;
+
+                i++;
+
+                setTimeout(typing,12);
+
+            }
+
+        }
+
+        typing();
+
+    }
+
 }
-async function send(text){
-  if(!text.trim())return;
-  add(text,'user');
+                i++;
 
-window.lastPrompt = text;chatInput.value='';const wait=document.createElement('div');wait.className='typing';wait.textContent='🤖 Zyntra AI is thinking...';messages.appendChild(wait);messages.scrollTop=messages.scrollHeight;try {const res = await fetch('/api/chat', {method: 'POST',headers: { 'Content-Type': 'application/json' },body: JSON.stringify({messages: [{ role: 'user', content: text }]})});const data = await res.json();if (!res.ok) throw new Error(data.error || 'Unable to get an answer.');
+                messages.scrollTop = messages.scrollHeight;
 
-    const aiMessage = data.choices[0].message.content;
-    add(aiMessage, 'assistant');
-  } catch (error) {
+                setTimeout(type, 8);
 
-console.error(error)add(`❌ Error: ${error.message}`, "assistant");} finally {wait.remove();}}
+            } else {
+
+                const copyBtn = document.createElement("button");
+
+                copyBtn.innerHTML = "📋 Copy";
+
+                copyBtn.className = "copy-btn";
+
+                copyBtn.onclick = () => {
+                    navigator.clipboard.writeText(text);
+
+                    copyBtn.innerHTML = "✅ Copied";
+
+                    setTimeout(() => {
+                        copyBtn.innerHTML = "📋 Copy";
+                    },2000);
+                };
+
+                el.appendChild(copyBtn);
+
+            }
+        }
+
+        type();
+
+    } else {
+
+        content.innerHTML = marked.parse(text);
+
+    }
+}
+    
+    async function send(text){
+      if(!text.trim())return;
+      if (title.textContent === "Create Image") {
+
+    // Show user's prompt first
+    add(text, "user");
+
+    chatInput.value = "";
+
+    // Show typing animation
+    const wait = document.createElement("div");
+
+    wait.className = "typing";
+
+    wait.innerHTML = `
+    <div class="typing-box">
+        <div class="typing-avatar">🎨</div>
+        <div>Generating image...</div>
+    </div>
+    `;
+
+    messages.appendChild(wait);
+
+    messages.scrollTop = messages.scrollHeight;
+
+    const imageUrl =
+        "https://image.pollinations.ai/prompt/" +
+        encodeURIComponent(text);
+
+    setTimeout(() => {
+
+        wait.remove();
+
+        add(imageUrl, "assistant");
+
+    },2000);
+
+    return;
+}
+      add(text,'user');
+window.lastPrompt = text;
+      chatInput.value='';
+     const wait = document.createElement("div");
+
+wait.className = "typing";
+
+wait.innerHTML = `
+<div class="typing-box">
+    <div class="typing-avatar">🤖</div>
+
+    <div class="typing-dots">
+        <span></span>
+        <span></span>
+        <span></span>
+    </div>
+</div>
+`;
+
+messages.appendChild(wait);
+      messages.scrollTop=messages.scrollHeight;
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            messages: [{ role: 'user', content: text }] 
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Unable to get an answer.');
+        
+
+const aiMessage = data.choices[0].message.content;
+add(aiMessage, "assistant");
+      } catch (error) {
+  console.error(error);
+  add(`❌ Error: ${error.message}`, "assistant");
+} finally {
+        wait.remove();
+      }
+    }
+    
     document.querySelectorAll('[data-tool]').forEach(x=>x.addEventListener('click',()=>openChat(x.dataset.tool))); document.querySelector('#close').onclick=()=>modal.classList.remove('show'); modal.onclick=e=>{if(e.target===modal)modal.classList.remove('show')};
-document.querySelector('#chatForm').onsubmit=e=>{e.preventDefault();send(chatInput.value)}; document.querySelector('#quickForm').onsubmit=e=>{e.preventDefault();const q=document.querySelector('#quickInput').value;openChat('AI Chat',q);document.querySelector('#quickInput').value='';};
-const micButton=document.querySelector('#micButton');
-const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
-if(SpeechRecognition){const recognition=new SpeechRecognition();recognition.lang='en-IN';recognition.interimResults=true;recognition.onstart=()=>{micButton.classList.add('listening');chatInput.placeholder='Listening…'};recognition.onresult=e=>{chatInput.value=Array.from(e.results).map(r=>r[0].transcript).join('')};recognition.onend=()=>{micButton.classList.remove('listening');chatInput.placeholder='Message Zyntra AI…'};recognition.onerror=()=>{micButton.classList.remove('listening');chatInput.placeholder='Microphone access was not available.'};micButton.onclick=()=>recognition.start()}else{micButton.onclick=()=>alert('Voice input is supported in Chrome and Microsoft Edge.');}
-
-const aboutBtn = document.getElementById("aboutBtn");const aboutPopup = document.getElementById("aboutPopup");const closeAbout = document.getElementById("closeAbout");
+    document.querySelector('#chatForm').onsubmit=e=>{e.preventDefault();send(chatInput.value)}; document.querySelector('#quickForm').onsubmit=e=>{e.preventDefault();const q=document.querySelector('#quickInput').value;openChat('AI Chat',q);document.querySelector('#quickInput').value='';};
+    const micButton=document.querySelector('#micButton');
+    const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(SpeechRecognition){const recognition=new SpeechRecognition();recognition.lang='en-IN';recognition.interimResults=true;recognition.onstart=()=>{micButton.classList.add('listening');chatInput.placeholder='Listening…'};recognition.onresult=e=>{chatInput.value=Array.from(e.results).map(r=>r[0].transcript).join('')};recognition.onend=()=>{micButton.classList.remove('listening');chatInput.placeholder='Message Zyntra AI…'};recognition.onerror=()=>{micButton.classList.remove('listening');chatInput.placeholder='Microphone access was not available.'};micButton.onclick=()=>recognition.start()}else{micButton.onclick=()=>alert('Voice input is supported in Chrome and Microsoft Edge.');}
+ const aboutBtn = document.getElementById("aboutBtn");
+const aboutPopup = document.getElementById("aboutPopup");
+const closeAbout = document.getElementById("closeAbout");
 
 if (aboutBtn && aboutPopup && closeAbout) {
 
-aboutBtn.addEventListener("click", function () {
-    aboutPopup.style.display = "flex";
-});
+    aboutBtn.addEventListener("click", function () {
+        aboutPopup.style.display = "flex";
+    });
 
-closeAbout.addEventListener("click", function () {
-    aboutPopup.style.display = "none";
-});
-
-aboutPopup.addEventListener("click", function (e) {
-    if (e.target === aboutPopup) {
+    closeAbout.addEventListener("click", function () {
         aboutPopup.style.display = "none";
-    }
-});
+    });
 
-}</script>
+    aboutPopup.addEventListener("click", function (e) {
+        if (e.target === aboutPopup) {
+            aboutPopup.style.display = "none";
+        }
+    });
 
+}
+  </script>
 </body>
 </html>
