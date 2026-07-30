@@ -485,27 +485,38 @@ About
 
         if (text.startsWith("https://")) {
 
-           content.innerHTML = `
-    <img src="${text}"
-         style="
-            width:100%;
-            max-width:512px;
-            border-radius:18px;
-            margin-top:10px;
-            display:block;
-            box-shadow:0 10px 25px rgba(0,0,0,.25);
-         ">
+          content.innerHTML = `
+<img src="${text}"
+style="
+width:100%;
+max-width:512px;
+border-radius:18px;
+margin-top:10px;
+display:block;
+box-shadow:0 10px 25px rgba(0,0,0,.25);
+">
 
-    <div style="margin-top:12px;display:flex;gap:10px;">
+<div style="
+display:flex;
+gap:12px;
+margin-top:15px;
+">
 
-        <a href="${text}"
-           download="zyntra-image.png"
-           target="_blank"
-           class="download-btn">
-            ⬇ Download
-        </a>
+<button class="download-btn"
+onclick="downloadImage('${text}')">
 
-    </div>
+⬇ Download
+
+</button>
+
+<button class="copy-btn"
+onclick="copyPrompt()">
+
+📋 Copy Prompt
+
+</button>
+
+</div>
 `;
         }
 
