@@ -452,93 +452,82 @@ ideas:[
 ]}
     };
     function openChat(tool='AI Chat', first=''){title.textContent=tool;modal.classList.add('show');modal.setAttribute('aria-hidden','false');const setup=toolSetup[tool]||toolSetup['AI Chat'];messages.innerHTML='';add(setup.intro,'assistant');suggestions.innerHTML='';setup.ideas.forEach(idea=>{const button=document.createElement('button');button.textContent=idea;button.onclick=()=>send(idea);suggestions.appendChild(button)});chatInput.focus();if(first)send(first);}
- function add(text, role) {
+function add(text, role) {
+
     const el = document.createElement("div");
     el.className = "message " + role;
 
     const content = document.createElement("div");
+    content.className = "message-content";
     el.appendChild(content);
 
-    messages.appendChild(el);
-    messages.scrollTop = messages.scrollHeight;
-
-    if (role === "assistant") {
-
-    if (text.startsWith("https://image.pollinations.ai")) {
+    // Assistant Image
+    if (
+        role === "assistant" &&
+        text.startsWith("https://image.pollinations.ai")
+    ) {
 
         content.innerHTML = `
-        <img src="${text}"
-             style="
-             width:100%;
-             max-width:512px;
-             border-radius:18px;
-             display:block;
-             margin-top:10px;
-             ">
+            <img src="${text}"
+                 style="
+                    width:100%;
+                    max-width:512px;
+                    border-radius:18px;
+                    margin-top:10px;
+                    display:block;
+                    box-shadow:0 10px 25px rgba(0,0,0,.25);
+                 ">
         `;
-
-    } else {
-
-        let i = 0;
-
-        function typing(){
-
-            if(i <= text.length){
-
-                content.innerHTML =
-                    marked.parse(text.substring(0,i));
-
-                messages.scrollTop = messages.scrollHeight;
-
-                i++;
-
-                setTimeout(typing,12);
-
-            }
-
-        }
-
-        typing();
 
     }
 
-}
-                i++;
-
-                messages.scrollTop = messages.scrollHeight;
-
-                setTimeout(type, 8);
-
-            } else {
-
-                const copyBtn = document.createElement("button");
-
-                copyBtn.innerHTML = "📋 Copy";
-
-                copyBtn.className = "copy-btn";
-
-                copyBtn.onclick = () => {
-                    navigator.clipboard.writeText(text);
-
-                    copyBtn.innerHTML = "✅ Copied";
-
-                    setTimeout(() => {
-                        copyBtn.innerHTML = "📋 Copy";
-                    },2000);
-                };
-
-                el.appendChild(copyBtn);
-
-            }
-        }
-
-        type();
-
-    } else {
+    // Assistant Text
+    else if (role === "assistant") {
 
         content.innerHTML = marked.parse(text);
 
     }
+
+    // User Text
+    else {
+
+        content.textContent = text;
+
+    }
+
+    // Copy Button
+    if (
+        role === "assistant" &&
+        !text.startsWith("https://image.pollinations.ai")
+    ) {
+
+        const copyBtn = document.createElement("button");
+
+        copyBtn.className = "copy-btn";
+        copyBtn.innerHTML = "📋 Copy";
+
+        copyBtn.onclick = () => {
+
+            navigator.clipboard.writeText(text);
+
+            copyBtn.innerHTML = "✅ Copied";
+
+            setTimeout(() => {
+
+                copyBtn.innerHTML = "📋 Copy";
+
+            },2000);
+
+        };
+
+        el.appendChild(copyBtn);
+
+    }
+
+    messages.appendChild(el);
+
+    messages.scrollTop = messages.scrollHeight;
+
 }
     
     async function send(text){
