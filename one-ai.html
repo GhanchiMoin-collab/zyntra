@@ -452,27 +452,43 @@ About
 
     if (role === "assistant") {
 
-        let i = 0;
+    if (text.startsWith("https://image.pollinations.ai")) {
 
-        function type() {
-            if (i < text.length) {
-
-                if (text.startsWith("https://image.pollinations.ai")) {
-
-    content.innerHTML = `
+        content.innerHTML = `
         <img src="${text}"
              style="
-                width:100%;
-                max-width:512px;
-                border-radius:16px;
-                margin-top:10px;
-                box-shadow:0 10px 30px rgba(0,0,0,.35);
+             width:100%;
+             max-width:512px;
+             border-radius:18px;
+             display:block;
+             margin-top:10px;
              ">
-    `;
+        `;
 
-} else {
+    } else {
 
-    content.innerHTML = marked.parse(text);
+        let i = 0;
+
+        function typing(){
+
+            if(i <= text.length){
+
+                content.innerHTML =
+                    marked.parse(text.substring(0,i));
+
+                messages.scrollTop = messages.scrollHeight;
+
+                i++;
+
+                setTimeout(typing,12);
+
+            }
+
+        }
+
+        typing();
+
+    }
 
 }
                 i++;
@@ -517,11 +533,38 @@ About
       if(!text.trim())return;
       if (title.textContent === "Create Image") {
 
+    // Show user's prompt first
+    add(text, "user");
+
+    chatInput.value = "";
+
+    // Show typing animation
+    const wait = document.createElement("div");
+
+    wait.className = "typing";
+
+    wait.innerHTML = `
+    <div class="typing-box">
+        <div class="typing-avatar">🎨</div>
+        <div>Generating image...</div>
+    </div>
+    `;
+
+    messages.appendChild(wait);
+
+    messages.scrollTop = messages.scrollHeight;
+
     const imageUrl =
         "https://image.pollinations.ai/prompt/" +
         encodeURIComponent(text);
 
-    add(imageUrl, "assistant");
+    setTimeout(() => {
+
+        wait.remove();
+
+        add(imageUrl, "assistant");
+
+    },2000);
 
     return;
 }
