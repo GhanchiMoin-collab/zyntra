@@ -13,7 +13,96 @@
 
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
-</head>
+<style>
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:Inter,Arial,sans-serif;
+}
+
+body{
+background:#0b1020;
+color:white;
+}
+
+.topbar{
+display:flex;
+justify-content:space-between;
+align-items:center;
+padding:20px 40px;
+background:#11182d;
+border-bottom:1px solid #222;
+}
+
+.logo{
+display:flex;
+align-items:center;
+gap:12px;
+}
+
+.logo h2{
+font-size:24px;
+}
+
+nav{
+display:flex;
+gap:15px;
+}
+
+nav button{
+padding:10px 18px;
+background:#1b2545;
+border:none;
+border-radius:12px;
+color:white;
+cursor:pointer;
+transition:.25s;
+}
+
+nav button:hover{
+background:#8b5cf6;
+}
+
+.hero{
+padding:60px 20px;
+text-align:center;
+}
+
+.hero h1{
+font-size:48px;
+margin-bottom:15px;
+}
+
+.hero p{
+font-size:20px;
+color:#c7c7d9;
+}
+
+.explore{
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+gap:20px;
+padding:40px;
+}
+
+.card{
+background:#151d34;
+border-radius:20px;
+padding:35px;
+text-align:center;
+font-size:22px;
+cursor:pointer;
+transition:.3s;
+border:1px solid #262f55;
+}
+
+.card:hover{
+transform:translateY(-8px);
+background:#8b5cf6;
+}
+</style>
+\</head>
 
 <body>
 <body>
