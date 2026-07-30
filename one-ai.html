@@ -530,7 +530,6 @@ messages.appendChild(wait);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Unable to get an answer.');
         
-        const aiMessage = data.choices[0].message.content;
 
 const aiMessage = data.choices[0].message.content;
 add(aiMessage, "assistant");
