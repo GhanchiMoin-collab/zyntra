@@ -457,8 +457,24 @@ About
         function type() {
             if (i < text.length) {
 
-                content.innerHTML = marked.parse(text.substring(0, i));
+                if (text.startsWith("https://image.pollinations.ai")) {
 
+    content.innerHTML = `
+        <img src="${text}"
+             style="
+                width:100%;
+                max-width:512px;
+                border-radius:16px;
+                margin-top:10px;
+                box-shadow:0 10px 30px rgba(0,0,0,.35);
+             ">
+    `;
+
+} else {
+
+    content.innerHTML = marked.parse(text);
+
+}
                 i++;
 
                 messages.scrollTop = messages.scrollHeight;
