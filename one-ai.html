@@ -582,7 +582,7 @@ onclick="downloadImage('${text}')">
    async function send(text){
 
     if(!text.trim()) return;
-// VIDEO MODE
+// AI VIDEO
 if(title.textContent === "AI Video"){
 
     add(text,"user");
@@ -596,20 +596,51 @@ if(title.textContent === "AI Video"){
     wait.innerHTML=`
     <div class="typing-box">
         <div class="typing-avatar">🎥</div>
-        <div>Generating video...</div>
-    </div>`;
+        <div>Generating AI video...</div>
+    </div>
+    `;
 
     messages.appendChild(wait);
 
     messages.scrollTop=messages.scrollHeight;
 
-    setTimeout(()=>{
+    try{
+
+        const res=await fetch("/api/video",{
+
+            method:"POST",
+
+            headers:{
+                "Content-Type":"application/json"
+            },
+
+            body:JSON.stringify({
+                prompt:text
+            })
+
+        });
+
+        const data=await res.json();
 
         wait.remove();
 
-        add("🎥 AI Video generation is coming soon! We'll connect a real AI video API next.","assistant");
+        if(data.video){
 
-    },2000);
+            add(data.video,"video");
+
+        }else{
+
+            add("❌ Video generation failed.","assistant");
+
+        }
+
+    }catch(err){
+
+        wait.remove();
+
+        add("❌ "+err.message,"assistant");
+
+    }
 
     return;
 
