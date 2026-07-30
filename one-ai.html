@@ -8,6 +8,7 @@
 
   <meta name="msvalidate.01" content="618FDE382678826B6FA278B896462732" />
 
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
   <style>
     :root { --bg:#080a17; --panel:#121629; --line:#272d4b; --text:#f7f7ff; --muted:#a9afcb; --violet:#8b5cf6; --pink:#ec4899; }
@@ -456,7 +457,7 @@ About
         function type() {
             if (i < text.length) {
 
-                content.textContent += text.charAt(i);
+                content.innerHTML = marked.parse(text.substring(0, i));
 
                 i++;
 
@@ -491,7 +492,7 @@ About
 
     } else {
 
-        content.textContent = text;
+        content.innerHTML = marked.parse(text);
 
     }
 }
