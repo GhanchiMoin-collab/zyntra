@@ -441,175 +441,223 @@ About
     };
     function openChat(tool='AI Chat', first=''){title.textContent=tool;modal.classList.add('show');modal.setAttribute('aria-hidden','false');const setup=toolSetup[tool]||toolSetup['AI Chat'];messages.innerHTML='';add(setup.intro,'assistant');suggestions.innerHTML='';setup.ideas.forEach(idea=>{const button=document.createElement('button');button.textContent=idea;button.onclick=()=>send(idea);suggestions.appendChild(button)});chatInput.focus();if(first)send(first);}
  function add(text, role) {
+
     const el = document.createElement("div");
     el.className = "message " + role;
 
     const content = document.createElement("div");
+    content.className = "message-content";
+
     el.appendChild(content);
 
-    messages.appendChild(el);
-    messages.scrollTop = messages.scrollHeight;
+    // ==========================
+    // USER MESSAGE
+    // ==========================
 
-    if (role === "assistant") {
+    if (role === "user") {
 
-    if (text.startsWith("https://image.pollinations.ai")) {
+        content.textContent = text;
 
-        content.innerHTML = `
-        <img src="${text}"
-             style="
-             width:100%;
-             max-width:512px;
-             border-radius:18px;
-             display:block;
-             margin-top:10px;
-             ">
-        `;
+    }
 
-    } else {
+    // ==========================
+    // ASSISTANT MESSAGE
+    // ==========================
 
-        let i = 0;
+    else {
 
-        function typing(){
+        // IMAGE RESPONSE
 
-            if(i <= text.length){
+        if (text.startsWith("https://")) {
+
+            content.innerHTML = `
+                <img src="${text}"
+                style="
+                    width:100%;
+                    max-width:512px;
+                    border-radius:18px;
+                    margin-top:10px;
+                    display:block;
+                    box-shadow:0 10px 25px rgba(0,0,0,.25);
+                ">
+            `;
+
+        }
+
+        // TEXT RESPONSE
+
+        else {
+
+            let i = 0;
+
+            function typing(){
 
                 content.innerHTML =
                     marked.parse(text.substring(0,i));
 
-                messages.scrollTop = messages.scrollHeight;
+                messages.scrollTop =
+                    messages.scrollHeight;
 
-                i++;
+                if(i < text.length){
 
-                setTimeout(typing,12);
+                    i++;
+
+                    setTimeout(typing,10);
+
+                }else{
+
+                    const copyBtn =
+                        document.createElement("button");
+
+                    copyBtn.className =
+                        "copy-btn";
+
+                    copyBtn.innerHTML =
+                        "📋 Copy";
+
+                    copyBtn.onclick = ()=>{
+
+                        navigator.clipboard.writeText(text);
+
+                        copyBtn.innerHTML =
+                            "✅ Copied";
+
+                        setTimeout(()=>{
+
+                            copyBtn.innerHTML =
+                                "📋 Copy";
+
+                        },2000);
+
+                    };
+
+                    el.appendChild(copyBtn);
+
+                }
 
             }
 
-        }
+            typing();
 
-        typing();
+        }
 
     }
 
-}
-                i++;
+    messages.appendChild(el);
 
-                messages.scrollTop = messages.scrollHeight;
+    messages.scrollTop = messages.scrollHeight;
 
-                setTimeout(type, 8);
-
-            } else {
-
-                const copyBtn = document.createElement("button");
-
-                copyBtn.innerHTML = "📋 Copy";
-
-                copyBtn.className = "copy-btn";
-
-                copyBtn.onclick = () => {
-                    navigator.clipboard.writeText(text);
-
-                    copyBtn.innerHTML = "✅ Copied";
-
-                    setTimeout(() => {
-                        copyBtn.innerHTML = "📋 Copy";
-                    },2000);
-                };
-
-                el.appendChild(copyBtn);
-
-            }
-        }
-
-        type();
-
-    } else {
-
-        content.innerHTML = marked.parse(text);
-
-    }
 }
     
-    async function send(text){
-      if(!text.trim())return;
-      if (title.textContent === "Create Image") {
+   async function send(text){
 
-    // Show user's prompt first
-    add(text, "user");
+    if(!text.trim()) return;
+
+    // IMAGE MODE
+    if(title.textContent === "Create Image"){
+
+        add(text,"user");
+
+        chatInput.value = "";
+
+        const wait = document.createElement("div");
+
+        wait.className = "typing";
+
+        wait.innerHTML = `
+        <div class="typing-box">
+            <div class="typing-avatar">🎨</div>
+            <div>Generating image...</div>
+        </div>`;
+
+        messages.appendChild(wait);
+
+        messages.scrollTop = messages.scrollHeight;
+
+        const imageUrl =
+            "https://image.pollinations.ai/prompt/" +
+            encodeURIComponent(text);
+
+        setTimeout(()=>{
+
+            wait.remove();
+
+            add(imageUrl,"assistant");
+
+        },2000);
+
+        return;
+    }
+
+    // NORMAL CHAT
+    add(text,"user");
 
     chatInput.value = "";
 
-    // Show typing animation
     const wait = document.createElement("div");
 
     wait.className = "typing";
 
     wait.innerHTML = `
     <div class="typing-box">
-        <div class="typing-avatar">🎨</div>
-        <div>Generating image...</div>
-    </div>
-    `;
+        <div class="typing-avatar">🤖</div>
+        <div class="typing-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+    </div>`;
 
     messages.appendChild(wait);
 
     messages.scrollTop = messages.scrollHeight;
 
-    const imageUrl =
-        "https://image.pollinations.ai/prompt/" +
-        encodeURIComponent(text);
+    try{
 
-    setTimeout(() => {
-
-        wait.remove();
-
-        add(imageUrl, "assistant");
-
-    },2000);
-
-    return;
-}
-      add(text,'user');
-window.lastPrompt = text;
-      chatInput.value='';
-     const wait = document.createElement("div");
-
-wait.className = "typing";
-
-wait.innerHTML = `
-<div class="typing-box">
-    <div class="typing-avatar">🤖</div>
-
-    <div class="typing-dots">
-        <span></span>
-        <span></span>
-        <span></span>
-    </div>
-</div>
-`;
-
-messages.appendChild(wait);
-      messages.scrollTop=messages.scrollHeight;
-      try {
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            messages: [{ role: 'user', content: text }] 
-          })
+        const res = await fetch("/api/chat",{
+            method:"POST",
+            headers:{
+                "Content-Type":"application/json"
+            },
+            body:JSON.stringify({
+                messages:[
+                    {
+                        role:"user",
+                        content:text
+                    }
+                ]
+            })
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Unable to get an answer.');
-        
 
-const aiMessage = data.choices[0].message.content;
-add(aiMessage, "assistant");
-      } catch (error) {
-  console.error(error);
-  add(`❌ Error: ${error.message}`, "assistant");
-} finally {
+        const data = await res.json();
+
+        if(!res.ok){
+
+            throw new Error(
+                data.error || "Unable to get an answer."
+            );
+
+        }
+
         wait.remove();
-      }
+
+        add(
+            data.choices[0].message.content,
+            "assistant"
+        );
+
+    }catch(error){
+
+        wait.remove();
+
+        add(
+            `❌ Error: ${error.message}`,
+            "assistant"
+        );
+
     }
+
+}
     
     document.querySelectorAll('[data-tool]').forEach(x=>x.addEventListener('click',()=>openChat(x.dataset.tool))); document.querySelector('#close').onclick=()=>modal.classList.remove('show'); modal.onclick=e=>{if(e.target===modal)modal.classList.remove('show')};
     document.querySelector('#chatForm').onsubmit=e=>{e.preventDefault();send(chatInput.value)}; document.querySelector('#quickForm').onsubmit=e=>{e.preventDefault();const q=document.querySelector('#quickInput').value;openChat('AI Chat',q);document.querySelector('#quickInput').value='';};
