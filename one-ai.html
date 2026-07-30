@@ -411,7 +411,7 @@ About
       <button class="card" data-tool="AI Chat"><div class="icon chat">✦</div><h3>AI Chat</h3><p>Ask anything. Get clear answers.</p></button>
       <button class="card" data-tool="Create Image"><div class="icon image">▧</div><h3>Create Image</h3><p>Turn an idea into an image.</p></button>
       <button class="card" data-tool="Study Helper"><div class="icon study">▣</div><h3>Study Helper</h3><p>Learn, explain, and practise.</p></button>
-      <button class="card" data-tool="Write Better"><div class="icon write">✎</div><h3>Write Better</h3><p>Draft, rewrite, and translate.</p></button>
+      <button class="card" data-tool="AI Video"><div class="AI video">🎥</div><h3>AI video</h3><p>Create AI videos from text prompts.</p></button>
       <button class="card" data-tool="Voice Assistant"><div class="icon voice">◉</div><h3>Voice Assistant</h3><p>Speak naturally with Zyntra AI.</p></button>
       <button class="card" data-tool="Business Tools"><div class="icon business">▤</div><h3>Business Tools</h3><p>Ideas, plans, and smart tasks.</p></button>
     </section><footer>Zyntra AI • Your all-in-one assistant</footer>
@@ -450,7 +450,7 @@ About
       'AI Chat':{intro:'Hi! I’m Zyntra AI. Ask me anything.',ideas:['Play game with me','Plan my day','Give me an idea']},
       'Create Image':{intro:'Describe the image you want, including style, colours, and details.',ideas:['A futuristic city at night','A logo for Zyntra AI','A cute cat astronaut']},
       'Study Helper':{intro:'Tell me what you are studying and I’ll help you learn step by step.',ideas:['Explain photosynthesis','Make a maths quiz','Help with English grammar']},
-      'Write Better':{intro:'Paste your writing or tell me what you want to create.',ideas:['Write an email','Improve my paragraph','Translate to Hindi']},
+     'AI Video':{intro:'Describe the video you want to create.',ideas:['Create a cinematic lion walking in snow','Create a futuristic flying city','Create an anime boy walking in the rain']},
       'Voice Assistant':{intro:'Voice mode is coming next. For now, type what you would like to say.',ideas:['Set a reminder idea','Practise English','Tell me a story']},
       'Business Tools':{intro:'Let’s turn your business idea into a plan.',ideas:['Give me startup ideas','Write a business plan','Create a marketing post']}
     };
@@ -582,7 +582,38 @@ onclick="downloadImage('${text}')">
    async function send(text){
 
     if(!text.trim()) return;
+// VIDEO MODE
+if(title.textContent === "AI Video"){
 
+    add(text,"user");
+
+    chatInput.value="";
+
+    const wait=document.createElement("div");
+
+    wait.className="typing";
+
+    wait.innerHTML=`
+    <div class="typing-box">
+        <div class="typing-avatar">🎥</div>
+        <div>Generating video...</div>
+    </div>`;
+
+    messages.appendChild(wait);
+
+    messages.scrollTop=messages.scrollHeight;
+
+    setTimeout(()=>{
+
+        wait.remove();
+
+        add("🎥 AI Video generation is coming soon! We'll connect a real AI video API next.","assistant");
+
+    },2000);
+
+    return;
+
+}
     // IMAGE MODE
     if(title.textContent === "Create Image"){
 
