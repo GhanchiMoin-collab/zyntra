@@ -593,3 +593,61 @@ box-shadow:
 }
 
 }
+/* Floating Cards */
+
+.floating-card{
+    position:absolute;
+    background:rgba(28,32,58,.92);
+    border:1px solid rgba(255,255,255,.08);
+    color:#dfe3ff;
+    padding:14px 22px;
+    border-radius:18px;
+    font-size:18px;
+    font-weight:600;
+    backdrop-filter:blur(10px);
+    box-shadow:0 12px 35px rgba(0,0,0,.35);
+    transition:.3s;
+}
+
+.floating-card:hover{
+    transform:translateY(-5px);
+    border-color:#8b5cf6;
+}
+
+.ai-chat{
+    top:60px;
+    left:20px;
+}
+
+.image{
+    top:160px;
+    right:-20px;
+}
+
+.study{
+    top:280px;
+    left:-40px;
+}
+
+.video{
+    top:360px;
+    right:0;
+}
+
+.voice{
+    top:470px;
+    left:30px;
+}
+
+.business{
+    bottom:30px;
+    right:10px;
+}
+
+@media(max-width:1000px){
+
+.floating-card{
+    display:none;
+}
+
+}
