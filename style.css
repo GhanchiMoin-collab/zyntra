@@ -286,3 +286,76 @@ transform:translateY(-18px);
 }
 
 }
+.rightSide{
+position:relative;
+}
+
+.float{
+
+position:absolute;
+
+display:flex;
+
+align-items:center;
+
+gap:10px;
+
+padding:14px 18px;
+
+background:rgba(18,22,45,.9);
+
+border:1px solid rgba(255,255,255,.08);
+
+border-radius:18px;
+
+backdrop-filter:blur(15px);
+
+box-shadow:0 15px 35px rgba(0,0,0,.35);
+
+font-weight:600;
+
+animation:floatCard 5s ease-in-out infinite;
+
+}
+
+.float span{
+font-size:15px;
+}
+
+.chat{
+top:-10px;
+left:10px;
+}
+
+.image{
+top:70px;
+right:-20px;
+}
+
+.video{
+top:200px;
+right:-40px;
+}
+
+.study{
+bottom:140px;
+left:-30px;
+}
+
+.voice{
+bottom:30px;
+left:40px;
+}
+
+.business{
+bottom:-20px;
+right:20px;
+}
+
+@keyframes floatCard{
+
+50%{
+transform:translateY(-10px);
+}
+
+}
