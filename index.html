@@ -1,252 +1,102 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zyntra AI</title>
 
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>Zyntra AI</title>
-
-<link rel="icon" href="favicon.png">
-
-<link rel="manifest" href="manifest.webmanifest">
-
-<link rel="stylesheet" href="style.css">
-
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-
+    <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
-<div class="bgGlow glow1"></div>
-<div class="bgGlow glow2"></div>
-  
-<div class="backgroundGlow"></div>
 
-<div class="container">
+<header>
 
-<nav>
+    <div class="logo">
+        ✦ Zyntra AI
+    </div>
 
-<div class="logo">
+    <nav>
 
-<div class="logoIcon">
-✦
-</div>
+        <a href="#">Home</a>
+        <a href="pages/chat.html">Chat</a>
+        <a href="pages/image.html">Image</a>
+        <a href="pages/video.html">Video</a>
+        <a href="pages/profile.html">Profile</a>
 
-<h2>Zyntra AI</h2>
+    </nav>
 
-</div>
+</header>
 
-<div class="navButtons">
+<section class="hero">
 
-<button id="aboutBtn">
-About
-</button>
+    <h1>Your Personal AI Assistant</h1>
 
-<button id="profileBtn">
-👤
-</button>
+    <p>
+        Chat, Create Images, Generate Videos,
+        Study Faster and Build Anything with AI.
+    </p>
 
-</div>
+    <div class="search">
 
-</nav>
+        <input
+            type="text"
+            placeholder="Ask Zyntra AI anything..."
+        >
 
-<div class="eyebrow">
-One place. Every possibility.
-</div>
+        <button>
+            Ask AI →
+        </button>
 
-<h1>
-Your ideas,
-<span class="gradient">
-powered by AI.
-</span>
-</h1>
+    </div>
 
-<p>
-Chat, create images, create videos, learn faster,
-write better and build your next big idea.
-</p>
+</section>
 
-<form class="quick">
+<section class="cards">
 
-<input
-id="quickInput"
-placeholder="Ask Zyntra AI anything...">
+    <div class="card">
+        💬
+        <h2>AI Chat</h2>
+        <p>Talk with AI instantly.</p>
+    </div>
 
-<button
-type="button"
-id="askBtn">
+    <div class="card">
+        🖼️
+        <h2>Image Generator</h2>
+        <p>Create beautiful AI images.</p>
+    </div>
 
-Ask AI →
+    <div class="card">
+        🎬
+        <h2>Video Generator</h2>
+        <p>Create AI videos.</p>
+    </div>
 
-</button>
+    <div class="card">
+        📚
+        <h2>Study Helper</h2>
+        <p>Learn anything faster.</p>
+    </div>
 
-</form>
+    <div class="card">
+        🎤
+        <h2>Voice Assistant</h2>
+        <p>Talk naturally.</p>
+    </div>
 
-<h2 class="section-title">
-Explore your tools
-</h2>
+    <div class="card">
+        💼
+        <h2>Business Tools</h2>
+        <p>Grow your business.</p>
+    </div>
 
-<div class="grid">
-
-<button class="card" data-tool="AI Chat">
-<div class="icon chat">💬</div>
-<h3>AI Chat</h3>
-<p>Ask anything. Get clear answers.</p>
-</button>
-
-<button class="card" data-tool="Create Image">
-<div class="icon image">🖼️</div>
-<h3>Create Image</h3>
-<p>Turn ideas into images.</p>
-</button>
-
-<button class="card" data-tool="AI Video">
-<div class="icon video">🎬</div>
-<h3>AI Video</h3>
-<p>Create AI videos from prompts.</p>
-</button>
-
-<button class="card" data-tool="Study Helper">
-<div class="icon study">📚</div>
-<h3>Study Helper</h3>
-<p>Learn anything faster.</p>
-</button>
-
-<button class="card" data-tool="Voice Assistant">
-<div class="icon voice">🎤</div>
-<h3>Voice Assistant</h3>
-<p>Talk naturally with AI.</p>
-</button>
-
-<button class="card" data-tool="Business Tools">
-<div class="icon business">💼</div>
-<h3>Business Tools</h3>
-<p>Grow your business smarter.</p>
-</button>
-
-</div>
+</section>
 
 <footer>
 
-Zyntra AI • Your all-in-one assistant
+    © 2026 Zyntra AI
 
 </footer>
-
-</div>
-
-<!-- About Popup -->
-
-<div class="popup" id="aboutPopup">
-
-<div class="popupCard">
-
-<h2>
-
-About Zyntra AI
-
-</h2>
-
-<p>
-
-Zyntra AI is your personal AI assistant created by Ghanchi Moin.
-
-</p>
-
-<p>
-
-It helps with chatting, images, videos, studying, writing and business.
-
-</p>
-
-<button id="closeAbout">
-
-Close
-
-</button>
-
-</div>
-
-</div>
-
-<!-- Chat Window -->
-
-<div class="chatWindow" id="chatWindow">
-
-<div class="chatBox">
-
-<div class="chatHeader">
-
-<h2 id="toolTitle">
-
-AI Chat
-
-</h2>
-
-<button id="closeChat">
-
-✕
-
-</button>
-
-</div>
-
-<div id="messages" class="messages">
-
-<div class="assistant">
-
-Hi! I'm Zyntra AI. How can I help you today?
-
-</div>
-
-</div>
-
-<div id="suggestions" class="suggestions">
-
-</div>
-
-<div class="modal" id="chatModal">
-
-<div class="chatContainer">
-
-<div class="chatHeader">
-
-<h2 id="toolTitle">AI Chat</h2>
-
-<button id="closeChat">✕</button>
-
-</div>
-
-<div id="messages" class="messages">
-
-<div class="assistant">
-
-Hi! I'm Zyntra AI 👋<br><br>
-How can I help you today?
-
-</div>
-
-</div>
-
-<div class="composer">
-
-<input
-id="chatInput"
-placeholder="Message Zyntra AI...">
-
-<button id="sendButton">
-
-Send →
-
-</button>
-
-</div>
-
-</div>
-
-</div>
 
 <script src="script.js"></script>
 
