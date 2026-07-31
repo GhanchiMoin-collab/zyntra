@@ -150,3 +150,16 @@ async function sendMessage() {
     `;
 
 }
+const sendBtn = document.getElementById("sendMessage");
+
+console.log(sendBtn);
+
+if(sendBtn){
+
+    sendBtn.onclick = function(){
+
+        alert("Send Button Works");
+
+    };
+
+}
