@@ -359,3 +359,85 @@ transform:translateY(-10px);
 }
 
 }
+/* ---------- Premium Background ---------- */
+
+.background{
+position:fixed;
+inset:0;
+overflow:hidden;
+z-index:-2;
+background:#070b18;
+}
+
+.blur{
+position:absolute;
+border-radius:50%;
+filter:blur(120px);
+opacity:.6;
+animation:move 12s ease-in-out infinite;
+}
+
+.blur1{
+width:420px;
+height:420px;
+background:#7d5cff;
+top:-120px;
+right:-100px;
+}
+
+.blur2{
+width:500px;
+height:500px;
+background:#ff5cb5;
+bottom:-200px;
+left:-150px;
+animation-delay:4s;
+}
+
+.grid{
+position:absolute;
+inset:0;
+background-image:
+linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),
+linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);
+background-size:40px 40px;
+opacity:.25;
+}
+
+@keyframes move{
+
+50%{
+transform:translateY(-40px) translateX(30px);
+}
+
+}
+
+/* ---------- Better Orb ---------- */
+
+.orb{
+
+background:
+radial-gradient(circle at 30% 30%,#ffffff55,#8c62ff 35%,#4c28ff 100%);
+
+border:1px solid rgba(255,255,255,.15);
+
+}
+
+/* ---------- Better Floating Cards ---------- */
+
+.float{
+
+transition:.35s;
+
+}
+
+.float:hover{
+
+transform:translateY(-8px) scale(1.05);
+
+border-color:#8b5cf6;
+
+box-shadow:
+0 20px 40px rgba(139,92,246,.35);
+
+}
