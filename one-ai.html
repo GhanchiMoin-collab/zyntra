@@ -8,7 +8,35 @@
 
   <meta name="msvalidate.01" content="618FDE382678826B6FA278B896462732" />
 
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js">
+async function generateVideo(imageUrl){
+ const canvas=document.getElementById("videoCanvas");
+ const ctx=canvas.getContext("2d");
+ canvas.width=1024;canvas.height=1024;
+ const img=new Image();img.crossOrigin="anonymous";
+ img.onload=()=>{
+  const stream=canvas.captureStream(30);
+  const rec=new MediaRecorder(stream,{mimeType:"video/webm"});
+  const chunks=[];
+  rec.ondataavailable=e=>chunks.append(e.data) if False else chunks.append(e.data)
+  rec.onstop=()=>{
+    const blob=new Blob(chunks,{type:"video/webm"});
+    const url=URL.createObjectURL(blob);
+    add(url,"assistant");
+  };
+  rec.start();
+  let f=0;
+  (function anim(){
+    ctx.clearRect(0,0,1024,1024);
+    const s=1+f*0.0015,w=1024*s,h=1024*s;
+    ctx.drawImage(img,-(w-1024)/2,-(h-1024)/2,w,h);
+    if(++f<180) requestAnimationFrame(anim); else rec.stop();
+  })();
+ };
+ img.src=imageUrl;
+}
+
+</script>
 </head>
   <style>
     :root { --bg:#080a17; --panel:#121629; --line:#272d4b; --text:#f7f7ff; --muted:#a9afcb; --violet:#8b5cf6; --pink:#ec4899; }
@@ -538,85 +566,8 @@ else if (text.startsWith("https://")) {
     `;
 
 }
-`;
-async function generateVideo(imageUrl){
-
-    const canvas = document.getElementById("videoCanvas");
-    const ctx = canvas.getContext("2d");
-
-    canvas.width = 1024;
-    canvas.height = 1024;
-
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-
-    img.onload = () => {
-
-        const stream = canvas.captureStream(30);
-
-        const recorder = new MediaRecorder(stream, {
-            mimeType: "video/webm"
-        });
-
-        const chunks = [];
-
-        recorder.ondataavailable = e => chunks.push(e.data);
-
-        recorder.onstop = () => {
-
-            const blob = new Blob(chunks, {
-                type: "video/webm"
-            });
-
-            const url = URL.createObjectURL(blob);
-
-            add(url,"video");
-
-        };
-
-        recorder.start();
-
-        let frame = 0;
-
-        const animate = () => {
-
-            ctx.clearRect(0,0,canvas.width,canvas.height);
-
-            const scale = 1 + frame*0.0015;
-
-            const w = canvas.width*scale;
-            const h = canvas.height*scale;
-
-            ctx.drawImage(
-                img,
-                -(w-canvas.width)/2,
-                -(h-canvas.height)/2,
-                w,
-                h
-            );
-
-            frame++;
-
-            if(frame<180){
-
-                requestAnimationFrame(animate);
-
-            }else{
-
-                recorder.stop();
-
-            }
-
-        };
-
-        animate();
-
-    };
-
-    img.src = imageUrl;
-
+`
 }
-        }
 
         // TEXT RESPONSE
 
@@ -881,7 +832,35 @@ if (aboutBtn && aboutPopup && closeAbout) {
     });
 
 }
-  </script>
+  
+async function generateVideo(imageUrl){
+ const canvas=document.getElementById("videoCanvas");
+ const ctx=canvas.getContext("2d");
+ canvas.width=1024;canvas.height=1024;
+ const img=new Image();img.crossOrigin="anonymous";
+ img.onload=()=>{
+  const stream=canvas.captureStream(30);
+  const rec=new MediaRecorder(stream,{mimeType:"video/webm"});
+  const chunks=[];
+  rec.ondataavailable=e=>chunks.append(e.data) if False else chunks.append(e.data)
+  rec.onstop=()=>{
+    const blob=new Blob(chunks,{type:"video/webm"});
+    const url=URL.createObjectURL(blob);
+    add(url,"assistant");
+  };
+  rec.start();
+  let f=0;
+  (function anim(){
+    ctx.clearRect(0,0,1024,1024);
+    const s=1+f*0.0015,w=1024*s,h=1024*s;
+    ctx.drawImage(img,-(w-1024)/2,-(h-1024)/2,w,h);
+    if(++f<180) requestAnimationFrame(anim); else rec.stop();
+  })();
+ };
+ img.src=imageUrl;
+}
+
+</script>
 <canvas id="videoCanvas"
 style="display:none;"></canvas>
 </body>
