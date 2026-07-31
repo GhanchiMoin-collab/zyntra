@@ -74,3 +74,58 @@ document.addEventListener("keydown", (e) => {
         closeAboutModal();
     }
 });
+// ============================
+// AI CHAT MODAL
+// ============================
+
+const chatModal = document.getElementById("chatModal");
+const closeChat = document.getElementById("closeChat");
+
+// Open chat when AI Chat card is clicked
+document.querySelectorAll(".card").forEach(card => {
+
+    const title = card.querySelector("h2")?.innerText;
+
+    if(title === "AI Chat"){
+
+        card.addEventListener("click",(e)=>{
+            e.preventDefault();
+            chatModal.classList.add("show");
+        });
+
+    }
+
+});
+
+// Open chat when Ask AI button is clicked
+const askBtn = document.querySelector(".hero-search button");
+
+if(askBtn){
+
+    askBtn.addEventListener("click",(e)=>{
+
+        e.preventDefault();
+
+        chatModal.classList.add("show");
+
+    });
+
+}
+
+// Close button
+closeChat.onclick = () => {
+
+    chatModal.classList.remove("show");
+
+};
+
+// Close when clicking outside
+chatModal.onclick = (e)=>{
+
+    if(e.target === chatModal){
+
+        chatModal.classList.remove("show");
+
+    }
+
+};
