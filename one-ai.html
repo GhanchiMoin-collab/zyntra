@@ -359,155 +359,222 @@ About
     };
     function openChat(tool='AI Chat', first=''){title.textContent=tool;modal.classList.add('show');modal.setAttribute('aria-hidden','false');const setup=toolSetup[tool]||toolSetup['AI Chat'];messages.innerHTML='';add(setup.intro,'assistant');suggestions.innerHTML='';setup.ideas.forEach(idea=>{const button=document.createElement('button');button.textContent=idea;button.onclick=()=>send(idea);suggestions.appendChild(button)});chatInput.focus();if(first)send(first);}
  function add(text, role) {
+
     const el = document.createElement("div");
     el.className = "message " + role;
 
-const content = document.createElement("div");
-el.appendChild(content);
+    const content = document.createElement("div");
+    content.className = "message-content";
 
-messages.appendChild(el);
-messages.scrollTop = messages.scrollHeight;
+    el.appendChild(content);
 
-if (role === "assistant") {
+    // ==========================
+    // USER MESSAGE
+    // ==========================
 
-if (text.startsWith("https://image.pollinations.ai")) {
+    if (role === "user") {
 
-    content.innerHTML = `
-    <img src="${text}"
-         style="
-         width:100%;
-         max-width:512px;
-         border-radius:18px;
-         display:block;
-         margin-top:10px;
-         ">
-    `;
+        content.textContent = text;
 
-} else {
+    }
 
-    let i = 0;
+    // ==========================
+    // ASSISTANT MESSAGE
+    // ==========================
 
-    function typing(){
+    else {
 
-        if(i <= text.length){
+        // IMAGE RESPONSE
 
-            content.innerHTML =
-                marked.parse(text.substring(0,i));
+        if (text.startsWith("https://")) {
 
-            messages.scrollTop = messages.scrollHeight;
+            content.innerHTML = `
+                <img src="${text}"
+                style="
+                    width:100%;
+                    max-width:512px;
+                    border-radius:18px;
+                    margin-top:10px;
+                    display:block;
+                    box-shadow:0 10px 25px rgba(0,0,0,.25);
+                ">
+            `;
 
-            i++;
+        }
 
-            setTimeout(typing,12);
+        // TEXT RESPONSE
+
+        else {
+
+            let i = 0;
+
+            function typing(){
+
+                content.innerHTML =
+                    marked.parse(text.substring(0,i));
+
+                messages.scrollTop =
+                    messages.scrollHeight;
+
+                if(i < text.length){
+
+                    i++;
+
+                    setTimeout(typing,10);
+
+                }else{
+
+                    const copyBtn =
+                        document.createElement("button");
+
+                    copyBtn.className =
+                        "copy-btn";
+
+                    copyBtn.innerHTML =
+                        "📋 Copy";
+
+                    copyBtn.onclick = ()=>{
+
+                        navigator.clipboard.writeText(text);
+
+                        copyBtn.innerHTML =
+                            "✅ Copied";
+
+                        setTimeout(()=>{
+
+                            copyBtn.innerHTML =
+                                "📋 Copy";
+
+                        },2000);
+
+                    };
+
+                    el.appendChild(copyBtn);
+
+                }
+
+            }
+
+            typing();
 
         }
 
     }
 
-typing();
+    messages.appendChild(el);
+
+    messages.scrollTop = messages.scrollHeight;
 
 }
-
-}i++;
-
-            messages.scrollTop = messages.scrollHeight;
-
-            setTimeout(type, 8);
-
-        } else {
-
-            const copyBtn = document.createElement("button");
-
-            copyBtn.innerHTML = "📋 Copy";
-
-            copyBtn.className = "copy-btn";
-
-            copyBtn.onclick = () => {
-                navigator.clipboard.writeText(text);
-
-                copyBtn.innerHTML = "✅ Copied";
-
-                setTimeout(() => {
-                    copyBtn.innerHTML = "📋 Copy";
-                },2000);
-            };
-
-            el.appendChild(copyBtn);
-
-        }
-    }
-
-    type();
-
-} else {
-
-    content.innerHTML = marked.parse(text);
-
-}
-
-}
-
 async function send(text){
-  if(!text.trim())return;
-  if (title.textContent === "Create Image") {
 
-// Show user's prompt first
-add(text, "user");
+    if(!text.trim()) return;
 
-chatInput.value = "";
+    // IMAGE MODE
+    if(title.textContent === "Create Image"){
 
-// Show typing animation
-const wait = document.createElement("div");
+        add(text,"user");
 
-wait.className = "typing";
+        chatInput.value = "";
 
-wait.innerHTML = `
-<div class="typing-box">
-    <div class="typing-avatar">🎨</div>
-    <div>Generating image...</div>
-</div>
-`;
+        const wait = document.createElement("div");
 
-messages.appendChild(wait);
+        wait.className = "typing";
 
-messages.scrollTop = messages.scrollHeight;
+        wait.innerHTML = `
+        <div class="typing-box">
+            <div class="typing-avatar">🎨</div>
+            <div>Generating image...</div>
+        </div>`;
 
-const imageUrl =
-    "https://image.pollinations.ai/prompt/" +
-    encodeURIComponent(text);
+        messages.appendChild(wait);
 
-setTimeout(() => {
+        messages.scrollTop = messages.scrollHeight;
 
-    wait.remove();
+        const imageUrl =
+            "https://image.pollinations.ai/prompt/" +
+            encodeURIComponent(text);
 
-    add(imageUrl, "assistant");
+        setTimeout(()=>{
 
-},2000);
+            wait.remove();
 
-return;
+            add(imageUrl,"assistant");
 
-}add(text,'user');window.lastPrompt = text;chatInput.value='';const wait = document.createElement("div");
+        },2000);
 
-wait.className = "typing";
+        return;
+    }
 
-wait.innerHTML = `
+    // NORMAL CHAT
+    add(text,"user");
 
-<div class="typing-box">
-    <div class="typing-avatar">🤖</div>
+    chatInput.value = "";
 
-<div class="typing-dots">
-    <span></span>
-    <span></span>
-    <span></span>
-</div>
+    const wait = document.createElement("div");
 
-</div>
-`;
+    wait.className = "typing";
 
-messages.appendChild(wait);messages.scrollTop=messages.scrollHeight;try {const res = await fetch('/api/chat', {method: 'POST',headers: { 'Content-Type': 'application/json' },body: JSON.stringify({messages: [{ role: 'user', content: text }]})});const data = await res.json();if (!res.ok) throw new Error(data.error || 'Unable to get an answer.');
+    wait.innerHTML = `
+    <div class="typing-box">
+        <div class="typing-avatar">🤖</div>
+        <div class="typing-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+    </div>`;
 
-const aiMessage = data.choices[0].message.content;add(aiMessage, "assistant");} catch (error) {console.error(error);add(❌ Error: ${error.message}, "assistant");} finally {wait.remove();}}
+    messages.appendChild(wait);
 
+    messages.scrollTop = messages.scrollHeight;
+
+    try{
+
+        const res = await fetch("/api/chat",{
+            method:"POST",
+            headers:{
+                "Content-Type":"application/json"
+            },
+            body:JSON.stringify({
+                messages:[
+                    {
+                        role:"user",
+                        content:text
+                    }
+                ]
+            })
+        });
+
+        const data = await res.json();
+
+        if(!res.ok){
+
+            throw new Error(
+                data.error || "Unable to get an answer."
+            );
+
+        }
+
+        wait.remove();
+
+        add(
+            data.choices[0].message.content,
+            "assistant"
+        );
+
+    }catch(error){
+
+        wait.remove();
+
+        add(
+            `❌ Error: ${error.message}`,
+            "assistant"
+        );
+
+    }
+
+}
 document.querySelectorAll('[data-tool]').forEach(x=>x.addEventListener('click',()=>openChat(x.dataset.tool))); document.querySelector('#close').onclick=()=>modal.classList.remove('show'); modal.onclick=e=>{if(e.target===modal)modal.classList.remove('show')};
 document.querySelector('#chatForm').onsubmit=e=>{e.preventDefault();send(chatInput.value)}; document.querySelector('#quickForm').onsubmit=e=>{e.preventDefault();const q=document.querySelector('#quickInput').value;openChat('AI Chat',q);document.querySelector('#quickInput').value='';};
 const micButton=document.querySelector('#micButton');
