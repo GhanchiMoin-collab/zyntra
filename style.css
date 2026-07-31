@@ -440,3 +440,156 @@ box-shadow:
 0 20px 40px rgba(139,92,246,.35);
 
 }
+/* ===========================
+   PREMIUM HERO SECTION
+=========================== */
+
+.hero{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:80px;
+    min-height:85vh;
+    padding:60px 0;
+}
+
+.hero-left{
+    flex:1;
+    max-width:650px;
+}
+
+.tag{
+    display:inline-block;
+    color:#b56dff;
+    letter-spacing:4px;
+    font-size:15px;
+    font-weight:700;
+    margin-bottom:25px;
+}
+
+.hero h1{
+    font-size:88px;
+    line-height:0.95;
+    margin:0;
+    font-weight:900;
+    color:white;
+}
+
+.hero h1 span{
+    background:linear-gradient(90deg,#7c5cff,#ff6bb6);
+    -webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;
+}
+
+.hero p{
+    margin-top:28px;
+    font-size:26px;
+    color:#c7c9e8;
+    line-height:1.6;
+}
+
+.hero-search{
+    margin-top:45px;
+    display:flex;
+    background:#15182d;
+    border:1px solid #2c3158;
+    border-radius:24px;
+    padding:10px;
+    box-shadow:0 20px 60px rgba(0,0,0,.35);
+}
+
+.hero-search input{
+    flex:1;
+    background:none;
+    border:none;
+    outline:none;
+    color:white;
+    font-size:20px;
+    padding:18px;
+}
+
+.hero-search input::placeholder{
+    color:#8b90b5;
+}
+
+.hero-search button{
+    padding:18px 34px;
+    border:none;
+    border-radius:18px;
+    font-size:19px;
+    font-weight:700;
+    color:white;
+    cursor:pointer;
+    background:linear-gradient(135deg,#7c5cff,#ff5fb8);
+    transition:.3s;
+}
+
+.hero-search button:hover{
+    transform:translateY(-2px);
+    box-shadow:0 15px 35px rgba(124,92,255,.45);
+}
+
+/* RIGHT SIDE */
+
+.hero-right{
+    flex:1;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    position:relative;
+}
+
+.glow-circle{
+    width:470px;
+    height:470px;
+    border-radius:50%;
+    background:linear-gradient(135deg,#7c5cff,#4f2dff);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    box-shadow:
+        0 0 120px rgba(124,92,255,.65),
+        inset 0 0 60px rgba(255,255,255,.12);
+}
+
+.star{
+    font-size:150px;
+    color:white;
+}
+
+/* MOBILE */
+
+@media(max-width:1000px){
+
+.hero{
+    flex-direction:column;
+    text-align:center;
+}
+
+.hero h1{
+    font-size:58px;
+}
+
+.hero p{
+    font-size:20px;
+}
+
+.glow-circle{
+    width:320px;
+    height:320px;
+}
+
+.star{
+    font-size:90px;
+}
+
+.hero-search{
+    flex-direction:column;
+    gap:10px;
+}
+
+.hero-search button{
+    width:100%;
+}
+
+}
