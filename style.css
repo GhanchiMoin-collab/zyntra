@@ -666,17 +666,10 @@ footer{ padding:40px 24px; }
 /* ================= CHAT MODAL ================= */
 
 .chat-modal{
-
     display:none;
-
     position:fixed;
-
     inset:0;
-
-    pointer-events:none;
-
     z-index:9999;
-
 }
 
 .chat-modal.show{
