@@ -37,7 +37,6 @@ document.querySelector(".hero-search button").onclick = () => {
         return;
     }
     localStorage.setItem("question",question);
-    window.location.href="pages/chat.html";
 };
 
 // ==========================
