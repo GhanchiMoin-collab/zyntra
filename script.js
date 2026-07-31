@@ -124,17 +124,14 @@ chatModal.onclick = (e)=>{
 // =========================
 
 const sendBtn = document.getElementById("sendMessage");
-const input = document.getElementById("userInput");
-const messages = document.getElementById("chatMessages");
 
-sendBtn.addEventListener("click", sendMessage);
+console.log(sendBtn);
 
-input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-        sendMessage();
-    }
-});
-
+if(sendBtn){
+    sendBtn.onclick = () => {
+        alert("Send Button Works");
+    };
+}
 async function sendMessage() {
 
     const text = input.value.trim();
