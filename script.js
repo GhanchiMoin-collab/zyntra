@@ -118,3 +118,38 @@ chatModal.onclick = (e)=>{
     }
 
 };
+// =========================
+// SEND MESSAGE
+// =========================
+
+const sendBtn = document.getElementById("sendMessage");
+const input = document.getElementById("userInput");
+const messages = document.getElementById("chatMessages");
+
+sendBtn.addEventListener("click", sendMessage);
+
+input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+        sendMessage();
+    }
+});
+
+async function sendMessage() {
+
+    const text = input.value.trim();
+
+    if (!text) return;
+
+    messages.innerHTML += `
+        <div class="user-message">${text}</div>
+    `;
+
+    input.value = "";
+
+    messages.scrollTop = messages.scrollHeight;
+
+    messages.innerHTML += `
+        <div class="ai-message">Thinking...</div>
+    `;
+
+}
