@@ -592,53 +592,53 @@ box-shadow:
 
 }
 /* Floating Cards */
-
 .floating-card{
     position:absolute;
-    background:rgba(28,32,58,.92);
+    background:rgba(22,28,50,.92);
     border:1px solid rgba(255,255,255,.08);
-    color:#dfe3ff;
-    padding:14px 22px;
-    border-radius:18px;
-    font-size:18px;
+    color:#e5e7ff;
+    padding:10px 16px;
+    border-radius:16px;
+    font-size:15px;
     font-weight:600;
-    backdrop-filter:blur(10px);
-    box-shadow:0 12px 35px rgba(0,0,0,.35);
+    backdrop-filter:blur(12px);
+    box-shadow:0 10px 25px rgba(0,0,0,.35);
     transition:.3s;
+    white-space:nowrap;
 }
 
 .floating-card:hover{
-    transform:translateY(-5px);
+    transform:translateY(-4px);
     border-color:#8b5cf6;
 }
 
 .ai-chat{
-    top:60px;
-    left:20px;
+    top:35px;
+    left:0;
 }
 
 .image{
-    top:160px;
+    top:120px;
     right:-20px;
 }
 
 .study{
-    top:280px;
-    left:-40px;
+    top:210px;
+    left:-35px;
 }
 
 .video{
-    top:360px;
-    right:0;
+    top:290px;
+    right:-10px;
 }
 
 .voice{
-    top:470px;
-    left:30px;
+    top:360px;
+    left:20px;
 }
 
 .business{
-    bottom:30px;
+    top:430px;
     right:10px;
 }
 
