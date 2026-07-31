@@ -39,3 +39,38 @@ document.querySelector(".hero-search button").onclick = () => {
     localStorage.setItem("question",question);
     window.location.href="pages/chat.html";
 };
+
+// ==========================
+// About popup modal
+// ==========================
+const aboutModal = document.getElementById("aboutModal");
+const aboutBtn = document.getElementById("aboutBtn");
+const aboutBtnFooter = document.getElementById("aboutBtnFooter");
+const aboutClose = document.getElementById("aboutClose");
+
+function openAboutModal(e){
+    e.preventDefault();
+    aboutModal.classList.add("show");
+}
+
+function closeAboutModal(){
+    aboutModal.classList.remove("show");
+}
+
+if(aboutBtn) aboutBtn.addEventListener("click", openAboutModal);
+if(aboutBtnFooter) aboutBtnFooter.addEventListener("click", openAboutModal);
+if(aboutClose) aboutClose.addEventListener("click", closeAboutModal);
+
+// close when clicking outside the box
+aboutModal.addEventListener("click", (e) => {
+    if(e.target === aboutModal){
+        closeAboutModal();
+    }
+});
+
+// close on Escape key
+document.addEventListener("keydown", (e) => {
+    if(e.key === "Escape"){
+        closeAboutModal();
+    }
+});
