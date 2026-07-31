@@ -118,3 +118,12 @@ chatModal.onclick = (e)=>{
     }
 
 };
+chatModal.onclick = (e)=>{
+
+    if(e.target === chatModal){
+
+        chatModal.classList.remove("show");
+
+    }
+
+};
