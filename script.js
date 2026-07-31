@@ -2,30 +2,20 @@
 // Zyntra AI Homepage
 // ==========================
 const cards = document.querySelectorAll(".card");
-cards.forEach(card => {
+document.querySelectorAll(".card").forEach(card => {
+
     card.addEventListener("click", () => {
+
         const title = card.querySelector("h2").innerText;
-        switch(title){
-            case "AI Chat":
-                window.location.href="pages/chat.html";
-                break;
-            case "Image Generator":
-                window.location.href="pages/image.html";
-                break;
-            case "Video Generator":
-                window.location.href="pages/video.html";
-                break;
-            case "Study Helper":
-                window.location.href="pages/study.html";
-                break;
-            case "Voice Assistant":
-                window.location.href="pages/voice.html";
-                break;
-            case "Business Tools":
-                window.location.href="pages/business.html";
-                break;
+
+        if(title === "AI Chat"){
+
+            document.getElementById("chatModal").classList.add("show");
+
         }
+
     });
+
 });
 
 // Ask AI button
