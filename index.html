@@ -1,1 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
 
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Zyntra AI</title>
+
+<link rel="icon" href="favicon.png">
+
+<link rel="manifest" href="manifest.webmanifest">
+
+<link rel="stylesheet" href="style.css">
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+</head>
+
+<body>
+
+<div class="backgroundGlow"></div>
+
+<div class="container">
+
+<nav>
+
+<div class="logo">
+
+<div class="logoIcon">
+✦
+</div>
+
+<h2>Zyntra AI</h2>
+
+</div>
+
+<div class="navButtons">
+
+<button id="aboutBtn">
+About
+</button>
+
+<button id="profileBtn">
+👤
+</button>
+
+</div>
+
+</nav>
+
+<header class="hero">
+
+<p class="smallTitle">
+One place. Every possibility.
+</p>
+
+<h1>
+
+Your ideas,
+
+<span>
+powered by AI.
+</span>
+
+</h1>
+
+<p class="heroText">
+
+Chat, create images, create videos, learn faster, write better and build your next big idea.
+
+</p>
+
+<div class="quickSearch">
+
+<input
+id="quickInput"
+placeholder="Ask Zyntra AI anything..."
+autocomplete="off">
+
+<button id="askBtn">
+
+Ask AI →
+
+</button>
+
+</div>
+
+</header>
+
+<section class="tools">
+
+<h2>
+
+Explore your tools
+
+</h2>
+
+<div class="toolGrid">
+
+<div class="card" data-tool="AI Chat">
+
+<div class="icon">
+💬
+</div>
+
+<h3>AI Chat</h3>
+
+<p>
+
+Ask anything. Get instant answers.
+
+</p>
+
+</div>
+
+<div class="card" data-tool="Create Image">
+
+<div class="icon">
+🖼️
+</div>
+
+<h3>Create Image</h3>
+
+<p>
+
+Generate beautiful AI images.
+
+</p>
+
+</div>
+
+<div class="card" data-tool="AI Video">
+
+<div class="icon">
+🎬
+</div>
+
+<h3>AI Video</h3>
+
+<p>
+
+Create AI videos from prompts.
+
+</p>
+
+</div>
+
+<div class="card" data-tool="Study Helper">
+
+<div class="icon">
+📚
+</div>
+
+<h3>Study Helper</h3>
+
+<p>
+
+Learn faster with AI.
+
+</p>
+
+</div>
+
+<div class="card" data-tool="Voice Assistant">
+
+<div class="icon">
+🎤
+</div>
+
+<h3>Voice Assistant</h3>
+
+<p>
+
+Talk naturally with Zyntra.
+
+</p>
+
+</div>
+
+<div class="card" data-tool="Business Tools">
+
+<div class="icon">
+💼
+</div>
+
+<h3>Business Tools</h3>
+
+<p>
+
+Ideas, plans and marketing.
+
+</p>
+
+</div>
+
+</div>
+
+</section>
+
+<footer>
+
+Zyntra AI • Your all-in-one assistant
+
+</footer>
+
+</div>
+
+<!-- About Popup -->
+
+<div class="popup" id="aboutPopup">
+
+<div class="popupCard">
+
+<h2>
+
+About Zyntra AI
+
+</h2>
+
+<p>
+
+Zyntra AI is your personal AI assistant created by Ghanchi Moin.
+
+</p>
+
+<p>
+
+It helps with chatting, images, videos, studying, writing and business.
+
+</p>
+
+<button id="closeAbout">
+
+Close
+
+</button>
+
+</div>
+
+</div>
+
+<!-- Chat Window -->
+
+<div class="chatWindow" id="chatWindow">
+
+<div class="chatBox">
+
+<div class="chatHeader">
+
+<h2 id="toolTitle">
+
+AI Chat
+
+</h2>
+
+<button id="closeChat">
+
+✕
+
+</button>
+
+</div>
+
+<div id="messages" class="messages">
+
+<div class="assistant">
+
+Hi! I'm Zyntra AI. How can I help you today?
+
+</div>
+
+</div>
+
+<div id="suggestions" class="suggestions">
+
+</div>
+
+<div class="composer">
+
+<input
+id="chatInput"
+placeholder="Message Zyntra AI...">
+
+<button id="micButton">
+
+🎤
+
+</button>
+
+<button id="sendButton">
+
+Send
+
+</button>
+
+</div>
+
+</div>
+
+</div>
+
+<script src="script.js"></script>
+
+</body>
+</html>
