@@ -649,3 +649,140 @@ box-shadow:
 }
 
 }
+/* ================= HERO RIGHT ================= */
+
+.hero-right{
+    position:relative;
+    width:520px;
+    height:520px;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+}
+
+/* AI CORE */
+
+.ai-core{
+    width:320px;
+    height:320px;
+    border-radius:50%;
+    background:radial-gradient(circle at 30% 30%,#a855f7,#6d28d9,#4338ca);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    position:relative;
+    box-shadow:
+        0 0 100px rgba(139,92,246,.45),
+        inset 0 0 50px rgba(255,255,255,.08);
+    z-index:10;
+}
+
+.core-star{
+    font-size:90px;
+    color:white;
+    text-shadow:0 0 30px white;
+}
+
+/* ORBITS */
+
+.orbit{
+    position:absolute;
+    border:1px solid rgba(139,92,246,.35);
+    border-radius:50%;
+}
+
+.orbit1{
+    width:410px;
+    height:230px;
+    transform:rotate(15deg);
+}
+
+.orbit2{
+    width:430px;
+    height:260px;
+    transform:rotate(-25deg);
+}
+
+.orbit3{
+    width:380px;
+    height:300px;
+    transform:rotate(60deg);
+}
+
+/* TOOLS */
+
+.tool{
+    position:absolute;
+    background:rgba(25,28,52,.96);
+    border:1px solid rgba(255,255,255,.08);
+    color:white;
+    padding:12px 18px;
+    border-radius:18px;
+    font-size:15px;
+    font-weight:600;
+    backdrop-filter:blur(18px);
+    box-shadow:0 10px 30px rgba(0,0,0,.35);
+    transition:.3s;
+    white-space:nowrap;
+}
+
+.tool:hover{
+    transform:translateY(-4px);
+    border-color:#8b5cf6;
+}
+
+/* POSITIONS */
+
+.ai-chat{
+    top:55px;
+    left:35px;
+}
+
+.img{
+    top:45px;
+    right:30px;
+}
+
+.study{
+    top:185px;
+    left:0;
+}
+
+.video{
+    top:185px;
+    right:0;
+}
+
+.voice{
+    bottom:120px;
+    left:70px;
+}
+
+.business{
+    bottom:70px;
+    right:40px;
+}
+
+/* STARS */
+
+.star{
+    position:absolute;
+    width:5px;
+    height:5px;
+    background:#b57cff;
+    border-radius:50%;
+    box-shadow:0 0 12px #b57cff;
+}
+
+.s1{top:95px;left:170px;}
+.s2{top:125px;right:165px;}
+.s3{bottom:155px;left:155px;}
+.s4{bottom:125px;right:165px;}
+
+@media(max-width:1000px){
+
+.hero-right{
+display:none;
+}
+
+}
