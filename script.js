@@ -1,61 +1,64 @@
-// About Button
-const aboutBtn = document.getElementById("aboutBtn");
+// ==========================
+// Zyntra AI Homepage
+// ==========================
 
-aboutBtn.addEventListener("click", () => {
-    alert("Zyntra AI\n\nCreated by Ghanchi Moin");
-});
+const cards = document.querySelectorAll(".card");
 
-// Ask AI Button
-document.getElementById("askBtn").addEventListener("click", () => {
-
-    const text = document.getElementById("quickInput").value.trim();
-
-    if (text === "") {
-        alert("Please type something.");
-        return;
-    }
-
-    alert("You asked:\n\n" + text);
-});
-
-// Tool Cards
-document.querySelectorAll(".card").forEach(card => {
+cards.forEach(card => {
 
     card.addEventListener("click", () => {
 
-        const tool = card.dataset.tool;
+        const title = card.querySelector("h2").innerText;
 
-        switch(tool){
+        switch(title){
 
             case "AI Chat":
-                alert("Opening AI Chat...");
+                window.location.href="pages/chat.html";
                 break;
 
-            case "Create Image":
-                alert("Opening Image Generator...");
+            case "Image Generator":
+                window.location.href="pages/image.html";
                 break;
 
-            case "AI Video":
-                alert("Opening AI Video...");
+            case "Video Generator":
+                window.location.href="pages/video.html";
                 break;
 
             case "Study Helper":
-                alert("Opening Study Helper...");
+                window.location.href="pages/study.html";
                 break;
 
             case "Voice Assistant":
-                alert("Opening Voice Assistant...");
+                window.location.href="pages/voice.html";
                 break;
 
             case "Business Tools":
-                alert("Opening Business Tools...");
+                window.location.href="pages/business.html";
                 break;
-
-            default:
-                alert(tool);
 
         }
 
     });
 
 });
+
+// Ask AI button
+
+document.querySelector(".search button").onclick = () => {
+
+    const question =
+        document.querySelector(".search input").value.trim();
+
+    if(question===""){
+
+        alert("Please enter a question.");
+
+        return;
+
+    }
+
+    localStorage.setItem("question",question);
+
+    window.location.href="pages/chat.html";
+
+};
