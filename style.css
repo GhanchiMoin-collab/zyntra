@@ -530,6 +530,94 @@ nav{ display:none; }
 .footer-top{ flex-direction:column; }
 }
 
+/* ================= ABOUT PAGE ================= */
+
+.about-section{
+max-width:900px;
+margin:auto;
+padding:80px 24px 100px;
+position:relative;
+z-index:1;
+display:flex;
+justify-content:center;
+}
+
+.about-card{
+background:#0e1330;
+border:1px solid #232a4d;
+border-radius:24px;
+padding:56px;
+max-width:720px;
+}
+
+.about-card .tag{
+display:inline-block;
+color:#9d7bff;
+font-size:13px;
+font-weight:700;
+letter-spacing:3px;
+margin-bottom:18px;
+}
+
+.about-card h1{
+font-size:42px;
+font-weight:900;
+letter-spacing:-1px;
+margin-bottom:28px;
+}
+
+.about-card h1 span{
+background:linear-gradient(90deg,#9d7bff,#ff72c8);
+-webkit-background-clip:text;
+-webkit-text-fill-color:transparent;
+}
+
+.about-card p{
+font-size:17px;
+line-height:1.8;
+color:#bfc4df;
+margin-bottom:20px;
+}
+
+.developer-badge{
+margin-top:32px;
+display:flex;
+align-items:center;
+gap:16px;
+padding:18px 22px;
+background:#12172d;
+border:1px solid #2b3154;
+border-radius:16px;
+}
+
+.developer-avatar{
+width:48px;
+height:48px;
+border-radius:50%;
+background:linear-gradient(135deg,#835dff,#ff5cb5);
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:20px;
+flex-shrink:0;
+}
+
+.developer-label{
+font-size:13px;
+color:#9aa0c0;
+}
+
+.developer-name{
+font-size:16px;
+font-weight:700;
+color:white;
+}
+
+@media(max-width:600px){
+.about-card{ padding:32px; }
+.about-card h1{ font-size:32px; }
+}
+
 @media(max-width:600px){
 .cards-grid{ grid-template-columns:repeat(2,1fr); }
 .navbar{ padding:0 24px; }
