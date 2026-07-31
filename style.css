@@ -152,9 +152,9 @@ margin-bottom:25px;
 }
 
 h1{
-
-font-size:82px;
-
+font-size:95px;
+font-weight:800;
+letter-spacing:-3px;
 line-height:1;
 
 margin-bottom:30px;
@@ -173,18 +173,17 @@ background:linear-gradient(90deg,#8f5bff,#ff72c7);
 
 .desc{
 
-font-size:22px;
+font-size:24px;
 
-line-height:1.7;
+line-height:1.8;
 
-color:#b8bdd6;
+color:#bfc5e5;
 
 max-width:650px;
 
-margin-bottom:35px;
+margin-bottom:45px;
 
 }
-
 .search{
 
 display:flex;
