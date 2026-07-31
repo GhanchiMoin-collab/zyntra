@@ -21,7 +21,7 @@
 <a href="#" class="active">Home</a>
 <a href="#tools">Tools</a>
 <a>Pricing</a>
-<a href="#about">About</a>
+<a href="#" id="aboutBtn">About</a>
 </nav>
 <div class="right">
 <button class="signin">Sign In</button>
@@ -121,8 +121,9 @@
     </div>
 </section>
 
-<section class="about-section" id="about">
-    <div class="about-card">
+<div class="modal-overlay" id="aboutModal">
+    <div class="modal-box">
+        <button class="modal-close" id="aboutClose">✕</button>
         <span class="tag">ABOUT ZYNTRA AI</span>
         <h1>About <span>Zyntra AI</span></h1>
 
@@ -140,7 +141,7 @@
             </div>
         </div>
     </div>
-</section>
+</div>
 
 <footer>
   <div class="footer-top">
@@ -158,7 +159,7 @@
 
     <div class="footer-col">
       <h4>Company</h4>
-      <a href="#about">About Us</a>
+      <a href="#" id="aboutBtnFooter">About Us</a>
       <a href="#">Blog</a>
       <a href="#">Careers</a>
     </div>
