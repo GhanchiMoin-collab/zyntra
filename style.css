@@ -120,17 +120,12 @@ cursor:pointer;
 }
 
 .hero{
-
-display:flex;
-
-justify-content:space-between;
-
-align-items:center;
-
-padding:80px 70px;
-
-min-height:calc(100vh - 90px);
-
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:50px;
+    min-height:70vh;
+    padding:30px 0;
 }
 
 .left{
@@ -468,8 +463,8 @@ box-shadow:
 }
 
 .hero h1{
-    font-size:88px;
-    line-height:0.95;
+    font-size:72px;
+    line-height:1;
     margin:0;
     font-weight:900;
     color:white;
@@ -482,20 +477,22 @@ box-shadow:
 }
 
 .hero p{
-    margin-top:28px;
-    font-size:26px;
-    color:#c7c9e8;
-    line-height:1.6;
+    margin-top:22px;
+    max-width:560px;
+    font-size:20px;
+    color:#bfc4df;
+    line-height:1.7;
 }
 
 .hero-search{
-    margin-top:45px;
+    margin-top:35px;
     display:flex;
-    background:#15182d;
-    border:1px solid #2c3158;
-    border-radius:24px;
-    padding:10px;
-    box-shadow:0 20px 60px rgba(0,0,0,.35);
+    align-items:center;
+    background:#14192f;
+    border:1px solid #2b3158;
+    border-radius:20px;
+    padding:8px;
+    max-width:620px;
 }
 
 .hero-search input{
@@ -504,8 +501,8 @@ box-shadow:
     border:none;
     outline:none;
     color:white;
-    font-size:20px;
-    padding:18px;
+    font-size:18px;
+    padding:14px 18px;
 }
 
 .hero-search input::placeholder{
@@ -513,10 +510,10 @@ box-shadow:
 }
 
 .hero-search button{
-    padding:18px 34px;
+    padding:14px 28px;
     border:none;
-    border-radius:18px;
-    font-size:19px;
+    border-radius:16px;
+    font-size:17px;
     font-weight:700;
     color:white;
     cursor:pointer;
