@@ -1,1026 +1,508 @@
-// ==========================
-// Zyntra AI — main script
-// ==========================
-
-// ---------- Helpers ----------
-
-function formatAIText(text){
-    let safe = text
-        .replace(/&/g,"&amp;")
-        .replace(/</g,"&lt;")
-        .replace(/>/g,"&gt;");
-
-    safe = safe.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-
-    const lines = safe.split(/\n+/).filter(l => l.trim() !== "");
-    let html = "";
-    let inList = false;
-
-    lines.forEach(line => {
-        const trimmed = line.trim();
-        if(/^[-*•]\s+/.test(trimmed)){
-            if(!inList){ html += "<ul>"; inList = true; }
-            html += "<li>" + trimmed.replace(/^[-*•]\s+/, "") + "</li>";
-        } else {
-            if(inList){ html += "</ul>"; inList = false; }
-            html += "<p>" + trimmed + "</p>";
-        }
-    });
-    if(inList) html += "</ul>";
-    return html || "<p>" + safe + "</p>";
-}
-
-const FREE_DAILY_LIMIT = 20;
-
-function getTodayCount(){
-    const today = new Date().toISOString().slice(0, 10);
-    const stored = JSON.parse(localStorage.getItem("zyntra-daily-usage") || "{}");
-    return stored.date === today ? (stored.count || 0) : 0;
-}
-
-function incrementTodayCount(){
-    const today = new Date().toISOString().slice(0, 10);
-    const stored = JSON.parse(localStorage.getItem("zyntra-daily-usage") || "{}");
-    const count = (stored.date === today ? stored.count : 0) + 1;
-    localStorage.setItem("zyntra-daily-usage", JSON.stringify({ date: today, count }));
-}
-
-function typeOutText(el, fullText, scrollContainer, onDone){
-    const words = fullText.split(" ");
-    const speed = isPro() ? 8 : 25;
-    let i = 0;
-
-    function step(){
-        i++;
-        el.innerHTML = formatAIText(words.slice(0, i).join(" "));
-        if(scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
-        if(i < words.length){
-            setTimeout(step, speed);
-        } else if(onDone){
-            onDone();
-        }
-    }
-    step();
-}
-
-function addCopyButton(container, textToCopy){
-    const btn = document.createElement("button");
-    btn.className = "copy-btn";
-    btn.textContent = "📋 Copy";
-    btn.addEventListener("click", () => {
-        navigator.clipboard.writeText(textToCopy).then(() => {
-            btn.textContent = "✅ Copied";
-            setTimeout(() => { btn.textContent = "📋 Copy"; }, 1500);
-        });
-    });
-    container.appendChild(btn);
-}
-
-function addReportButton(container, contentToReport){
-    const btn = document.createElement("button");
-    btn.className = "copy-btn report-btn";
-    btn.textContent = "🚩 Report";
-    btn.addEventListener("click", () => {
-        openModal("contactModal");
-        const msgBox = document.getElementById("contactMsg");
-        msgBox.value = 'Reporting AI-generated content:\n\n"' + contentToReport + '"\n\nReason: ';
-        msgBox.focus();
-    });
-    container.appendChild(btn);
-}
-
-async function callChatAPI(messages){
-    const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages })
-    });
-    const data = await res.json();
-    if(!res.ok) throw new Error(data.error || "Request failed");
-    return data.choices[0].message.content;
-}
-
-// ---------- Generic modal open/close ----------
-
-function openModal(id){
-    document.getElementById(id).classList.add("show");
-}
-function closeModal(id){
-    document.getElementById(id).classList.remove("show");
-}
-
-document.querySelectorAll(".modal-overlay").forEach(overlay => {
-    overlay.addEventListener("click", e => {
-        if(e.target === overlay) overlay.classList.remove("show");
-    });
-});
-
-document.addEventListener("keydown", e => {
-    if(e.key === "Escape"){
-        document.querySelectorAll(".modal-overlay.show").forEach(m => m.classList.remove("show"));
-        chatModal.classList.remove("show");
-    }
-});
-
-// ---------- About modal ----------
-
-const aboutModal = document.getElementById("aboutModal");
-document.getElementById("aboutBtn")?.addEventListener("click", e => { e.preventDefault(); openModal("aboutModal"); });
-document.getElementById("aboutBtnFooter")?.addEventListener("click", e => { e.preventDefault(); openModal("aboutModal"); });
-document.getElementById("aboutClose")?.addEventListener("click", () => closeModal("aboutModal"));
-
-// ---------- Pricing modal ----------
-
-document.getElementById("pricingBtn")?.addEventListener("click", e => { e.preventDefault(); openModal("pricingModal"); });
-document.getElementById("pricingBtnFooter")?.addEventListener("click", e => { e.preventDefault(); openModal("pricingModal"); });
-document.getElementById("pricingModalClose")?.addEventListener("click", () => closeModal("pricingModal"));
-
-// ---------- Privacy Policy modal ----------
-
-document.getElementById("privacyBtn")?.addEventListener("click", e => {
-    e.preventDefault();
-    openModal("privacyModal");
-});
-document.getElementById("privacyModalClose")?.addEventListener("click", () => closeModal("privacyModal"));
-
-if(window.location.hash === "#privacy"){
-    openModal("privacyModal");
-}
-
-// ---------- Pricing / Stripe checkout ----------
-
-const PRO_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 1 month
-
-function getProRecord(email){
-    const accounts = JSON.parse(localStorage.getItem("zyntra-pro-accounts") || "{}");
-    return accounts[email] || null;
-}
-
-function saveProRecord(email, record){
-    const accounts = JSON.parse(localStorage.getItem("zyntra-pro-accounts") || "{}");
-    accounts[email] = record;
-    localStorage.setItem("zyntra-pro-accounts", JSON.stringify(accounts));
-}
-
-function markCurrentUserPro(){
-    const email = localStorage.getItem("zyntra-user");
-    if(!email) return;
-    saveProRecord(email, { purchasedAt: Date.now(), notified: false });
-}
-
-function isPro(){
-    const email = localStorage.getItem("zyntra-user");
-    if(!email) return false;
-    const record = getProRecord(email);
-    if(!record) return false;
-    return (Date.now() - record.purchasedAt) < PRO_DURATION_MS;
-}
-
-function checkProExpiry(){
-    const email = localStorage.getItem("zyntra-user");
-    if(!email) return;
-    const record = getProRecord(email);
-    if(!record) return;
-    const expired = (Date.now() - record.purchasedAt) >= PRO_DURATION_MS;
-    if(expired && !record.notified){
-        record.notified = true;
-        saveProRecord(email, record);
-        openModal("proExpiredModal");
-    }
-}
-
-document.getElementById("proExpiredOkBtn")?.addEventListener("click", () => {
-    closeModal("proExpiredModal");
-    renderPlanUI();
-    openModal("pricingModal");
-});
-
-function renderPlanUI(){
-    const badge = document.getElementById("proBadge");
-    const getProBtn = document.getElementById("getProBtn");
-    if(isPro()){
-        badge.style.display = "inline";
-        getProBtn.textContent = "You're on Pro ✓";
-        getProBtn.disabled = true;
-        getProBtn.style.opacity = "0.7";
-        getProBtn.style.cursor = "default";
-    } else if(!isLoggedIn()){
-        badge.style.display = "none";
-        getProBtn.textContent = "Sign In to Upgrade";
-        getProBtn.disabled = false;
-        getProBtn.style.opacity = "1";
-        getProBtn.style.cursor = "pointer";
-    } else {
-        badge.style.display = "none";
-        getProBtn.textContent = "Get Pro";
-        getProBtn.disabled = false;
-        getProBtn.style.opacity = "1";
-        getProBtn.style.cursor = "pointer";
-    }
-}
-
-document.getElementById("getProBtn")?.addEventListener("click", async () => {
-    if(isPro()) return;
-
-    if(!isLoggedIn()){
-        closeModal("pricingModal");
-        document.getElementById("signinContext").style.display = "block";
-        openModal("signinModal");
-        return;
-    }
-
-    const btn = document.getElementById("getProBtn");
-    const original = btn.textContent;
-    btn.textContent = "Redirecting to Stripe...";
-    btn.disabled = true;
-
-    try{
-        const res = await fetch("/api/checkout", { method: "POST" });
-        const data = await res.json();
-        if(data.url){
-            window.location.href = data.url;
-        } else {
-            alert("Could not start checkout. Please try again.");
-            btn.textContent = original;
-            btn.disabled = false;
-        }
-    }catch(err){
-        alert("Could not start checkout. Please try again.");
-        btn.textContent = original;
-        btn.disabled = false;
-    }
-});
-
-const urlParams = new URLSearchParams(window.location.search);
-if(urlParams.get("payment") === "success"){
-    markCurrentUserPro();
-    alert("🎉 Payment successful! You're now on Zyntra AI Pro.");
-    window.history.replaceState({}, "", window.location.pathname);
-    openModal("pricingModal");
-} else if(urlParams.get("payment") === "cancelled"){
-    window.history.replaceState({}, "", window.location.pathname);
-}
-
-renderPlanUI();
-
-["contactBtn","contactBtnFooter","contactBtnFooter2","contactBtnFooter3"].forEach(id => {
-    document.getElementById(id)?.addEventListener("click", e => { e.preventDefault(); openModal("contactModal"); });
-});
-document.getElementById("contactModalClose")?.addEventListener("click", () => closeModal("contactModal"));
-document.getElementById("contactSubmit")?.addEventListener("click", async () => {
-    const name = document.getElementById("contactName").value.trim();
-    const email = document.getElementById("contactEmail").value.trim();
-    const msg = document.getElementById("contactMsg").value.trim();
-    if(!name || !email || !msg){
-        alert("Please fill in all fields.");
-        return;
-    }
-
-    const btn = document.getElementById("contactSubmit");
-    const originalText = btn.textContent;
-    btn.textContent = "Sending...";
-    btn.disabled = true;
-
-    try{
-        const res = await fetch("https://formspree.io/f/xbdnvlkg", {
-            method: "POST",
-            headers: { "Accept": "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify({
-                name,
-                email,
-                message: (isPro() ? "[PRIORITY - PRO USER]\n\n" : "") + msg
-            })
-        });
-
-        if(res.ok){
-            alert("Thanks " + name + "! Your message has been sent.");
-            document.getElementById("contactName").value = "";
-            document.getElementById("contactEmail").value = "";
-            document.getElementById("contactMsg").value = "";
-            closeModal("contactModal");
-        } else {
-            alert("Something went wrong sending your message. Please try again.");
-        }
-    }catch(err){
-        alert("Something went wrong sending your message. Please try again.");
-    }
-
-    btn.textContent = originalText;
-    btn.disabled = false;
-});
-
-// ---------- Live stats (real, shared globally across all visitors via CountAPI) ----------
-
-const STAT_BASE = {
-    users: 50000,
-    conversations: 1000000,
-    images: 250000
-};
-const STAT_NAMESPACE = "zyntra-ai-ghanchimoin";
-
-function formatCount(n){
-    if(n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M+";
-    if(n >= 1000) return Math.round(n / 1000) + "K+";
-    return n + "+";
-}
-
-async function fetchStatValue(key, shouldHit){
-    try{
-        const endpoint = shouldHit ? "hit" : "get";
-        const res = await fetch(`https://api.countapi.xyz/${endpoint}/${STAT_NAMESPACE}/${key}`);
-        const data = await res.json();
-        return typeof data.value === "number" ? data.value : 0;
-    }catch(err){
-        return null;
-    }
-}
-
-async function updateStatDisplay(key, elId){
-    const val = await fetchStatValue(key, false);
-    if(val !== null){
-        document.getElementById(elId).textContent = formatCount(STAT_BASE[key] + val);
-    }
-}
-
-async function bumpStat(key, elId){
-    const val = await fetchStatValue(key, true);
-    if(val !== null){
-        document.getElementById(elId).textContent = formatCount(STAT_BASE[key] + val);
-    }
-}
-
-function renderStats(){
-    updateStatDisplay("users", "statUsers");
-    updateStatDisplay("conversations", "statConversations");
-    updateStatDisplay("images", "statImages");
-    document.getElementById("statUptime").textContent = "99.9%";
-}
-
-renderStats();
-
-if(!localStorage.getItem("zyntra-visited")){
-    localStorage.setItem("zyntra-visited", "1");
-    bumpStat("users", "statUsers");
-}
-
-function isLoggedIn(){
-    return !!localStorage.getItem("zyntra-user");
-}
-
-function renderAuthNav(){
-    const signinBtn = document.getElementById("signinBtn");
-    signinBtn.textContent = isLoggedIn() ? "Sign Out" : "Sign In";
-    renderPlanUI();
-    checkProExpiry();
-}
-
-// ---------- Profile modal ----------
-
-function getProfile(){
-    return JSON.parse(localStorage.getItem("zyntra-profile") || "{}");
-}
-
-function renderProfileModal(){
-    const guestView = document.getElementById("profileGuestView");
-    const signedInView = document.getElementById("profileSignedInView");
-
-    if(!isLoggedIn()){
-        guestView.style.display = "block";
-        signedInView.style.display = "none";
-        return;
-    }
-
-    guestView.style.display = "none";
-    signedInView.style.display = "block";
-
-    const email = localStorage.getItem("zyntra-user");
-    const profile = getProfile();
-
-    document.getElementById("profileEmailDisplay").textContent = email;
-    document.getElementById("profileFullName").value = profile.fullName || "";
-    document.getElementById("profileNickname").value = profile.nickname || "";
-    document.getElementById("profileWork").value = profile.work || "";
-    document.getElementById("profileInstructions").value = profile.instructions || "";
-
-    const letter = (profile.nickname || profile.fullName || email || "?").trim().charAt(0).toUpperCase();
-    document.getElementById("profileAvatar").textContent = letter;
-}
-
-document.getElementById("profileBtn")?.addEventListener("click", e => {
-    e.preventDefault();
-    openModal("profileModal");
-    renderProfileModal();
-});
-document.getElementById("profileModalClose")?.addEventListener("click", () => closeModal("profileModal"));
-
-document.getElementById("profileSigninBtn")?.addEventListener("click", () => {
-    closeModal("profileModal");
-    document.getElementById("signinContext").style.display = "none";
-    openModal("signinModal");
-});
-
-document.getElementById("profileSaveBtn")?.addEventListener("click", () => {
-    const profile = {
-        fullName: document.getElementById("profileFullName").value.trim(),
-        nickname: document.getElementById("profileNickname").value.trim(),
-        work: document.getElementById("profileWork").value,
-        instructions: document.getElementById("profileInstructions").value.trim()
-    };
-    localStorage.setItem("zyntra-profile", JSON.stringify(profile));
-    renderProfileModal();
-
-    const btn = document.getElementById("profileSaveBtn");
-    const original = btn.textContent;
-    btn.textContent = "Saved ✓";
-    setTimeout(() => { btn.textContent = original; }, 1500);
-});
-
-document.getElementById("profileHistoryBtn")?.addEventListener("click", () => {
-    closeModal("profileModal");
-    openModal("historyModal");
-    renderHistory();
-});
-
-document.getElementById("profileSignoutBtn")?.addEventListener("click", () => {
-    closeModal("profileModal");
-    openModal("signoutModal");
-});
-
-document.getElementById("signinBtn")?.addEventListener("click", () => {
-    if(isLoggedIn()){
-        openModal("signoutModal");
-    } else {
-        document.getElementById("signinContext").style.display = "none";
-        openModal("signinModal");
-    }
-});
-document.getElementById("signoutModalClose")?.addEventListener("click", () => closeModal("signoutModal"));
-document.getElementById("signoutCancel")?.addEventListener("click", () => closeModal("signoutModal"));
-document.getElementById("signoutConfirm")?.addEventListener("click", () => {
-    localStorage.removeItem("zyntra-user");
-    closeModal("signoutModal");
-    renderAuthNav();
-});
-document.getElementById("signinModalClose")?.addEventListener("click", () => closeModal("signinModal"));
-document.getElementById("signinSubmit")?.addEventListener("click", () => {
-    const email = document.getElementById("signinEmail").value.trim();
-    if(!email){
-        alert("Please enter your email.");
-        return;
-    }
-    const cameFromPro = document.getElementById("signinContext").style.display !== "none";
-    localStorage.setItem("zyntra-user", email);
-    document.getElementById("signinEmail").value = "";
-    document.getElementById("signinPass").value = "";
-    document.getElementById("signinContext").style.display = "none";
-    closeModal("signinModal");
-    renderAuthNav();
-    if(cameFromPro){
-        openModal("pricingModal");
-    }
-});
-
-renderAuthNav();
-
-// ---------- Chat history (session based, Claude-style list) ----------
-
-let currentSessionId = null;
-
-function timeAgo(ts){
-    const diff = Math.floor((Date.now() - ts) / 1000);
-    if(diff < 60) return "Just now";
-    if(diff < 3600) return Math.floor(diff / 60) + " minutes ago";
-    if(diff < 86400) return Math.floor(diff / 3600) + " hours ago";
-    return Math.floor(diff / 86400) + " days ago";
-}
-
-function getSessions(){
-    return JSON.parse(localStorage.getItem("zyntra-sessions") || "[]");
-}
-
-function saveSessions(sessions){
-    localStorage.setItem("zyntra-sessions", JSON.stringify(sessions));
-}
-
-function logMessageToHistory(role, content){
-    const sessions = getSessions();
-    let isNewSession = false;
-
-    if(!currentSessionId){
-        currentSessionId = Date.now();
-        isNewSession = true;
-        sessions.unshift({
-            id: currentSessionId,
-            title: content.length > 40 ? content.slice(0, 40) + "…" : content,
-            time: Date.now(),
-            messages: []
-        });
-    }
-
-    const session = sessions.find(s => s.id === currentSessionId);
-    if(session) session.messages.push({ role, content });
-    saveSessions(sessions);
-
-    if(isNewSession && role === "user"){
-        generateSessionTitle(currentSessionId, content);
-    }
-}
-
-async function generateSessionTitle(sessionId, firstMessage){
-    try{
-        const title = await callChatAPI([
-            {
-                role: "user",
-                content: 'Summarize the topic of this message in 3-5 words. No punctuation, no quotes, just the topic itself:\n\n"' + firstMessage + '"'
-            }
-        ]);
-        const clean = title.trim().replace(/["'.]/g, "");
-        if(!clean) return;
-
-        const sessions = getSessions();
-        const session = sessions.find(s => s.id === sessionId);
-        if(session){
-            session.title = clean.length > 60 ? clean.slice(0, 60) : clean;
-            saveSessions(sessions);
-            if(document.getElementById("historyModal").classList.contains("show")){
-                renderHistory();
-            }
-        }
-    }catch(err){
-        // keep the fallback title already saved
-    }
-}
-
-function renderHistory(){
-    const sessions = getSessions();
-    const box = document.getElementById("historyBox");
-    box.innerHTML = "";
-
-    if(sessions.length === 0){
-        box.innerHTML = '<p class="loading-text">No conversations yet.</p>';
-        return;
-    }
-
-    sessions.forEach(session => {
-        const row = document.createElement("div");
-        row.className = "history-row";
-
-        const title = document.createElement("span");
-        title.className = "history-row-title";
-        title.textContent = session.title;
-
-        const time = document.createElement("span");
-        time.className = "history-row-time";
-        time.textContent = timeAgo(session.time);
-
-        const menuBtn = document.createElement("button");
-        menuBtn.className = "history-menu-btn";
-        menuBtn.textContent = "⋮";
-
-        row.appendChild(title);
-        row.appendChild(time);
-        row.appendChild(menuBtn);
-        box.appendChild(row);
-
-        menuBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            document.querySelectorAll(".history-menu-dropdown").forEach(m => m.remove());
-
-            const dropdown = document.createElement("div");
-            dropdown.className = "history-menu-dropdown";
-            const deleteBtn = document.createElement("button");
-            deleteBtn.textContent = "🗑 Delete";
-            deleteBtn.addEventListener("click", (ev) => {
-                ev.stopPropagation();
-                const updated = getSessions().filter(s => s.id !== session.id);
-                saveSessions(updated);
-                if(currentSessionId === session.id) currentSessionId = null;
-                renderHistory();
-            });
-            dropdown.appendChild(deleteBtn);
-            row.appendChild(dropdown);
-        });
-
-        row.addEventListener("click", () => {
-            chatHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
-            currentSessionId = session.id;
-            chatMessages.innerHTML = "";
-            session.messages.forEach(m => {
-                const div = document.createElement("div");
-                div.className = m.role === "user" ? "user-message" : "ai-message done";
-                if(m.role === "user"){
-                    div.textContent = m.content;
-                } else {
-                    div.innerHTML = formatAIText(m.content);
-                }
-                chatMessages.appendChild(div);
-            });
-            closeModal("historyModal");
-            chatModal.classList.add("show");
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        });
-    });
-}
-
-document.addEventListener("click", () => {
-    document.querySelectorAll(".history-menu-dropdown").forEach(m => m.remove());
-});
-
-document.getElementById("historyModalClose")?.addEventListener("click", () => closeModal("historyModal"));
-document.getElementById("clearHistoryBtn")?.addEventListener("click", () => {
-    saveSessions([]);
-    currentSessionId = null;
-    renderHistory();
-});
-
-// ---------- Get Started ----------
-
-document.getElementById("getStartedBtn")?.addEventListener("click", () => {
-    chatModal.classList.add("show");
-});
-
-// ---------- Theme toggle ----------
-
-const themeToggle = document.getElementById("themeToggle");
-if(localStorage.getItem("zyntra-theme") === "light"){
-    document.body.classList.add("light-mode");
-    themeToggle.textContent = "☀️";
-}
-themeToggle?.addEventListener("click", () => {
-    document.body.classList.toggle("light-mode");
-    const isLight = document.body.classList.contains("light-mode");
-    themeToggle.textContent = isLight ? "☀️" : "🌙";
-    localStorage.setItem("zyntra-theme", isLight ? "light" : "dark");
-});
-
-// ---------- Mobile hamburger ----------
-
-document.getElementById("hamburgerBtn")?.addEventListener("click", () => {
-    document.getElementById("mainNav").classList.toggle("show");
-});
-
-// ==========================
-// AI CHAT MODAL
-// ==========================
-
-const chatModal = document.getElementById("chatModal");
-const chatMessages = document.getElementById("chatMessages");
-const userInput = document.getElementById("userInput");
-const closeChat = document.getElementById("closeChat");
-let chatHistory = [];
-let attachedImage = null;
-
-document.getElementById("attachBtn").addEventListener("click", () => {
-    document.getElementById("chatFileInput").click();
-});
-
-document.getElementById("chatFileInput").addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if(!file) return;
-    if(!file.type.startsWith("image/")){
-        alert("Please select an image file.");
-        return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-        attachedImage = reader.result;
-        renderAttachPreview();
-    };
-    reader.readAsDataURL(file);
-});
-
-function renderAttachPreview(){
-    const preview = document.getElementById("attachPreview");
-    if(!attachedImage){ preview.innerHTML = ""; return; }
-    preview.innerHTML = "";
-    const thumb = document.createElement("div");
-    thumb.className = "attach-thumb";
-    const img = document.createElement("img");
-    img.src = attachedImage;
-    const removeBtn = document.createElement("button");
-    removeBtn.textContent = "✕";
-    removeBtn.addEventListener("click", () => {
-        attachedImage = null;
-        document.getElementById("chatFileInput").value = "";
-        renderAttachPreview();
-    });
-    thumb.appendChild(img);
-    thumb.appendChild(removeBtn);
-    preview.appendChild(thumb);
-}
-
-async function sendChatMessage(prefill){
-    const msg = (prefill !== undefined ? prefill : userInput.value.trim());
-    if(!msg && !attachedImage) return;
-
-    if(!isPro() && getTodayCount() >= FREE_DAILY_LIMIT){
-        chatModal.classList.remove("show");
-        openModal("pricingModal");
-        alert("You've reached today's free limit (" + FREE_DAILY_LIMIT + " messages). Upgrade to Pro for unlimited chat!");
-        return;
-    }
-
-    const userDiv = document.createElement("div");
-    userDiv.className = "user-message";
-    if(attachedImage){
-        const imgEl = document.createElement("img");
-        imgEl.src = attachedImage;
-        imgEl.className = "sent-image";
-        userDiv.appendChild(imgEl);
-    }
-    if(msg){
-        const p = document.createElement("p");
-        p.textContent = msg;
-        p.style.margin = "0";
-        userDiv.appendChild(p);
-    }
-    chatMessages.appendChild(userDiv);
-    userInput.value = "";
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-
-    let historyContent;
-    if(attachedImage){
-        historyContent = [
-            { type: "text", text: msg || "What is in this image? Please help solve or explain it." },
-            { type: "image_url", image_url: { url: attachedImage } }
-        ];
-    } else {
-        historyContent = msg;
-    }
-
-    if(chatHistory.length === 0){
-        const profile = getProfile();
-        if(profile.instructions || profile.nickname){
-            let note = "";
-            if(profile.nickname) note += `Call the user "${profile.nickname}". `;
-            if(profile.instructions) note += `User's custom instructions: ${profile.instructions}`;
-            chatHistory.push({ role: "system", content: note });
-        }
-    }
-
-    chatHistory.push({ role: "user", content: historyContent });
-    logMessageToHistory("user", msg || "[Image attached]");
-    bumpStat("conversations", "statConversations");
-    if(!isPro()) incrementTodayCount();
-
-    attachedImage = null;
-    document.getElementById("chatFileInput").value = "";
-    renderAttachPreview();
-
-    const loadingDiv = document.createElement("div");
-    loadingDiv.className = "ai-message";
-    loadingDiv.textContent = "Typing...";
-    chatMessages.appendChild(loadingDiv);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-
-    try{
-        const reply = await callChatAPI(chatHistory);
-        chatHistory.push({ role: "assistant", content: reply });
-        logMessageToHistory("assistant", reply);
-        loadingDiv.textContent = "";
-        typeOutText(loadingDiv, reply, chatMessages, () => {
-            loadingDiv.classList.add("done");
-            addCopyButton(loadingDiv, reply);
-            addReportButton(loadingDiv, reply);
-        });
-    }catch(err){
-        loadingDiv.textContent = "Sorry, something went wrong. Please try again.";
-    }
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-document.getElementById("sendMessage").addEventListener("click", () => sendChatMessage());
-userInput.addEventListener("keydown", e => {
-    if(e.key === "Enter") sendChatMessage();
-});
-
-closeChat.addEventListener("click", () => chatModal.classList.remove("show"));
-chatModal.addEventListener("click", e => {
-    if(e.target === chatModal) chatModal.classList.remove("show");
-});
-
-document.getElementById("floatingChatBtn").addEventListener("click", () => {
-    chatModal.classList.add("show");
-});
-
-// ---------- Hero "Ask AI" ----------
-
-document.getElementById("heroAskBtn").addEventListener("click", () => {
-    const q = document.getElementById("heroInput").value.trim();
-    if(q === ""){
-        alert("Please enter a question.");
-        return;
-    }
-    document.getElementById("heroInput").value = "";
-    chatModal.classList.add("show");
-    sendChatMessage(q);
-});
-document.getElementById("heroInput").addEventListener("keydown", e => {
-    if(e.key === "Enter") document.getElementById("heroAskBtn").click();
-});
-
-// ==========================
-// Tool routing (cards, pills, dropdown, chips)
-// ==========================
-
-function openTool(tool, prefix){
-    switch(tool){
-        case "chat":
-            chatModal.classList.add("show");
-            if(prefix){ userInput.value = prefix; userInput.focus(); }
-            break;
-        case "study":
-            chatModal.classList.add("show");
-            userInput.placeholder = "Ask me to explain, summarize, or solve...";
-            if(prefix){ userInput.value = prefix; userInput.focus(); }
-            break;
-        case "business":
-            chatModal.classList.add("show");
-            userInput.placeholder = "Ask a business or growth question...";
-            if(prefix){ userInput.value = prefix; userInput.focus(); }
-            break;
-        case "image":
-            openModal("imageModal");
-            break;
-        case "video":
-            openModal("videoModal");
-            break;
-        case "voice":
-            openModal("voiceModal");
-            break;
-    }
-}
-
-document.querySelectorAll("[data-tool]").forEach(el => {
-    el.addEventListener("click", e => {
-        e.preventDefault();
-        openTool(el.dataset.tool, el.dataset.prefix);
-    });
-});
-
-// ==========================
-// Image modal
-// ==========================
-
-document.getElementById("imageModalClose").addEventListener("click", () => closeModal("imageModal"));
-
-const IMAGE_COOLDOWN_MS = 8000;
-let lastImageGenTime = 0;
-
-document.getElementById("imageGenBtn").addEventListener("click", () => {
-    const val = document.getElementById("imageInput").value.trim();
-    const result = document.getElementById("imageResult");
-    if(!val){ alert("Please describe the image first."); return; }
-
-    if(!isPro()){
-        const remaining = IMAGE_COOLDOWN_MS - (Date.now() - lastImageGenTime);
-        if(remaining > 0){
-            alert("Please wait " + Math.ceil(remaining / 1000) + "s before generating another image (Free tier). Upgrade to Pro to remove this wait.");
-            return;
-        }
-        lastImageGenTime = Date.now();
-    }
-
-    result.innerHTML = '<p class="loading-text">Generating image...</p>';
-    const img = new Image();
-    img.className = "generated-img";
-    img.alt = val;
-    img.onload = () => {
-        result.innerHTML = "";
-        result.appendChild(img);
-        bumpStat("images", "statImages");
-        addReportButton(result, "Generated image for prompt: \"" + val + "\"");
-    };
-    img.onerror = () => { result.innerHTML = '<p class="loading-text">Could not generate image. Please try again.</p>'; };
-    img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(val);
-});
-
-// ==========================
-// Video modal
-// ==========================
-
-document.getElementById("videoModalClose").addEventListener("click", () => closeModal("videoModal"));
-document.getElementById("videoGenBtn").addEventListener("click", () => {
-    const val = document.getElementById("videoInput").value.trim();
-    const result = document.getElementById("videoResult");
-    if(!val){ alert("Please describe the video first."); return; }
-
-    result.innerHTML = '<p class="loading-text">Generating preview frames...</p>';
-
-    const allVariations = [
-        val,
-        val + ", wide shot",
-        val + ", close up",
-        val + ", cinematic lighting",
-        val + ", dramatic angle",
-        val + ", golden hour lighting"
-    ];
-    const variations = isPro() ? allVariations : allVariations.slice(0, 4);
-
-    const urls = variations.map((v, i) =>
-        "https://image.pollinations.ai/prompt/" + encodeURIComponent(v) + "?seed=" + (i + 1)
-    );
-
-    let loaded = 0;
-    const images = urls.map(src => {
-        const img = new Image();
-        img.src = src;
-        img.onload = () => {
-            loaded++;
-            if(loaded === images.length) startSlideshow();
-        };
-        img.onerror = () => {
-            loaded++;
-            if(loaded === images.length) startSlideshow();
-        };
-        return img;
-    });
-
-    function startSlideshow(){
-        const wrapper = document.createElement("div");
-        wrapper.className = "slideshow";
-        images.forEach((img, i) => {
-            img.className = i === 0 ? "active" : "";
-            wrapper.appendChild(img);
-        });
-
-        result.innerHTML = "";
-        result.appendChild(wrapper);
-        const caption = document.createElement("p");
-        caption.className = "loading-text";
-        caption.textContent = "AI-generated preview (image sequence) — full video generation coming soon.";
-        result.appendChild(caption);
-
-        let current = 0;
-        setInterval(() => {
-            images[current].classList.remove("active");
-            current = (current + 1) % images.length;
-            images[current].classList.add("active");
-        }, 2200);
-    }
-});
-
-// ==========================
-// Voice modal
-// ==========================
-
-document.getElementById("voiceModalClose").addEventListener("click", () => closeModal("voiceModal"));
-
-const voiceBox = document.getElementById("voiceBox");
-const voiceMicBtn = document.getElementById("voiceMicBtn");
-
-function addVoiceMsg(text, who){
-    const p = document.createElement("p");
-    p.className = "chat-msg " + who;
-    p.textContent = text;
-    voiceBox.appendChild(p);
-    voiceBox.scrollTop = voiceBox.scrollHeight;
-}
-
-const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
-let voiceHistory = [];
-
-if(!SpeechRecognitionAPI){
-    voiceMicBtn.addEventListener("click", () => {
-        addVoiceMsg("Voice recognition is not supported in this browser.", "ai");
-    });
-} else {
-    const recognition = new SpeechRecognitionAPI();
-    recognition.lang = "en-US";
-
-    voiceMicBtn.addEventListener("click", () => {
-        voiceMicBtn.textContent = "🎙 Listening...";
-        recognition.start();
-    });
-
-    recognition.onresult = async (e) => {
-        const said = e.results[0][0].transcript;
-        voiceMicBtn.textContent = "🎤 Tap to speak";
-        addVoiceMsg(said, "user");
-        voiceHistory.push({ role: "user", content: said });
-        addVoiceMsg("Thinking...", "ai-loading");
-        try{
-            const reply = await callChatAPI(voiceHistory);
-            voiceHistory.push({ role: "assistant", content: reply });
-            voiceBox.removeChild(voiceBox.lastChild);
-            const clean = reply.replace(/\*\*/g, "");
-            const aiDiv = document.createElement("p");
-            aiDiv.className = "chat-msg ai";
-            voiceBox.appendChild(aiDiv);
-            typeOutText(aiDiv, clean, voiceBox, () => {
-                aiDiv.classList.add("done");
-                addCopyButton(aiDiv, clean);
-                addReportButton(aiDiv, clean);
-            });
-            const utter = new SpeechSynthesisUtterance(clean);
-            speechSynthesis.speak(utter);
-        }catch(err){
-            voiceBox.removeChild(voiceBox.lastChild);
-            addVoiceMsg("Sorry, I couldn't process that.", "ai");
-        }
-    };
-
-    recognition.onerror = () => {
-        voiceMicBtn.textContent = "🎤 Tap to speak";
-    };
-}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zyntra AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="shortcut icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="background">
+    <div class="blur blur1"></div>
+    <div class="blur blur2"></div>
+    <div class="grid"></div>
+</div>
+
+<header class="navbar">
+    <div class="logo">
+        <img src="favicon.png" alt="Zyntra AI" class="logo-mark">
+        <div class="logo-text">
+            Zyntra <span>AI</span>
+            <small>Your AI Assistant</small>
+        </div>
+    </div>
+
+    <nav id="mainNav">
+        <a href="#" class="active">Home</a>
+        <div class="nav-dropdown">
+            <a href="#tools">Tools ▾</a>
+            <div class="dropdown-menu">
+                <a href="#" data-tool="chat">AI Chat</a>
+                <a href="#" data-tool="image">Image Generator</a>
+                <a href="#" data-tool="video">Video Creator</a>
+                <a href="#" data-tool="study">Study Helper</a>
+                <a href="#" data-tool="voice">Voice Assistant</a>
+                <a href="#" data-tool="business">Business Tools</a>
+            </div>
+        </div>
+        <a href="#" id="pricingBtn">Pricing</a>
+        <a href="#" id="aboutBtn">About</a>
+        <a href="#" id="profileBtn">Profile</a>
+        <a href="#" id="contactBtn">Contact</a>
+    </nav>
+
+    <div class="right">
+        <button class="theme-toggle" id="themeToggle">🌙</button>
+        <button class="signin" id="signinBtn">Sign In</button>
+        <button class="start" id="getStartedBtn">Get Started</button>
+        <button class="hamburger" id="hamburgerBtn">☰</button>
+    </div>
+</header>
+
+<section class="hero">
+    <div class="hero-left">
+        <span class="badge">⚡ Powered by Advanced AI</span>
+        <h1>
+            One AI.<br>
+            <span>Infinite Possibilities.</span>
+        </h1>
+        <p>Chat, create, learn, work and more — all in one place with Zyntra AI ✦</p>
+
+        <div class="hero-search">
+            <input id="heroInput" type="text" placeholder="Ask Zyntra AI anything...">
+            <button id="heroAskBtn">Ask AI →</button>
+        </div>
+
+        <div class="quick-chips">
+            <button class="chip" data-tool="chat" data-prefix="Solve this math problem: ">💡 Solve Math</button>
+            <button class="chip" data-tool="chat" data-prefix="Write an essay about ">✍️ Write Essay</button>
+            <button class="chip" data-tool="image">🖼️ Create Image</button>
+            <button class="chip" data-tool="chat" data-prefix="Help me study this topic: ">📘 Study Help</button>
+            <button class="chip" data-tool="chat" data-prefix="Give me business ideas for ">💼 Business Ideas</button>
+        </div>
+    </div>
+
+    <div class="hero-right">
+        <div class="orbit orbit1"></div>
+        <div class="orbit orbit2"></div>
+        <div class="orbit orbit3"></div>
+        <div class="star s1"></div>
+        <div class="star s2"></div>
+        <div class="star s3"></div>
+        <div class="star s4"></div>
+        <div class="tool ai-chat" data-tool="chat">💬 AI Chat</div>
+        <div class="tool img" data-tool="image">🖼️ Image Generation</div>
+        <div class="tool video" data-tool="video">🎬 Video Creation</div>
+        <div class="tool study" data-tool="study">📚 Study Helper</div>
+        <div class="tool voice" data-tool="voice">🎤 Voice Assistant</div>
+        <div class="tool business" data-tool="business">💼 Business Tools</div>
+        <div class="ai-core">
+            <div class="core-star">Z</div>
+        </div>
+    </div>
+</section>
+
+<section class="tools-section" id="tools">
+    <h2>Explore <span>Powerful</span> Tools</h2>
+    <p class="tools-subtitle">Everything you need to boost productivity and creativity</p>
+
+    <div class="cards-grid">
+
+        <div class="card" data-tool="chat">
+            <div class="card-icon c-purple">💬</div>
+            <h2>AI Chat</h2>
+            <p>Chat with advanced AI for any question or real-time assistance.</p>
+            <span class="card-link link-purple">Try Now →</span>
+        </div>
+
+        <div class="card" data-tool="image">
+            <div class="card-icon c-green">🖼️</div>
+            <h2>Image Generator</h2>
+            <p>Create stunning images from simple text prompts.</p>
+            <span class="card-link link-green">Try Now →</span>
+        </div>
+
+        <div class="card" data-tool="video">
+            <div class="card-icon c-pink">🎬</div>
+            <h2>Video Creator</h2>
+            <p>Generate engaging videos with AI in seconds.</p>
+            <span class="card-link link-pink">Try Now →</span>
+        </div>
+
+        <div class="card" data-tool="study">
+            <div class="card-icon c-orange">📚</div>
+            <h2>Study Helper</h2>
+            <p>Learn faster with AI summaries, explanations and solutions.</p>
+            <span class="card-link link-orange">Try Now →</span>
+        </div>
+
+        <div class="card" data-tool="voice">
+            <div class="card-icon c-blue">🎤</div>
+            <h2>Voice Assistant</h2>
+            <p>Talk to AI and get answers using voice commands.</p>
+            <span class="card-link link-blue">Try Now →</span>
+        </div>
+
+        <div class="card" data-tool="business">
+            <div class="card-icon c-indigo">💼</div>
+            <h2>Business Tools</h2>
+            <p>AI tools to grow your business and boost productivity.</p>
+            <span class="card-link link-indigo">Try Now →</span>
+        </div>
+
+    </div>
+</section>
+
+<section class="stats-bar">
+    <div class="stat">
+        <span class="stat-icon">👥</span>
+        <div><p class="stat-num" id="statUsers">50K+</p><p class="stat-label">Active Users</p></div>
+    </div>
+    <div class="stat">
+        <span class="stat-icon">💬</span>
+        <div><p class="stat-num" id="statConversations">1M+</p><p class="stat-label">AI Conversations</p></div>
+    </div>
+    <div class="stat">
+        <span class="stat-icon">🖼️</span>
+        <div><p class="stat-num" id="statImages">250K+</p><p class="stat-label">Images Generated</p></div>
+    </div>
+    <div class="stat">
+        <span class="stat-icon">⚡</span>
+        <div><p class="stat-num" id="statUptime">99.9%</p><p class="stat-label">Uptime</p></div>
+    </div>
+</section>
+
+<!-- ================= ABOUT MODAL ================= -->
+<div class="modal-overlay" id="aboutModal">
+    <div class="modal-box">
+        <button class="modal-close" id="aboutClose">✕</button>
+        <span class="tag">ABOUT ZYNTRA AI</span>
+        <h1>About <span>Zyntra AI</span></h1>
+        <p>Zyntra AI is a personal AI assistant created by Ghanchi Moin, an independent developer passionate about building useful AI-powered tools.</p>
+        <p>Zyntra AI is designed to help users with questions, learning, creativity, productivity, and everyday tasks through modern artificial intelligence technology.</p>
+        <p>The goal of Zyntra AI is to make AI simple, helpful, and accessible for everyone.</p>
+        <div class="developer-badge">
+            <div class="developer-avatar">✦</div>
+            <div>
+                <p class="developer-label">Developed by</p>
+                <p class="developer-name">Ghanchi Moin</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================= IMAGE MODAL ================= -->
+<div class="modal-overlay" id="imageModal">
+    <div class="modal-box">
+        <button class="modal-close" id="imageModalClose">✕</button>
+        <span class="tag">IMAGE GENERATOR</span>
+        <h1>Create with <span>Zyntra AI</span></h1>
+        <p class="ai-disclosure">⚡ Images are AI-generated and may not always be accurate.</p>
+        <div class="modal-input-row">
+            <input type="text" id="imageInput" placeholder="Describe the image you want...">
+            <button id="imageGenBtn">Generate</button>
+        </div>
+        <div id="imageResult" class="img-result"></div>
+    </div>
+</div>
+
+<!-- ================= VIDEO MODAL ================= -->
+<div class="modal-overlay" id="videoModal">
+    <div class="modal-box">
+        <button class="modal-close" id="videoModalClose">✕</button>
+        <span class="tag">VIDEO CREATOR</span>
+        <h1>Create with <span>Zyntra AI</span></h1>
+        <p class="ai-disclosure">⚡ AI-generated preview images, not a real video. Content may not always be accurate.</p>
+        <div class="modal-input-row">
+            <input type="text" id="videoInput" placeholder="Describe the video you want...">
+            <button id="videoGenBtn">Generate</button>
+        </div>
+        <div id="videoResult" class="vid-result"></div>
+    </div>
+</div>
+
+<!-- ================= VOICE MODAL ================= -->
+<div class="modal-overlay" id="voiceModal">
+    <div class="modal-box">
+        <button class="modal-close" id="voiceModalClose">✕</button>
+        <span class="tag">VOICE ASSISTANT</span>
+        <h1>Talk to <span>Zyntra AI</span></h1>
+        <p class="ai-disclosure">⚡ AI-generated responses. Please verify important information.</p>
+        <div class="chat-box" id="voiceBox"></div>
+        <button id="voiceMicBtn" class="mic-btn">🎤 Tap to speak</button>
+    </div>
+</div>
+
+<!-- ================= SIGN IN MODAL ================= -->
+<div class="modal-overlay" id="signinModal">
+    <div class="modal-box">
+        <button class="modal-close" id="signinModalClose">✕</button>
+        <span class="tag">SIGN IN</span>
+        <h1>Welcome <span>Back</span></h1>
+        <p class="ai-disclosure" id="signinContext" style="display:none; color:#c9a8ff;">🔒 Sign in to unlock Zyntra AI Pro.</p>
+        <div class="modal-input-row modal-input-col">
+            <input type="email" id="signinEmail" placeholder="Email">
+            <input type="password" id="signinPass" placeholder="Password">
+            <button id="signinSubmit">Sign In</button>
+        </div>
+    </div>
+</div>
+
+<!-- ================= SIGN OUT CONFIRM MODAL ================= -->
+<div class="modal-overlay" id="signoutModal">
+    <div class="modal-box" style="max-width:420px; text-align:center;">
+        <button class="modal-close" id="signoutModalClose">✕</button>
+        <span class="tag">SIGN OUT</span>
+        <h1>Sign <span>Out?</span></h1>
+        <p>Are you sure you want to sign out? You'll go back to guest mode, and Pro features will lock again until you sign back in.</p>
+        <div class="modal-input-row" style="margin-top:20px;">
+            <button id="signoutCancel" style="flex:1; padding:13px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:white; font-weight:600; cursor:pointer;">Cancel</button>
+            <button id="signoutConfirm" style="flex:1; padding:13px; border:none; border-radius:12px; background:linear-gradient(135deg,#e14b6a,#ff5db5); color:white; font-weight:700; cursor:pointer;">Confirm</button>
+        </div>
+    </div>
+</div>
+
+<!-- ================= PRO EXPIRED MODAL ================= -->
+<div class="modal-overlay" id="proExpiredModal">
+    <div class="modal-box" style="max-width:420px; text-align:center;">
+        <span class="tag">ZYNTRA PRO</span>
+        <h1>You're <span>Out of Pro</span></h1>
+        <p>Your Zyntra AI Pro subscription has ended. Buy it again to get unlimited chat, faster generation, and priority support back.</p>
+        <button id="proExpiredOkBtn" style="width:100%; margin-top:10px; padding:13px; border:none; border-radius:12px; background:linear-gradient(135deg,#7c5cff,#ff5db5); color:white; font-weight:700; cursor:pointer;">Okay</button>
+    </div>
+</div>
+
+<!-- ================= PROFILE MODAL ================= -->
+<div class="modal-overlay" id="profileModal">
+    <div class="modal-box">
+        <button class="modal-close" id="profileModalClose">✕</button>
+        <span class="tag">PROFILE</span>
+        <h1>Your <span>Profile</span></h1>
+
+        <div id="profileGuestView">
+            <p>Sign in to set up your profile, save custom instructions, and unlock Pro features.</p>
+            <button id="profileSigninBtn" class="mic-btn">Sign In</button>
+        </div>
+
+        <div id="profileSignedInView" style="display:none;">
+            <div style="display:flex; align-items:center; gap:16px; margin-bottom:24px;">
+                <div class="profile-avatar" id="profileAvatar">M</div>
+                <p id="profileEmailDisplay" style="color:#9aa0c0; font-size:14px; margin:0;"></p>
+            </div>
+
+            <div class="modal-input-row modal-input-col">
+                <label class="profile-label">Full name</label>
+                <input type="text" id="profileFullName" placeholder="Your full name">
+
+                <label class="profile-label">What should Zyntra AI call you?</label>
+                <input type="text" id="profileNickname" placeholder="Nickname">
+
+                <label class="profile-label">What best describes your work?</label>
+                <select id="profileWork">
+                    <option value="">Select one</option>
+                    <option value="Engineering">Engineering</option>
+                    <option value="Design">Design</option>
+                    <option value="Marketing">Marketing</option>
+                    <option value="Business">Business</option>
+                    <option value="Student">Student</option>
+                    <option value="Other">Other</option>
+                </select>
+
+                <label class="profile-label">Instructions for Zyntra AI</label>
+                <textarea id="profileInstructions" rows="4" placeholder="e.g. keep explanations brief and to the point"></textarea>
+
+                <button id="profileSaveBtn">Save</button>
+            </div>
+
+            <div style="border-top:1px solid #232a4d; margin-top:24px; padding-top:20px;">
+                <h3 style="font-size:15px; margin-bottom:12px;">📌 Pinned Chats</h3>
+                <div class="history-list" id="pinnedChatsBox" style="max-height:220px;"></div>
+            </div>
+
+            <div style="border-top:1px solid #232a4d; margin-top:20px; padding-top:20px; display:flex; gap:10px;">
+                <button id="profileHistoryBtn" style="flex:1; padding:12px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:white; font-weight:600; cursor:pointer;">📜 Chat History</button>
+                <button id="profileSignoutBtn" style="flex:1; padding:12px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:#ff8fa8; font-weight:600; cursor:pointer;">🚪 Sign Out</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================= CHAT HISTORY MODAL ================= -->
+<div class="modal-overlay" id="historyModal">
+    <div class="modal-box">
+        <button class="modal-close" id="historyModalClose">✕</button>
+        <span class="tag">CHAT HISTORY</span>
+        <h1>Your <span>Conversations</span></h1>
+        <div class="history-list" id="historyBox"></div>
+        <button id="clearHistoryBtn" class="mic-btn">🗑 Clear History</button>
+    </div>
+</div>
+
+<!-- ================= PRICING MODAL ================= -->
+<div class="modal-overlay" id="pricingModal">
+    <div class="modal-box">
+        <button class="modal-close" id="pricingModalClose">✕</button>
+        <span class="tag">PRICING</span>
+        <h1>Simple <span>Pricing</span></h1>
+        <div class="pricing-grid">
+            <div class="pricing-plan">
+                <h3>Free</h3>
+                <p class="price">$0<span>/mo</span></p>
+                <p>Chat, basic image generation, limited requests per day.</p>
+                <button id="freeplanBtn" disabled style="width:100%; margin-top:14px; padding:13px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:#9aa0c0; font-weight:600; cursor:default;">Current Plan</button>
+            </div>
+            <div class="pricing-plan featured">
+                <h3>Pro <span id="proBadge" style="display:none; font-size:11px; color:#5fe0a0;">✓ Active</span></h3>
+                <p class="price">$9<span>/mo</span></p>
+                <p>Unlimited chat, faster image & video generation, priority support.</p>
+                <button id="getProBtn" style="width:100%; margin-top:14px; padding:13px; border:none; border-radius:12px; background:linear-gradient(135deg,#7c5cff,#ff5db5); color:white; font-weight:700; cursor:pointer;">Get Pro</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================= CONTACT MODAL ================= -->
+<div class="modal-overlay" id="contactModal">
+    <div class="modal-box">
+        <button class="modal-close" id="contactModalClose">✕</button>
+        <span class="tag">CONTACT</span>
+        <h1>Get in <span>Touch</span></h1>
+        <div class="modal-input-row modal-input-col">
+            <input type="text" id="contactName" placeholder="Your name">
+            <input type="email" id="contactEmail" placeholder="Your email">
+            <textarea id="contactMsg" placeholder="Your message" rows="4"></textarea>
+            <button id="contactSubmit">Send Message</button>
+        </div>
+    </div>
+</div>
+
+<!-- ================= PRIVACY POLICY MODAL ================= -->
+<div class="modal-overlay" id="privacyModal">
+    <div class="modal-box">
+        <button class="modal-close" id="privacyModalClose">✕</button>
+        <span class="tag">PRIVACY POLICY</span>
+        <h1>Privacy <span>Policy</span></h1>
+
+        <p>Zyntra AI ("we", "our", "the app") is a personal AI assistant developed by Ghanchi Moin. This policy explains what information Zyntra AI collects, how it is used, and your choices.</p>
+
+        <p><strong>Information we collect</strong></p>
+        <p>When you use Zyntra AI, the messages you send to AI Chat, Study Helper, Business Tools and Voice Assistant, along with the prompts you enter into Image Generator and Video Creator, are sent to our AI provider to generate a response. If you sign in, the email you enter is stored locally in your browser. If you submit the Contact form, we receive the name, email, and message you provide.</p>
+
+        <p><strong>Where your data is processed</strong></p>
+        <p>Chat, Study Helper, Business Tools and Voice Assistant replies are generated using Groq's AI API. Images and video preview frames are generated using Pollinations AI. These third-party providers process your prompts to generate a response; we do not control their servers.</p>
+
+        <p><strong>Local storage</strong></p>
+        <p>Zyntra AI stores your sign-in state, chat history, and usage stats directly in your browser's local storage. This data stays on your device and is not sent to us unless you submit it through the Contact or Report feature.</p>
+
+        <p><strong>AI-generated content</strong></p>
+        <p>Responses, images, and video previews are generated by AI and may sometimes be inaccurate, incomplete, or inappropriate. You can flag any AI output using the Report button, which sends the flagged content to us via the Contact form.</p>
+
+        <p><strong>Children's privacy</strong></p>
+        <p>Zyntra AI is not directed at children under 13, and we do not knowingly collect personal information from children under 13.</p>
+
+        <p><strong>Your choices</strong></p>
+        <p>You can clear your chat history at any time from the Chat History popup, and you can sign out at any time from the Sign In button. Clearing your browser data will remove all locally stored information.</p>
+
+        <p><strong>Contact</strong></p>
+        <p>If you have questions about this policy, contact Ghanchi Moin using the Contact form on this site.</p>
+
+        <p style="color:#7a80a5; font-size:13px;">Last updated: 2026.</p>
+    </div>
+</div>
+
+<footer>
+  <div class="footer-top">
+    <div class="footer-brand">
+      <div class="logo"><img src="favicon.png" alt="Zyntra AI" class="logo-mark"> Zyntra <span>AI</span></div>
+      <p>Your Personal AI Assistant</p>
+    </div>
+
+    <div class="footer-col">
+      <h4>Product</h4>
+      <a href="#tools">Tools</a>
+      <a href="#" id="pricingBtnFooter">Pricing</a>
+      <a href="#">Updates</a>
+    </div>
+
+    <div class="footer-col">
+      <h4>Company</h4>
+      <a href="#" id="aboutBtnFooter">About Us</a>
+      <a href="#">Blog</a>
+      <a href="#" id="contactBtnFooter">Contact Us</a>
+    </div>
+
+    <div class="footer-col">
+      <h4>Support</h4>
+      <a href="#" id="contactBtnFooter2">Help Center</a>
+      <a href="#" id="contactBtnFooter3">Contact Us</a>
+      <a href="#privacy" id="privacyBtn">Privacy Policy</a>
+    </div>
+
+    <div class="footer-newsletter">
+      <h4>Stay updated with Zyntra AI</h4>
+      <p>Get the latest updates and features.</p>
+      <div class="newsletter-form">
+        <input type="email" placeholder="Enter your email">
+        <button>Subscribe</button>
+      </div>
+      <div class="socials">
+        <a href="#">𝕏</a>
+        <a href="#">◎</a>
+        <a href="#">⌥</a>
+        <a href="#">📷</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-bottom">
+    © 2024 Zyntra AI. All rights reserved.<br>
+    Zyntra AI uses generative AI to create text, images, and voice responses. AI-generated content may be inaccurate — please verify important information.
+  </div>
+</footer>
+
+<!-- ================= AI CHAT MODAL (unchanged structure) ================= -->
+
+<div id="chatModal" class="chat-modal">
+
+    <div class="chat-window">
+
+        <div class="chat-header">
+
+            <h2>✨ Zyntra AI</h2>
+
+            <button id="closeChat">✕</button>
+
+        </div>
+
+        <p class="ai-disclosure">⚡ AI-generated responses. Please verify important information.</p>
+
+        <div id="chatMessages" class="chat-messages">
+
+            <div class="ai-message">
+                Hello! 👋 I'm Zyntra AI. How can I help you today?
+            </div>
+
+        </div>
+
+        <div id="attachPreview" class="attach-preview"></div>
+
+        <div class="chat-input">
+
+            <input type="file" id="chatFileInput" accept="image/*" style="display:none">
+            <button id="attachBtn" class="attach-btn" title="Attach image">📎</button>
+
+            <input
+                id="userInput"
+                type="text"
+                placeholder="Ask anything..."
+            >
+
+            <button id="sendMessage">
+                Send
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+<button id="floatingChatBtn" class="floating-chat-btn">💬</button>
+
+    <script src="script.js"></script>
+</body>
+</html>
