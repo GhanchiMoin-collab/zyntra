@@ -1226,20 +1226,21 @@ background:#2a1522;
 
 .chat-input{
     display:flex;
-    gap:12px;
-    padding:18px;
+    gap:8px;
+    padding:14px 18px;
     border-top:1px solid #2c3356;
 }
 
 .chat-input input{
     flex:1;
+    min-width:0;
     border:none;
     outline:none;
     background:#171d35;
     color:white;
-    padding:16px;
+    padding:14px 16px;
     border-radius:14px;
-    font-size:16px;
+    font-size:15px;
 }
 
 .attach-btn{
@@ -1258,6 +1259,18 @@ background:#2a1522;
 .attach-btn:hover{
     background:linear-gradient(135deg,#7c5cff,#ff5db5);
     color:white;
+}
+
+.chat-input #sendMessage{
+    flex-shrink:0;
+    border:none;
+    padding:0 20px;
+    border-radius:14px;
+    background:linear-gradient(135deg,#7c5cff,#ff5db5);
+    color:white;
+    font-weight:700;
+    font-size:14px;
+    cursor:pointer;
 }
 
 .attach-preview{
@@ -1305,16 +1318,6 @@ background:#2a1522;
     border-radius:14px;
     display:block;
     margin-bottom:8px;
-}
-
-.chat-input button{
-    border:none;
-    padding:0 28px;
-    border-radius:14px;
-    background:linear-gradient(135deg,#7c5cff,#ff5db5);
-    color:white;
-    font-weight:700;
-    cursor:pointer;
 }
 
 /* ================= FLOATING CHAT BUTTON ================= */
@@ -1448,4 +1451,8 @@ footer{ padding:40px 20px; }
 .pricing-grid{ flex-direction:column; }
 .right{ gap:8px; }
 .signin{ display:none; }
+.chat-input{ padding:12px; gap:6px; }
+.chat-input input{ padding:12px 14px; font-size:14px; }
+.attach-btn{ width:38px; height:38px; font-size:16px; }
+.chat-input #sendMessage{ padding:0 14px; font-size:13px; }
 }
