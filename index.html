@@ -233,10 +233,25 @@
         <button class="modal-close" id="signinModalClose">✕</button>
         <span class="tag">SIGN IN</span>
         <h1>Welcome <span>Back</span></h1>
+        <p class="ai-disclosure" id="signinContext" style="display:none; color:#c9a8ff;">🔒 Sign in to unlock Zyntra AI Pro.</p>
         <div class="modal-input-row modal-input-col">
             <input type="email" id="signinEmail" placeholder="Email">
             <input type="password" id="signinPass" placeholder="Password">
             <button id="signinSubmit">Sign In</button>
+        </div>
+    </div>
+</div>
+
+<!-- ================= SIGN OUT CONFIRM MODAL ================= -->
+<div class="modal-overlay" id="signoutModal">
+    <div class="modal-box" style="max-width:420px; text-align:center;">
+        <button class="modal-close" id="signoutModalClose">✕</button>
+        <span class="tag">SIGN OUT</span>
+        <h1>Sign <span>Out?</span></h1>
+        <p>Are you sure you want to sign out? You'll go back to guest mode, and Pro features will lock again until you sign back in.</p>
+        <div class="modal-input-row" style="margin-top:20px;">
+            <button id="signoutCancel" style="flex:1; padding:13px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:white; font-weight:600; cursor:pointer;">Cancel</button>
+            <button id="signoutConfirm" style="flex:1; padding:13px; border:none; border-radius:12px; background:linear-gradient(135deg,#e14b6a,#ff5db5); color:white; font-weight:700; cursor:pointer;">Confirm</button>
         </div>
     </div>
 </div>
