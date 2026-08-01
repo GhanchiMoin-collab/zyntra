@@ -198,12 +198,14 @@ function saveSessions(sessions){
 
 function logMessageToHistory(role, content){
     const sessions = getSessions();
+    let isNewSession = false;
 
     if(!currentSessionId){
         currentSessionId = Date.now();
+        isNewSession = true;
         sessions.unshift({
             id: currentSessionId,
-            title: content.length > 50 ? content.slice(0, 50) + "…" : content,
+            title: content.length > 40 ? content.slice(0, 40) + "…" : content,
             time: Date.now(),
             messages: []
         });
@@ -212,6 +214,35 @@ function logMessageToHistory(role, content){
     const session = sessions.find(s => s.id === currentSessionId);
     if(session) session.messages.push({ role, content });
     saveSessions(sessions);
+
+    if(isNewSession && role === "user"){
+        generateSessionTitle(currentSessionId, content);
+    }
+}
+
+async function generateSessionTitle(sessionId, firstMessage){
+    try{
+        const title = await callChatAPI([
+            {
+                role: "user",
+                content: 'Summarize the topic of this message in 3-5 words. No punctuation, no quotes, just the topic itself:\n\n"' + firstMessage + '"'
+            }
+        ]);
+        const clean = title.trim().replace(/["'.]/g, "");
+        if(!clean) return;
+
+        const sessions = getSessions();
+        const session = sessions.find(s => s.id === sessionId);
+        if(session){
+            session.title = clean.length > 60 ? clean.slice(0, 60) : clean;
+            saveSessions(sessions);
+            if(document.getElementById("historyModal").classList.contains("show")){
+                renderHistory();
+            }
+        }
+    }catch(err){
+        // keep the fallback title already saved
+    }
 }
 
 function renderHistory(){
