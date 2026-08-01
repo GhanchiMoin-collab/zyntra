@@ -13,126 +13,165 @@
     <div class="blur blur2"></div>
     <div class="grid"></div>
 </div>
+
 <header class="navbar">
-<div class="logo">
-✦ Zyntra <span>AI</span>
-</div>
-<nav>
-<a href="#" class="active">Home</a>
-<a href="#tools">Tools</a>
-<a>Pricing</a>
-<a href="#" id="aboutBtn">About</a>
-</nav>
-<div class="right">
-<button class="signin">Sign In</button>
-<button class="start">Get Started</button>
-</div>
-</header>
-<section class="hero">
-    <div class="hero-left">
-        <span class="tag">
-            ONE PLACE. EVERY POSSIBILITY.
-        </span>
-        <h1>
-            Your ideas,<br>
-            <span>powered by AI.</span>
-        </h1>
-        <p>
-            Chat, create images, create videos, learn faster,
-            write better and build your next big idea —
-            all with Zyntra AI.
-        </p>
-        <div class="hero-search">
-            <input
-                type="text"
-                placeholder="Ask Zyntra AI anything..."
-            >
-            <button>
-                Ask AI →
-            </button>
+    <div class="logo">
+        <span class="logo-mark">✦</span>
+        <div class="logo-text">
+            Zyntra <span>AI</span>
+            <small>Your AI Assistant</small>
         </div>
     </div>
-   <div class="hero-right">
-    <div class="orbit orbit1"></div>
-    <div class="orbit orbit2"></div>
-    <div class="orbit orbit3"></div>
-    <div class="star s1"></div>
-    <div class="star s2"></div>
-    <div class="star s3"></div>
-    <div class="star s4"></div>
-    <div class="tool ai-chat">💬 AI Chat</div>
-    <div class="tool img">🖼️ Image Generator</div>
-    <div class="tool study">📚 Study Helper</div>
-    <div class="tool video">🎬 Video Generator</div>
-    <div class="tool voice">🎤 Voice Assistant</div>
-    <div class="tool business">💼 Business Tools</div>
-    <div class="ai-core">
-        <div class="core-star">✦</div>
+
+    <nav id="mainNav">
+        <a href="#" class="active">Home</a>
+        <div class="nav-dropdown">
+            <a href="#tools">Tools ▾</a>
+            <div class="dropdown-menu">
+                <a href="#" data-tool="chat">AI Chat</a>
+                <a href="#" data-tool="image">Image Generator</a>
+                <a href="#" data-tool="video">Video Creator</a>
+                <a href="#" data-tool="study">Study Helper</a>
+                <a href="#" data-tool="voice">Voice Assistant</a>
+                <a href="#" data-tool="business">Business Tools</a>
+            </div>
+        </div>
+        <a href="#" id="pricingBtn">Pricing</a>
+        <a href="#" id="aboutBtn">About</a>
+        <a href="#">Blog</a>
+        <a href="#" id="contactBtn">Contact</a>
+    </nav>
+
+    <div class="right">
+        <button class="theme-toggle" id="themeToggle">🌙</button>
+        <button class="signin" id="signinBtn">Sign In</button>
+        <button class="start" id="getStartedBtn">Get Started</button>
+        <button class="hamburger" id="hamburgerBtn">☰</button>
     </div>
-</div>
+</header>
+
+<section class="hero">
+    <div class="hero-left">
+        <span class="badge">⚡ Powered by Advanced AI</span>
+        <h1>
+            One AI.<br>
+            <span>Infinite Possibilities.</span>
+        </h1>
+        <p>Chat, create, learn, work and more — all in one place with Zyntra AI ✦</p>
+
+        <div class="hero-search">
+            <input id="heroInput" type="text" placeholder="Ask Zyntra AI anything...">
+            <button id="heroAskBtn">Ask AI →</button>
+        </div>
+
+        <div class="quick-chips">
+            <button class="chip" data-tool="chat" data-prefix="Solve this math problem: ">💡 Solve Math</button>
+            <button class="chip" data-tool="chat" data-prefix="Write an essay about ">✍️ Write Essay</button>
+            <button class="chip" data-tool="image">🖼️ Create Image</button>
+            <button class="chip" data-tool="chat" data-prefix="Help me study this topic: ">📘 Study Help</button>
+            <button class="chip" data-tool="chat" data-prefix="Give me business ideas for ">💼 Business Ideas</button>
+        </div>
+    </div>
+
+    <div class="hero-right">
+        <div class="orbit orbit1"></div>
+        <div class="orbit orbit2"></div>
+        <div class="orbit orbit3"></div>
+        <div class="star s1"></div>
+        <div class="star s2"></div>
+        <div class="star s3"></div>
+        <div class="star s4"></div>
+        <div class="tool ai-chat" data-tool="chat">💬 AI Chat</div>
+        <div class="tool img" data-tool="image">🖼️ Image Generation</div>
+        <div class="tool video" data-tool="video">🎬 Video Creation</div>
+        <div class="tool study" data-tool="study">📚 Study Helper</div>
+        <div class="tool voice" data-tool="voice">🎤 Voice Assistant</div>
+        <div class="tool business" data-tool="business">💼 Business Tools</div>
+        <div class="ai-core">
+            <div class="core-star">Z</div>
+        </div>
+    </div>
 </section>
 
 <section class="tools-section" id="tools">
-    <h2>Explore your tools</h2>
+    <h2>Explore <span>Powerful</span> Tools</h2>
+    <p class="tools-subtitle">Everything you need to boost productivity and creativity</p>
+
     <div class="cards-grid">
 
-        <div class="card">
+        <div class="card" data-tool="chat">
             <div class="card-icon c-purple">💬</div>
             <h2>AI Chat</h2>
-            <p>Chat with the smartest AI assistant.</p>
-            <div class="card-arrow arrow-purple">→</div>
+            <p>Chat with advanced AI for any question or real-time assistance.</p>
+            <span class="card-link link-purple">Try Now →</span>
         </div>
 
-        <div class="card">
+        <div class="card" data-tool="image">
             <div class="card-icon c-green">🖼️</div>
             <h2>Image Generator</h2>
-            <p>Create stunning images from your ideas.</p>
-            <div class="card-arrow arrow-green">→</div>
+            <p>Create stunning images from simple text prompts.</p>
+            <span class="card-link link-green">Try Now →</span>
         </div>
 
-        <div class="card">
+        <div class="card" data-tool="video">
             <div class="card-icon c-pink">🎬</div>
-            <h2>Video Generator</h2>
-            <p>Generate high-quality videos with AI.</p>
-            <div class="card-arrow arrow-pink">→</div>
+            <h2>Video Creator</h2>
+            <p>Generate engaging videos with AI in seconds.</p>
+            <span class="card-link link-pink">Try Now →</span>
         </div>
 
-        <div class="card">
+        <div class="card" data-tool="study">
             <div class="card-icon c-orange">📚</div>
             <h2>Study Helper</h2>
-            <p>Learn, summarize and understand anything.</p>
-            <div class="card-arrow arrow-orange">→</div>
+            <p>Learn faster with AI summaries, explanations and solutions.</p>
+            <span class="card-link link-orange">Try Now →</span>
         </div>
 
-        <div class="card">
+        <div class="card" data-tool="voice">
             <div class="card-icon c-blue">🎤</div>
             <h2>Voice Assistant</h2>
-            <p>Talk naturally and get instant responses.</p>
-            <div class="card-arrow arrow-blue">→</div>
+            <p>Talk to AI and get answers using voice commands.</p>
+            <span class="card-link link-blue">Try Now →</span>
         </div>
 
-        <div class="card">
+        <div class="card" data-tool="business">
             <div class="card-icon c-indigo">💼</div>
             <h2>Business Tools</h2>
-            <p>AI tools to grow your business faster.</p>
-            <div class="card-arrow arrow-indigo">→</div>
+            <p>AI tools to grow your business and boost productivity.</p>
+            <span class="card-link link-indigo">Try Now →</span>
         </div>
 
     </div>
 </section>
 
+<section class="stats-bar">
+    <div class="stat">
+        <span class="stat-icon">👥</span>
+        <div><p class="stat-num">50K+</p><p class="stat-label">Active Users</p></div>
+    </div>
+    <div class="stat">
+        <span class="stat-icon">💬</span>
+        <div><p class="stat-num">1M+</p><p class="stat-label">AI Conversations</p></div>
+    </div>
+    <div class="stat">
+        <span class="stat-icon">🖼️</span>
+        <div><p class="stat-num">250K+</p><p class="stat-label">Images Generated</p></div>
+    </div>
+    <div class="stat">
+        <span class="stat-icon">⚡</span>
+        <div><p class="stat-num">99.9%</p><p class="stat-label">Uptime</p></div>
+    </div>
+</section>
+
+<!-- ================= ABOUT MODAL ================= -->
 <div class="modal-overlay" id="aboutModal">
     <div class="modal-box">
         <button class="modal-close" id="aboutClose">✕</button>
         <span class="tag">ABOUT ZYNTRA AI</span>
         <h1>About <span>Zyntra AI</span></h1>
-
         <p>Zyntra AI is a personal AI assistant created by Ghanchi Moin, an independent developer passionate about building useful AI-powered tools.</p>
-
         <p>Zyntra AI is designed to help users with questions, learning, creativity, productivity, and everyday tasks through modern artificial intelligence technology.</p>
-
         <p>The goal of Zyntra AI is to make AI simple, helpful, and accessible for everyone.</p>
-
         <div class="developer-badge">
             <div class="developer-avatar">✦</div>
             <div>
@@ -143,17 +182,106 @@
     </div>
 </div>
 
+<!-- ================= IMAGE MODAL ================= -->
+<div class="modal-overlay" id="imageModal">
+    <div class="modal-box">
+        <button class="modal-close" id="imageModalClose">✕</button>
+        <span class="tag">IMAGE GENERATOR</span>
+        <h1>Create with <span>Zyntra AI</span></h1>
+        <div class="modal-input-row">
+            <input type="text" id="imageInput" placeholder="Describe the image you want...">
+            <button id="imageGenBtn">Generate</button>
+        </div>
+        <div id="imageResult" class="img-result"></div>
+    </div>
+</div>
+
+<!-- ================= VIDEO MODAL ================= -->
+<div class="modal-overlay" id="videoModal">
+    <div class="modal-box">
+        <button class="modal-close" id="videoModalClose">✕</button>
+        <span class="tag">VIDEO CREATOR</span>
+        <h1>Create with <span>Zyntra AI</span></h1>
+        <div class="modal-input-row">
+            <input type="text" id="videoInput" placeholder="Describe the video you want...">
+            <button id="videoGenBtn">Generate</button>
+        </div>
+        <div id="videoResult" class="vid-result"></div>
+    </div>
+</div>
+
+<!-- ================= VOICE MODAL ================= -->
+<div class="modal-overlay" id="voiceModal">
+    <div class="modal-box">
+        <button class="modal-close" id="voiceModalClose">✕</button>
+        <span class="tag">VOICE ASSISTANT</span>
+        <h1>Talk to <span>Zyntra AI</span></h1>
+        <div class="chat-box" id="voiceBox"></div>
+        <button id="voiceMicBtn" class="mic-btn">🎤 Tap to speak</button>
+    </div>
+</div>
+
+<!-- ================= SIGN IN MODAL ================= -->
+<div class="modal-overlay" id="signinModal">
+    <div class="modal-box">
+        <button class="modal-close" id="signinModalClose">✕</button>
+        <span class="tag">SIGN IN</span>
+        <h1>Welcome <span>Back</span></h1>
+        <div class="modal-input-row modal-input-col">
+            <input type="email" id="signinEmail" placeholder="Email">
+            <input type="password" id="signinPass" placeholder="Password">
+            <button id="signinSubmit">Sign In</button>
+        </div>
+    </div>
+</div>
+
+<!-- ================= PRICING MODAL ================= -->
+<div class="modal-overlay" id="pricingModal">
+    <div class="modal-box">
+        <button class="modal-close" id="pricingModalClose">✕</button>
+        <span class="tag">PRICING</span>
+        <h1>Simple <span>Pricing</span></h1>
+        <div class="pricing-grid">
+            <div class="pricing-plan">
+                <h3>Free</h3>
+                <p class="price">$0<span>/mo</span></p>
+                <p>Chat, basic image generation, limited requests per day.</p>
+            </div>
+            <div class="pricing-plan featured">
+                <h3>Pro</h3>
+                <p class="price">$9<span>/mo</span></p>
+                <p>Unlimited chat, faster image & video generation, priority support.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================= CONTACT MODAL ================= -->
+<div class="modal-overlay" id="contactModal">
+    <div class="modal-box">
+        <button class="modal-close" id="contactModalClose">✕</button>
+        <span class="tag">CONTACT</span>
+        <h1>Get in <span>Touch</span></h1>
+        <div class="modal-input-row modal-input-col">
+            <input type="text" id="contactName" placeholder="Your name">
+            <input type="email" id="contactEmail" placeholder="Your email">
+            <textarea id="contactMsg" placeholder="Your message" rows="4"></textarea>
+            <button id="contactSubmit">Send Message</button>
+        </div>
+    </div>
+</div>
+
 <footer>
   <div class="footer-top">
     <div class="footer-brand">
-      <div class="logo">✦ Zyntra <span>AI</span></div>
+      <div class="logo"><span class="logo-mark">✦</span> Zyntra <span>AI</span></div>
       <p>Your Personal AI Assistant</p>
     </div>
 
     <div class="footer-col">
       <h4>Product</h4>
-      <a href="#">Tools</a>
-      <a href="#">Pricing</a>
+      <a href="#tools">Tools</a>
+      <a href="#" id="pricingBtnFooter">Pricing</a>
       <a href="#">Updates</a>
     </div>
 
@@ -161,13 +289,13 @@
       <h4>Company</h4>
       <a href="#" id="aboutBtnFooter">About Us</a>
       <a href="#">Blog</a>
-      <a href="#">Careers</a>
+      <a href="#" id="contactBtnFooter">Contact Us</a>
     </div>
 
     <div class="footer-col">
       <h4>Support</h4>
-      <a href="#">Help Center</a>
-      <a href="#">Contact Us</a>
+      <a href="#" id="contactBtnFooter2">Help Center</a>
+      <a href="#" id="contactBtnFooter3">Contact Us</a>
       <a href="#">Privacy Policy</a>
     </div>
 
@@ -191,7 +319,8 @@
     © 2024 Zyntra AI. All rights reserved.
   </div>
 </footer>
-<!-- ================= AI CHAT MODAL ================= -->
+
+<!-- ================= AI CHAT MODAL (unchanged structure) ================= -->
 
 <div id="chatModal" class="chat-modal">
 
@@ -230,6 +359,8 @@
     </div>
 
 </div>
+
+<button id="floatingChatBtn" class="floating-chat-btn">💬</button>
 
     <script src="script.js"></script>
 </body>
