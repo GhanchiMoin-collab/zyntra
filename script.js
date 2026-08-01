@@ -131,6 +131,66 @@ if(window.location.hash === "#privacy"){
     openModal("privacyModal");
 }
 
+// ---------- Pricing / Stripe checkout ----------
+
+function isPro(){
+    return localStorage.getItem("zyntra-plan") === "pro";
+}
+
+function renderPlanUI(){
+    const badge = document.getElementById("proBadge");
+    const getProBtn = document.getElementById("getProBtn");
+    if(isPro()){
+        badge.style.display = "inline";
+        getProBtn.textContent = "You're on Pro ✓";
+        getProBtn.disabled = true;
+        getProBtn.style.opacity = "0.7";
+        getProBtn.style.cursor = "default";
+    } else {
+        badge.style.display = "none";
+        getProBtn.textContent = "Get Pro";
+        getProBtn.disabled = false;
+        getProBtn.style.opacity = "1";
+        getProBtn.style.cursor = "pointer";
+    }
+}
+
+document.getElementById("getProBtn")?.addEventListener("click", async () => {
+    if(isPro()) return;
+    const btn = document.getElementById("getProBtn");
+    const original = btn.textContent;
+    btn.textContent = "Redirecting to Stripe...";
+    btn.disabled = true;
+
+    try{
+        const res = await fetch("/api/create-checkout", { method: "POST" });
+        const data = await res.json();
+        if(data.url){
+            window.location.href = data.url;
+        } else {
+            alert("Could not start checkout. Please try again.");
+            btn.textContent = original;
+            btn.disabled = false;
+        }
+    }catch(err){
+        alert("Could not start checkout. Please try again.");
+        btn.textContent = original;
+        btn.disabled = false;
+    }
+});
+
+const urlParams = new URLSearchParams(window.location.search);
+if(urlParams.get("payment") === "success"){
+    localStorage.setItem("zyntra-plan", "pro");
+    alert("🎉 Payment successful! You're now on Zyntra AI Pro.");
+    window.history.replaceState({}, "", window.location.pathname);
+    openModal("pricingModal");
+} else if(urlParams.get("payment") === "cancelled"){
+    window.history.replaceState({}, "", window.location.pathname);
+}
+
+renderPlanUI();
+
 ["contactBtn","contactBtnFooter","contactBtnFooter2","contactBtnFooter3"].forEach(id => {
     document.getElementById(id)?.addEventListener("click", e => { e.preventDefault(); openModal("contactModal"); });
 });
