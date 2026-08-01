@@ -163,7 +163,7 @@ document.getElementById("getProBtn")?.addEventListener("click", async () => {
     btn.disabled = true;
 
     try{
-        const res = await fetch("/api/create-checkout", { method: "POST" });
+        const res = await fetch("/api/checkout", { method: "POST" });
         const data = await res.json();
         if(data.url){
             window.location.href = data.url;
