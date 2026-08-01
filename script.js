@@ -176,34 +176,123 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
 
 renderAuthNav();
 
-// ---------- Chat history log ----------
+// ---------- Chat history (session based, Claude-style list) ----------
 
-function saveToHistoryLog(role, content){
-    const log = JSON.parse(localStorage.getItem("zyntra-chat-log") || "[]");
-    log.push({ role, content, time: Date.now() });
-    localStorage.setItem("zyntra-chat-log", JSON.stringify(log));
+let currentSessionId = null;
+
+function timeAgo(ts){
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if(diff < 60) return "Just now";
+    if(diff < 3600) return Math.floor(diff / 60) + " minutes ago";
+    if(diff < 86400) return Math.floor(diff / 3600) + " hours ago";
+    return Math.floor(diff / 86400) + " days ago";
+}
+
+function getSessions(){
+    return JSON.parse(localStorage.getItem("zyntra-sessions") || "[]");
+}
+
+function saveSessions(sessions){
+    localStorage.setItem("zyntra-sessions", JSON.stringify(sessions));
+}
+
+function logMessageToHistory(role, content){
+    const sessions = getSessions();
+
+    if(!currentSessionId){
+        currentSessionId = Date.now();
+        sessions.unshift({
+            id: currentSessionId,
+            title: content.length > 50 ? content.slice(0, 50) + "…" : content,
+            time: Date.now(),
+            messages: []
+        });
+    }
+
+    const session = sessions.find(s => s.id === currentSessionId);
+    if(session) session.messages.push({ role, content });
+    saveSessions(sessions);
 }
 
 function renderHistory(){
-    const log = JSON.parse(localStorage.getItem("zyntra-chat-log") || "[]");
+    const sessions = getSessions();
     const box = document.getElementById("historyBox");
     box.innerHTML = "";
-    if(log.length === 0){
+
+    if(sessions.length === 0){
         box.innerHTML = '<p class="loading-text">No conversations yet.</p>';
         return;
     }
-    log.forEach(entry => {
-        const p = document.createElement("p");
-        p.className = "chat-msg " + (entry.role === "user" ? "user" : "ai");
-        p.textContent = entry.content;
-        box.appendChild(p);
+
+    sessions.forEach(session => {
+        const row = document.createElement("div");
+        row.className = "history-row";
+
+        const title = document.createElement("span");
+        title.className = "history-row-title";
+        title.textContent = session.title;
+
+        const time = document.createElement("span");
+        time.className = "history-row-time";
+        time.textContent = timeAgo(session.time);
+
+        const menuBtn = document.createElement("button");
+        menuBtn.className = "history-menu-btn";
+        menuBtn.textContent = "⋮";
+
+        row.appendChild(title);
+        row.appendChild(time);
+        row.appendChild(menuBtn);
+        box.appendChild(row);
+
+        menuBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            document.querySelectorAll(".history-menu-dropdown").forEach(m => m.remove());
+
+            const dropdown = document.createElement("div");
+            dropdown.className = "history-menu-dropdown";
+            const deleteBtn = document.createElement("button");
+            deleteBtn.textContent = "🗑 Delete";
+            deleteBtn.addEventListener("click", (ev) => {
+                ev.stopPropagation();
+                const updated = getSessions().filter(s => s.id !== session.id);
+                saveSessions(updated);
+                if(currentSessionId === session.id) currentSessionId = null;
+                renderHistory();
+            });
+            dropdown.appendChild(deleteBtn);
+            row.appendChild(dropdown);
+        });
+
+        row.addEventListener("click", () => {
+            chatHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
+            currentSessionId = session.id;
+            chatMessages.innerHTML = "";
+            session.messages.forEach(m => {
+                const div = document.createElement("div");
+                div.className = m.role === "user" ? "user-message" : "ai-message done";
+                if(m.role === "user"){
+                    div.textContent = m.content;
+                } else {
+                    div.innerHTML = formatAIText(m.content);
+                }
+                chatMessages.appendChild(div);
+            });
+            closeModal("historyModal");
+            chatModal.classList.add("show");
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        });
     });
-    box.scrollTop = box.scrollHeight;
 }
+
+document.addEventListener("click", () => {
+    document.querySelectorAll(".history-menu-dropdown").forEach(m => m.remove());
+});
 
 document.getElementById("historyModalClose")?.addEventListener("click", () => closeModal("historyModal"));
 document.getElementById("clearHistoryBtn")?.addEventListener("click", () => {
-    localStorage.removeItem("zyntra-chat-log");
+    saveSessions([]);
+    currentSessionId = null;
     renderHistory();
 });
 
@@ -255,7 +344,7 @@ async function sendChatMessage(prefill){
     chatMessages.scrollTop = chatMessages.scrollHeight;
 
     chatHistory.push({ role: "user", content: msg });
-    saveToHistoryLog("user", msg);
+    logMessageToHistory("user", msg);
 
     const loadingDiv = document.createElement("div");
     loadingDiv.className = "ai-message";
@@ -266,7 +355,7 @@ async function sendChatMessage(prefill){
     try{
         const reply = await callChatAPI(chatHistory);
         chatHistory.push({ role: "assistant", content: reply });
-        saveToHistoryLog("assistant", reply);
+        logMessageToHistory("assistant", reply);
         loadingDiv.textContent = "";
         typeOutText(loadingDiv, reply, chatMessages, () => {
             loadingDiv.classList.add("done");
