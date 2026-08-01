@@ -30,8 +30,24 @@ function formatAIText(text){
     return html || "<p>" + safe + "</p>";
 }
 
+const FREE_DAILY_LIMIT = 20;
+
+function getTodayCount(){
+    const today = new Date().toISOString().slice(0, 10);
+    const stored = JSON.parse(localStorage.getItem("zyntra-daily-usage") || "{}");
+    return stored.date === today ? (stored.count || 0) : 0;
+}
+
+function incrementTodayCount(){
+    const today = new Date().toISOString().slice(0, 10);
+    const stored = JSON.parse(localStorage.getItem("zyntra-daily-usage") || "{}");
+    const count = (stored.date === today ? stored.count : 0) + 1;
+    localStorage.setItem("zyntra-daily-usage", JSON.stringify({ date: today, count }));
+}
+
 function typeOutText(el, fullText, scrollContainer, onDone){
     const words = fullText.split(" ");
+    const speed = isPro() ? 8 : 25;
     let i = 0;
 
     function step(){
@@ -39,7 +55,7 @@ function typeOutText(el, fullText, scrollContainer, onDone){
         el.innerHTML = formatAIText(words.slice(0, i).join(" "));
         if(scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
         if(i < words.length){
-            setTimeout(step, 25);
+            setTimeout(step, speed);
         } else if(onDone){
             onDone();
         }
@@ -146,6 +162,12 @@ function renderPlanUI(){
         getProBtn.disabled = true;
         getProBtn.style.opacity = "0.7";
         getProBtn.style.cursor = "default";
+    } else if(!isLoggedIn()){
+        badge.style.display = "none";
+        getProBtn.textContent = "Sign In to Upgrade";
+        getProBtn.disabled = false;
+        getProBtn.style.opacity = "1";
+        getProBtn.style.cursor = "pointer";
     } else {
         badge.style.display = "none";
         getProBtn.textContent = "Get Pro";
@@ -157,6 +179,14 @@ function renderPlanUI(){
 
 document.getElementById("getProBtn")?.addEventListener("click", async () => {
     if(isPro()) return;
+
+    if(!isLoggedIn()){
+        closeModal("pricingModal");
+        openModal("signinModal");
+        alert("Please sign in first to upgrade to Zyntra AI Pro.");
+        return;
+    }
+
     const btn = document.getElementById("getProBtn");
     const original = btn.textContent;
     btn.textContent = "Redirecting to Stripe...";
@@ -213,7 +243,11 @@ document.getElementById("contactSubmit")?.addEventListener("click", async () => 
         const res = await fetch("https://formspree.io/f/xbdnvlkg", {
             method: "POST",
             headers: { "Accept": "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify({ name, email, message: msg })
+            body: JSON.stringify({
+                name,
+                email,
+                message: (isPro() ? "[PRIORITY - PRO USER]\n\n" : "") + msg
+            })
         });
 
         if(res.ok){
@@ -308,6 +342,8 @@ function renderAuthNav(){
         blogLink.onclick = (e) => e.preventDefault();
         signinBtn.textContent = "Sign In";
     }
+
+    renderPlanUI();
 }
 
 document.getElementById("signinBtn")?.addEventListener("click", () => {
@@ -565,6 +601,13 @@ async function sendChatMessage(prefill){
     const msg = (prefill !== undefined ? prefill : userInput.value.trim());
     if(!msg && !attachedImage) return;
 
+    if(!isPro() && getTodayCount() >= FREE_DAILY_LIMIT){
+        chatModal.classList.remove("show");
+        openModal("pricingModal");
+        alert("You've reached today's free limit (" + FREE_DAILY_LIMIT + " messages). Upgrade to Pro for unlimited chat!");
+        return;
+    }
+
     const userDiv = document.createElement("div");
     userDiv.className = "user-message";
     if(attachedImage){
@@ -596,6 +639,7 @@ async function sendChatMessage(prefill){
     chatHistory.push({ role: "user", content: historyContent });
     logMessageToHistory("user", msg || "[Image attached]");
     bumpStat("conversations", "statConversations");
+    if(!isPro()) incrementTodayCount();
 
     attachedImage = null;
     document.getElementById("chatFileInput").value = "";
@@ -697,10 +741,24 @@ document.querySelectorAll("[data-tool]").forEach(el => {
 // ==========================
 
 document.getElementById("imageModalClose").addEventListener("click", () => closeModal("imageModal"));
+
+const IMAGE_COOLDOWN_MS = 8000;
+let lastImageGenTime = 0;
+
 document.getElementById("imageGenBtn").addEventListener("click", () => {
     const val = document.getElementById("imageInput").value.trim();
     const result = document.getElementById("imageResult");
     if(!val){ alert("Please describe the image first."); return; }
+
+    if(!isPro()){
+        const remaining = IMAGE_COOLDOWN_MS - (Date.now() - lastImageGenTime);
+        if(remaining > 0){
+            alert("Please wait " + Math.ceil(remaining / 1000) + "s before generating another image (Free tier). Upgrade to Pro to remove this wait.");
+            return;
+        }
+        lastImageGenTime = Date.now();
+    }
+
     result.innerHTML = '<p class="loading-text">Generating image...</p>';
     const img = new Image();
     img.className = "generated-img";
@@ -727,12 +785,15 @@ document.getElementById("videoGenBtn").addEventListener("click", () => {
 
     result.innerHTML = '<p class="loading-text">Generating preview frames...</p>';
 
-    const variations = [
+    const allVariations = [
         val,
         val + ", wide shot",
         val + ", close up",
-        val + ", cinematic lighting"
+        val + ", cinematic lighting",
+        val + ", dramatic angle",
+        val + ", golden hour lighting"
     ];
+    const variations = isPro() ? allVariations : allVariations.slice(0, 4);
 
     const urls = variations.map((v, i) =>
         "https://image.pollinations.ai/prompt/" + encodeURIComponent(v) + "?seed=" + (i + 1)
