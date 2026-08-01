@@ -47,6 +47,19 @@ function typeOutText(el, fullText, scrollContainer, onDone){
     step();
 }
 
+function addCopyButton(container, textToCopy){
+    const btn = document.createElement("button");
+    btn.className = "copy-btn";
+    btn.textContent = "📋 Copy";
+    btn.addEventListener("click", () => {
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            btn.textContent = "✅ Copied";
+            setTimeout(() => { btn.textContent = "📋 Copy"; }, 1500);
+        });
+    });
+    container.appendChild(btn);
+}
+
 async function callChatAPI(messages){
     const res = await fetch("/api/chat", {
         method: "POST",
@@ -186,7 +199,10 @@ async function sendChatMessage(prefill){
         const reply = await callChatAPI(chatHistory);
         chatHistory.push({ role: "assistant", content: reply });
         loadingDiv.textContent = "";
-        typeOutText(loadingDiv, reply, chatMessages, () => loadingDiv.classList.add("done"));
+        typeOutText(loadingDiv, reply, chatMessages, () => {
+            loadingDiv.classList.add("done");
+            addCopyButton(loadingDiv, reply);
+        });
     }catch(err){
         loadingDiv.textContent = "Sorry, something went wrong. Please try again.";
     }
@@ -389,7 +405,10 @@ if(!SpeechRecognitionAPI){
             const aiDiv = document.createElement("p");
             aiDiv.className = "chat-msg ai";
             voiceBox.appendChild(aiDiv);
-            typeOutText(aiDiv, clean, voiceBox, () => aiDiv.classList.add("done"));
+            typeOutText(aiDiv, clean, voiceBox, () => {
+                aiDiv.classList.add("done");
+                addCopyButton(aiDiv, clean);
+            });
             const utter = new SpeechSynthesisUtterance(clean);
             speechSynthesis.speak(utter);
         }catch(err){
