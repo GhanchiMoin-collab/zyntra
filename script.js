@@ -149,8 +149,24 @@ if(window.location.hash === "#privacy"){
 
 // ---------- Pricing / Stripe checkout ----------
 
+function getProAccounts(){
+    return JSON.parse(localStorage.getItem("zyntra-pro-accounts") || "[]");
+}
+
+function markCurrentUserPro(){
+    const email = localStorage.getItem("zyntra-user");
+    if(!email) return;
+    const accounts = getProAccounts();
+    if(!accounts.includes(email)){
+        accounts.push(email);
+        localStorage.setItem("zyntra-pro-accounts", JSON.stringify(accounts));
+    }
+}
+
 function isPro(){
-    return localStorage.getItem("zyntra-plan") === "pro";
+    const email = localStorage.getItem("zyntra-user");
+    if(!email) return false;
+    return getProAccounts().includes(email);
 }
 
 function renderPlanUI(){
@@ -182,8 +198,8 @@ document.getElementById("getProBtn")?.addEventListener("click", async () => {
 
     if(!isLoggedIn()){
         closeModal("pricingModal");
+        document.getElementById("signinContext").style.display = "block";
         openModal("signinModal");
-        alert("Please sign in first to upgrade to Zyntra AI Pro.");
         return;
     }
 
@@ -211,7 +227,7 @@ document.getElementById("getProBtn")?.addEventListener("click", async () => {
 
 const urlParams = new URLSearchParams(window.location.search);
 if(urlParams.get("payment") === "success"){
-    localStorage.setItem("zyntra-plan", "pro");
+    markCurrentUserPro();
     alert("🎉 Payment successful! You're now on Zyntra AI Pro.");
     window.history.replaceState({}, "", window.location.pathname);
     openModal("pricingModal");
@@ -348,11 +364,18 @@ function renderAuthNav(){
 
 document.getElementById("signinBtn")?.addEventListener("click", () => {
     if(isLoggedIn()){
-        localStorage.removeItem("zyntra-user");
-        renderAuthNav();
+        openModal("signoutModal");
     } else {
+        document.getElementById("signinContext").style.display = "none";
         openModal("signinModal");
     }
+});
+document.getElementById("signoutModalClose")?.addEventListener("click", () => closeModal("signoutModal"));
+document.getElementById("signoutCancel")?.addEventListener("click", () => closeModal("signoutModal"));
+document.getElementById("signoutConfirm")?.addEventListener("click", () => {
+    localStorage.removeItem("zyntra-user");
+    closeModal("signoutModal");
+    renderAuthNav();
 });
 document.getElementById("signinModalClose")?.addEventListener("click", () => closeModal("signinModal"));
 document.getElementById("signinSubmit")?.addEventListener("click", () => {
@@ -361,11 +384,16 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
         alert("Please enter your email.");
         return;
     }
+    const cameFromPro = document.getElementById("signinContext").style.display !== "none";
     localStorage.setItem("zyntra-user", email);
     document.getElementById("signinEmail").value = "";
     document.getElementById("signinPass").value = "";
+    document.getElementById("signinContext").style.display = "none";
     closeModal("signinModal");
     renderAuthNav();
+    if(cameFromPro){
+        openModal("pricingModal");
+    }
 });
 
 renderAuthNav();
