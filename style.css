@@ -1052,6 +1052,22 @@ margin-bottom:0;
     margin-bottom:0;
 }
 
+.ai-message p:last-child::after{
+    content:"▋";
+    display:inline-block;
+    margin-left:2px;
+    color:#c9a8ff;
+    animation:blink 1s step-start infinite;
+}
+
+.ai-message.done p:last-child::after{
+    content:none;
+}
+
+@keyframes blink{
+    50%{ opacity:0; }
+}
+
 .ai-message ul{
     margin:6px 0 10px 20px;
 }
