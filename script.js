@@ -60,6 +60,19 @@ function addCopyButton(container, textToCopy){
     container.appendChild(btn);
 }
 
+function addReportButton(container, contentToReport){
+    const btn = document.createElement("button");
+    btn.className = "copy-btn report-btn";
+    btn.textContent = "🚩 Report";
+    btn.addEventListener("click", () => {
+        openModal("contactModal");
+        const msgBox = document.getElementById("contactMsg");
+        msgBox.value = 'Reporting AI-generated content:\n\n"' + contentToReport + '"\n\nReason: ';
+        msgBox.focus();
+    });
+    container.appendChild(btn);
+}
+
 async function callChatAPI(messages){
     const res = await fetch("/api/chat", {
         method: "POST",
@@ -127,22 +140,14 @@ document.getElementById("contactSubmit")?.addEventListener("click", () => {
     closeModal("contactModal");
 });
 
-// ---------- Live stats (real usage, tracked in this browser) ----------
+// ---------- Live stats (real, shared globally across all visitors via CountAPI) ----------
 
 const STAT_BASE = {
     users: 50000,
     conversations: 1000000,
     images: 250000
 };
-
-function getStat(key){
-    return parseInt(localStorage.getItem("zyntra-stat-" + key) || "0", 10);
-}
-
-function bumpStat(key){
-    localStorage.setItem("zyntra-stat-" + key, getStat(key) + 1);
-    renderStats();
-}
+const STAT_NAMESPACE = "zyntra-ai-ghanchimoin";
 
 function formatCount(n){
     if(n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M+";
@@ -150,18 +155,43 @@ function formatCount(n){
     return n + "+";
 }
 
+async function fetchStatValue(key, shouldHit){
+    try{
+        const endpoint = shouldHit ? "hit" : "get";
+        const res = await fetch(`https://api.countapi.xyz/${endpoint}/${STAT_NAMESPACE}/${key}`);
+        const data = await res.json();
+        return typeof data.value === "number" ? data.value : 0;
+    }catch(err){
+        return null;
+    }
+}
+
+async function updateStatDisplay(key, elId){
+    const val = await fetchStatValue(key, false);
+    if(val !== null){
+        document.getElementById(elId).textContent = formatCount(STAT_BASE[key] + val);
+    }
+}
+
+async function bumpStat(key, elId){
+    const val = await fetchStatValue(key, true);
+    if(val !== null){
+        document.getElementById(elId).textContent = formatCount(STAT_BASE[key] + val);
+    }
+}
+
 function renderStats(){
-    document.getElementById("statUsers").textContent = formatCount(STAT_BASE.users + getStat("users"));
-    document.getElementById("statConversations").textContent = formatCount(STAT_BASE.conversations + getStat("conversations"));
-    document.getElementById("statImages").textContent = formatCount(STAT_BASE.images + getStat("images"));
+    updateStatDisplay("users", "statUsers");
+    updateStatDisplay("conversations", "statConversations");
+    updateStatDisplay("images", "statImages");
     document.getElementById("statUptime").textContent = "99.9%";
 }
 
+renderStats();
+
 if(!localStorage.getItem("zyntra-visited")){
     localStorage.setItem("zyntra-visited", "1");
-    bumpStat("users");
-} else {
-    renderStats();
+    bumpStat("users", "statUsers");
 }
 
 function isLoggedIn(){
@@ -411,7 +441,7 @@ async function sendChatMessage(prefill){
 
     chatHistory.push({ role: "user", content: msg });
     logMessageToHistory("user", msg);
-    bumpStat("conversations");
+    bumpStat("conversations", "statConversations");
 
     const loadingDiv = document.createElement("div");
     loadingDiv.className = "ai-message";
@@ -427,6 +457,7 @@ async function sendChatMessage(prefill){
         typeOutText(loadingDiv, reply, chatMessages, () => {
             loadingDiv.classList.add("done");
             addCopyButton(loadingDiv, reply);
+            addReportButton(loadingDiv, reply);
         });
     }catch(err){
         loadingDiv.textContent = "Sorry, something went wrong. Please try again.";
@@ -516,7 +547,12 @@ document.getElementById("imageGenBtn").addEventListener("click", () => {
     const img = new Image();
     img.className = "generated-img";
     img.alt = val;
-    img.onload = () => { result.innerHTML = ""; result.appendChild(img); bumpStat("images"); };
+    img.onload = () => {
+        result.innerHTML = "";
+        result.appendChild(img);
+        bumpStat("images", "statImages");
+        addReportButton(result, "Generated image for prompt: \"" + val + "\"");
+    };
     img.onerror = () => { result.innerHTML = '<p class="loading-text">Could not generate image. Please try again.</p>'; };
     img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(val);
 });
@@ -633,6 +669,7 @@ if(!SpeechRecognitionAPI){
             typeOutText(aiDiv, clean, voiceBox, () => {
                 aiDiv.classList.add("done");
                 addCopyButton(aiDiv, clean);
+                addReportButton(aiDiv, clean);
             });
             const utter = new SpeechSynthesisUtterance(clean);
             speechSynthesis.speak(utter);
