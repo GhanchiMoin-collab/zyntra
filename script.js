@@ -460,21 +460,86 @@ const chatMessages = document.getElementById("chatMessages");
 const userInput = document.getElementById("userInput");
 const closeChat = document.getElementById("closeChat");
 let chatHistory = [];
+let attachedImage = null;
+
+document.getElementById("attachBtn").addEventListener("click", () => {
+    document.getElementById("chatFileInput").click();
+});
+
+document.getElementById("chatFileInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    if(!file.type.startsWith("image/")){
+        alert("Please select an image file.");
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        attachedImage = reader.result;
+        renderAttachPreview();
+    };
+    reader.readAsDataURL(file);
+});
+
+function renderAttachPreview(){
+    const preview = document.getElementById("attachPreview");
+    if(!attachedImage){ preview.innerHTML = ""; return; }
+    preview.innerHTML = "";
+    const thumb = document.createElement("div");
+    thumb.className = "attach-thumb";
+    const img = document.createElement("img");
+    img.src = attachedImage;
+    const removeBtn = document.createElement("button");
+    removeBtn.textContent = "✕";
+    removeBtn.addEventListener("click", () => {
+        attachedImage = null;
+        document.getElementById("chatFileInput").value = "";
+        renderAttachPreview();
+    });
+    thumb.appendChild(img);
+    thumb.appendChild(removeBtn);
+    preview.appendChild(thumb);
+}
 
 async function sendChatMessage(prefill){
     const msg = (prefill !== undefined ? prefill : userInput.value.trim());
-    if(!msg) return;
+    if(!msg && !attachedImage) return;
 
     const userDiv = document.createElement("div");
     userDiv.className = "user-message";
-    userDiv.textContent = msg;
+    if(attachedImage){
+        const imgEl = document.createElement("img");
+        imgEl.src = attachedImage;
+        imgEl.className = "sent-image";
+        userDiv.appendChild(imgEl);
+    }
+    if(msg){
+        const p = document.createElement("p");
+        p.textContent = msg;
+        p.style.margin = "0";
+        userDiv.appendChild(p);
+    }
     chatMessages.appendChild(userDiv);
     userInput.value = "";
     chatMessages.scrollTop = chatMessages.scrollHeight;
 
-    chatHistory.push({ role: "user", content: msg });
-    logMessageToHistory("user", msg);
+    let historyContent;
+    if(attachedImage){
+        historyContent = [
+            { type: "text", text: msg || "What is in this image? Please help solve or explain it." },
+            { type: "image_url", image_url: { url: attachedImage } }
+        ];
+    } else {
+        historyContent = msg;
+    }
+
+    chatHistory.push({ role: "user", content: historyContent });
+    logMessageToHistory("user", msg || "[Image attached]");
     bumpStat("conversations", "statConversations");
+
+    attachedImage = null;
+    document.getElementById("chatFileInput").value = "";
+    renderAttachPreview();
 
     const loadingDiv = document.createElement("div");
     loadingDiv.className = "ai-message";
