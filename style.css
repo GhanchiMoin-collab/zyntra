@@ -1101,6 +1101,36 @@ white-space:nowrap;
 background:#2a1522;
 }
 
+.history-row.pinned{
+border-color:#c9a8ff;
+background:#171528;
+}
+
+.pin-btn{
+background:none;
+border:none;
+font-size:16px;
+cursor:pointer;
+padding:4px 6px;
+border-radius:6px;
+flex-shrink:0;
+opacity:0.5;
+}
+
+.pin-btn.pinned{
+opacity:1;
+}
+
+.pin-btn:hover{
+background:#232a4d;
+}
+
+.pinned-empty{
+color:#7a80a5;
+font-size:13px;
+padding:8px 0;
+}
+
 /* ================= CHAT MODAL (unchanged) ================= */
 
 .chat-modal{
