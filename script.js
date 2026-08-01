@@ -119,7 +119,17 @@ document.getElementById("pricingBtn")?.addEventListener("click", e => { e.preven
 document.getElementById("pricingBtnFooter")?.addEventListener("click", e => { e.preventDefault(); openModal("pricingModal"); });
 document.getElementById("pricingModalClose")?.addEventListener("click", () => closeModal("pricingModal"));
 
-// ---------- Contact modal ----------
+// ---------- Privacy Policy modal ----------
+
+document.getElementById("privacyBtn")?.addEventListener("click", e => {
+    e.preventDefault();
+    openModal("privacyModal");
+});
+document.getElementById("privacyModalClose")?.addEventListener("click", () => closeModal("privacyModal"));
+
+if(window.location.hash === "#privacy"){
+    openModal("privacyModal");
+}
 
 ["contactBtn","contactBtnFooter","contactBtnFooter2","contactBtnFooter3"].forEach(id => {
     document.getElementById(id)?.addEventListener("click", e => { e.preventDefault(); openModal("contactModal"); });
