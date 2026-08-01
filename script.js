@@ -135,7 +135,7 @@ if(window.location.hash === "#privacy"){
     document.getElementById(id)?.addEventListener("click", e => { e.preventDefault(); openModal("contactModal"); });
 });
 document.getElementById("contactModalClose")?.addEventListener("click", () => closeModal("contactModal"));
-document.getElementById("contactSubmit")?.addEventListener("click", () => {
+document.getElementById("contactSubmit")?.addEventListener("click", async () => {
     const name = document.getElementById("contactName").value.trim();
     const email = document.getElementById("contactEmail").value.trim();
     const msg = document.getElementById("contactMsg").value.trim();
@@ -143,11 +143,34 @@ document.getElementById("contactSubmit")?.addEventListener("click", () => {
         alert("Please fill in all fields.");
         return;
     }
-    alert("Thanks " + name + "! Your message has been received.");
-    document.getElementById("contactName").value = "";
-    document.getElementById("contactEmail").value = "";
-    document.getElementById("contactMsg").value = "";
-    closeModal("contactModal");
+
+    const btn = document.getElementById("contactSubmit");
+    const originalText = btn.textContent;
+    btn.textContent = "Sending...";
+    btn.disabled = true;
+
+    try{
+        const res = await fetch("https://formspree.io/f/xbdnvlkg", {
+            method: "POST",
+            headers: { "Accept": "application/json", "Content-Type": "application/json" },
+            body: JSON.stringify({ name, email, message: msg })
+        });
+
+        if(res.ok){
+            alert("Thanks " + name + "! Your message has been sent.");
+            document.getElementById("contactName").value = "";
+            document.getElementById("contactEmail").value = "";
+            document.getElementById("contactMsg").value = "";
+            closeModal("contactModal");
+        } else {
+            alert("Something went wrong sending your message. Please try again.");
+        }
+    }catch(err){
+        alert("Something went wrong sending your message. Please try again.");
+    }
+
+    btn.textContent = originalText;
+    btn.disabled = false;
 });
 
 // ---------- Live stats (real, shared globally across all visitors via CountAPI) ----------
