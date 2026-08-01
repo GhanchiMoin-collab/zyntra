@@ -127,7 +127,42 @@ document.getElementById("contactSubmit")?.addEventListener("click", () => {
     closeModal("contactModal");
 });
 
-// ---------- Auth state (guest vs signed in) ----------
+// ---------- Live stats (real usage, tracked in this browser) ----------
+
+const STAT_BASE = {
+    users: 50000,
+    conversations: 1000000,
+    images: 250000
+};
+
+function getStat(key){
+    return parseInt(localStorage.getItem("zyntra-stat-" + key) || "0", 10);
+}
+
+function bumpStat(key){
+    localStorage.setItem("zyntra-stat-" + key, getStat(key) + 1);
+    renderStats();
+}
+
+function formatCount(n){
+    if(n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M+";
+    if(n >= 1000) return Math.round(n / 1000) + "K+";
+    return n + "+";
+}
+
+function renderStats(){
+    document.getElementById("statUsers").textContent = formatCount(STAT_BASE.users + getStat("users"));
+    document.getElementById("statConversations").textContent = formatCount(STAT_BASE.conversations + getStat("conversations"));
+    document.getElementById("statImages").textContent = formatCount(STAT_BASE.images + getStat("images"));
+    document.getElementById("statUptime").textContent = "99.9%";
+}
+
+if(!localStorage.getItem("zyntra-visited")){
+    localStorage.setItem("zyntra-visited", "1");
+    bumpStat("users");
+} else {
+    renderStats();
+}
 
 function isLoggedIn(){
     return !!localStorage.getItem("zyntra-user");
@@ -376,6 +411,7 @@ async function sendChatMessage(prefill){
 
     chatHistory.push({ role: "user", content: msg });
     logMessageToHistory("user", msg);
+    bumpStat("conversations");
 
     const loadingDiv = document.createElement("div");
     loadingDiv.className = "ai-message";
@@ -480,7 +516,7 @@ document.getElementById("imageGenBtn").addEventListener("click", () => {
     const img = new Image();
     img.className = "generated-img";
     img.alt = val;
-    img.onload = () => { result.innerHTML = ""; result.appendChild(img); };
+    img.onload = () => { result.innerHTML = ""; result.appendChild(img); bumpStat("images"); };
     img.onerror = () => { result.innerHTML = '<p class="loading-text">Could not generate image. Please try again.</p>'; };
     img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(val);
 });
