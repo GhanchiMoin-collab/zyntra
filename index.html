@@ -232,13 +232,30 @@
     <div class="modal-box">
         <button class="modal-close" id="signinModalClose">✕</button>
         <span class="tag">SIGN IN</span>
-        <h1>Welcome <span>Back</span></h1>
+        <h1 id="signinTitle">Welcome <span>Back</span></h1>
         <p class="ai-disclosure" id="signinContext" style="display:none; color:#c9a8ff;">🔒 Sign in to unlock Zyntra AI Pro.</p>
+
+        <button id="googleSigninBtn" style="width:100%; padding:13px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:white; font-weight:600; cursor:pointer; margin-bottom:16px; display:flex; align-items:center; justify-content:center; gap:10px;">
+            <span style="font-size:16px;">G</span> Continue with Google
+        </button>
+
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px; color:#7a80a5; font-size:13px;">
+            <div style="flex:1; height:1px; background:#232a4d;"></div>
+            or
+            <div style="flex:1; height:1px; background:#232a4d;"></div>
+        </div>
+
+        <p id="signinError" style="display:none; color:#ff8fa8; font-size:13.5px; margin-bottom:14px;"></p>
+
         <div class="modal-input-row modal-input-col">
             <input type="email" id="signinEmail" placeholder="Email">
             <input type="password" id="signinPass" placeholder="Password">
             <button id="signinSubmit">Sign In</button>
         </div>
+
+        <p style="margin-top:16px; font-size:13.5px; color:#9aa0c0; text-align:center;" id="signupToggleText">
+            Don't have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign up</a>
+        </p>
     </div>
 </div>
 
@@ -503,6 +520,19 @@
 
 <button id="floatingChatBtn" class="floating-chat-btn">💬</button>
 
-    <script src="script.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-auth-compat.js"></script>
+<script>
+    firebase.initializeApp({
+        apiKey: "AIzaSyAWuJOkwON5KLALez5_p4rQYA7vNoGgjvM",
+        authDomain: "zyntra-98cad.firebaseapp.com",
+        projectId: "zyntra-98cad",
+        storageBucket: "zyntra-98cad.firebasestorage.app",
+        messagingSenderId: "960720019638",
+        appId: "1:960720019638:web:3f672e5d103386ed858617"
+    });
+</script>
+
+<script src="script.js"></script>
 </body>
 </html>
