@@ -1,129 +1,325 @@
 // ==========================
-// Zyntra AI Homepage
+// Zyntra AI — main script
 // ==========================
-const cards = document.querySelectorAll(".card");
-document.querySelectorAll(".card").forEach(card => {
 
-    card.addEventListener("click", () => {
+// ---------- Helpers ----------
 
-        const title = card.querySelector("h2").innerText;
+function formatAIText(text){
+    let safe = text
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;");
 
-        if(title === "AI Chat"){
+    safe = safe.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 
-            document.getElementById("chatModal").classList.add("show");
+    const lines = safe.split(/\n+/).filter(l => l.trim() !== "");
+    let html = "";
+    let inList = false;
 
+    lines.forEach(line => {
+        const trimmed = line.trim();
+        if(/^[-*•]\s+/.test(trimmed)){
+            if(!inList){ html += "<ul>"; inList = true; }
+            html += "<li>" + trimmed.replace(/^[-*•]\s+/, "") + "</li>";
+        } else {
+            if(inList){ html += "</ul>"; inList = false; }
+            html += "<p>" + trimmed + "</p>";
         }
-
     });
+    if(inList) html += "</ul>";
+    return html || "<p>" + safe + "</p>";
+}
 
+async function askAI(prompt){
+    const res = await fetch("https://text.pollinations.ai/" + encodeURIComponent(prompt));
+    if(!res.ok) throw new Error("Request failed");
+    return await res.text();
+}
+
+// ---------- Generic modal open/close ----------
+
+function openModal(id){
+    document.getElementById(id).classList.add("show");
+}
+function closeModal(id){
+    document.getElementById(id).classList.remove("show");
+}
+
+document.querySelectorAll(".modal-overlay").forEach(overlay => {
+    overlay.addEventListener("click", e => {
+        if(e.target === overlay) overlay.classList.remove("show");
+    });
 });
 
-// Ask AI button
-document.querySelector(".hero-search button").onclick = () => {
-    const question =
-        document.querySelector(".hero-search input").value.trim();
-    if(question===""){
+document.addEventListener("keydown", e => {
+    if(e.key === "Escape"){
+        document.querySelectorAll(".modal-overlay.show").forEach(m => m.classList.remove("show"));
+        chatModal.classList.remove("show");
+    }
+});
+
+// ---------- About modal ----------
+
+const aboutModal = document.getElementById("aboutModal");
+document.getElementById("aboutBtn")?.addEventListener("click", e => { e.preventDefault(); openModal("aboutModal"); });
+document.getElementById("aboutBtnFooter")?.addEventListener("click", e => { e.preventDefault(); openModal("aboutModal"); });
+document.getElementById("aboutClose")?.addEventListener("click", () => closeModal("aboutModal"));
+
+// ---------- Pricing modal ----------
+
+document.getElementById("pricingBtn")?.addEventListener("click", e => { e.preventDefault(); openModal("pricingModal"); });
+document.getElementById("pricingBtnFooter")?.addEventListener("click", e => { e.preventDefault(); openModal("pricingModal"); });
+document.getElementById("pricingModalClose")?.addEventListener("click", () => closeModal("pricingModal"));
+
+// ---------- Contact modal ----------
+
+["contactBtn","contactBtnFooter","contactBtnFooter2","contactBtnFooter3"].forEach(id => {
+    document.getElementById(id)?.addEventListener("click", e => { e.preventDefault(); openModal("contactModal"); });
+});
+document.getElementById("contactModalClose")?.addEventListener("click", () => closeModal("contactModal"));
+document.getElementById("contactSubmit")?.addEventListener("click", () => {
+    const name = document.getElementById("contactName").value.trim();
+    const email = document.getElementById("contactEmail").value.trim();
+    const msg = document.getElementById("contactMsg").value.trim();
+    if(!name || !email || !msg){
+        alert("Please fill in all fields.");
+        return;
+    }
+    alert("Thanks " + name + "! Your message has been received.");
+    document.getElementById("contactName").value = "";
+    document.getElementById("contactEmail").value = "";
+    document.getElementById("contactMsg").value = "";
+    closeModal("contactModal");
+});
+
+// ---------- Sign in modal ----------
+
+document.getElementById("signinBtn")?.addEventListener("click", () => openModal("signinModal"));
+document.getElementById("signinModalClose")?.addEventListener("click", () => closeModal("signinModal"));
+document.getElementById("signinSubmit")?.addEventListener("click", () => {
+    const email = document.getElementById("signinEmail").value.trim();
+    if(!email){
+        alert("Please enter your email.");
+        return;
+    }
+    alert("Sign in is coming soon!");
+});
+
+// ---------- Get Started ----------
+
+document.getElementById("getStartedBtn")?.addEventListener("click", () => {
+    chatModal.classList.add("show");
+});
+
+// ---------- Theme toggle ----------
+
+const themeToggle = document.getElementById("themeToggle");
+if(localStorage.getItem("zyntra-theme") === "light"){
+    document.body.classList.add("light-mode");
+    themeToggle.textContent = "☀️";
+}
+themeToggle?.addEventListener("click", () => {
+    document.body.classList.toggle("light-mode");
+    const isLight = document.body.classList.contains("light-mode");
+    themeToggle.textContent = isLight ? "☀️" : "🌙";
+    localStorage.setItem("zyntra-theme", isLight ? "light" : "dark");
+});
+
+// ---------- Mobile hamburger ----------
+
+document.getElementById("hamburgerBtn")?.addEventListener("click", () => {
+    document.getElementById("mainNav").classList.toggle("show");
+});
+
+// ==========================
+// AI CHAT MODAL
+// ==========================
+
+const chatModal = document.getElementById("chatModal");
+const chatMessages = document.getElementById("chatMessages");
+const userInput = document.getElementById("userInput");
+const closeChat = document.getElementById("closeChat");
+
+async function sendChatMessage(prefill){
+    const msg = (prefill !== undefined ? prefill : userInput.value.trim());
+    if(!msg) return;
+
+    const userDiv = document.createElement("div");
+    userDiv.className = "user-message";
+    userDiv.textContent = msg;
+    chatMessages.appendChild(userDiv);
+    userInput.value = "";
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "ai-message";
+    loadingDiv.textContent = "Typing...";
+    chatMessages.appendChild(loadingDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    try{
+        const reply = await askAI(msg);
+        loadingDiv.innerHTML = formatAIText(reply);
+    }catch(err){
+        loadingDiv.textContent = "Sorry, something went wrong. Please try again.";
+    }
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+document.getElementById("sendMessage").addEventListener("click", () => sendChatMessage());
+userInput.addEventListener("keydown", e => {
+    if(e.key === "Enter") sendChatMessage();
+});
+
+closeChat.addEventListener("click", () => chatModal.classList.remove("show"));
+chatModal.addEventListener("click", e => {
+    if(e.target === chatModal) chatModal.classList.remove("show");
+});
+
+document.getElementById("floatingChatBtn").addEventListener("click", () => {
+    chatModal.classList.add("show");
+});
+
+// ---------- Hero "Ask AI" ----------
+
+document.getElementById("heroAskBtn").addEventListener("click", () => {
+    const q = document.getElementById("heroInput").value.trim();
+    if(q === ""){
         alert("Please enter a question.");
         return;
     }
-    localStorage.setItem("question",question);
-};
-
-// ==========================
-// About popup modal
-// ==========================
-const aboutModal = document.getElementById("aboutModal");
-const aboutBtn = document.getElementById("aboutBtn");
-const aboutBtnFooter = document.getElementById("aboutBtnFooter");
-const aboutClose = document.getElementById("aboutClose");
-
-function openAboutModal(e){
-    e.preventDefault();
-    aboutModal.classList.add("show");
-}
-
-function closeAboutModal(){
-    aboutModal.classList.remove("show");
-}
-
-if(aboutBtn) aboutBtn.addEventListener("click", openAboutModal);
-if(aboutBtnFooter) aboutBtnFooter.addEventListener("click", openAboutModal);
-if(aboutClose) aboutClose.addEventListener("click", closeAboutModal);
-
-// close when clicking outside the box
-aboutModal.addEventListener("click", (e) => {
-    if(e.target === aboutModal){
-        closeAboutModal();
-    }
+    document.getElementById("heroInput").value = "";
+    chatModal.classList.add("show");
+    sendChatMessage(q);
+});
+document.getElementById("heroInput").addEventListener("keydown", e => {
+    if(e.key === "Enter") document.getElementById("heroAskBtn").click();
 });
 
-// close on Escape key
-document.addEventListener("keydown", (e) => {
-    if(e.key === "Escape"){
-        closeAboutModal();
-    }
-});
-// ============================
-// AI CHAT MODAL
-// ============================
+// ==========================
+// Tool routing (cards, pills, dropdown, chips)
+// ==========================
 
-const chatModal = document.getElementById("chatModal");
-const closeChat = document.getElementById("closeChat");
-
-// Open chat when AI Chat card is clicked
-document.querySelectorAll(".card").forEach(card => {
-
-    const title = card.querySelector("h2")?.innerText;
-
-    if(title === "AI Chat"){
-
-        card.addEventListener("click",(e)=>{
-            e.preventDefault();
+function openTool(tool, prefix){
+    switch(tool){
+        case "chat":
             chatModal.classList.add("show");
-        });
-
+            if(prefix){ userInput.value = prefix; userInput.focus(); }
+            break;
+        case "study":
+            chatModal.classList.add("show");
+            userInput.placeholder = "Ask me to explain, summarize, or solve...";
+            if(prefix){ userInput.value = prefix; userInput.focus(); }
+            break;
+        case "business":
+            chatModal.classList.add("show");
+            userInput.placeholder = "Ask a business or growth question...";
+            if(prefix){ userInput.value = prefix; userInput.focus(); }
+            break;
+        case "image":
+            openModal("imageModal");
+            break;
+        case "video":
+            openModal("videoModal");
+            break;
+        case "voice":
+            openModal("voiceModal");
+            break;
     }
+}
 
+document.querySelectorAll("[data-tool]").forEach(el => {
+    el.addEventListener("click", e => {
+        e.preventDefault();
+        openTool(el.dataset.tool, el.dataset.prefix);
+    });
 });
 
-// Open chat when Ask AI button is clicked
-const askBtn = document.querySelector(".hero-search button");
+// ==========================
+// Image modal
+// ==========================
 
-if(askBtn){
+document.getElementById("imageModalClose").addEventListener("click", () => closeModal("imageModal"));
+document.getElementById("imageGenBtn").addEventListener("click", () => {
+    const val = document.getElementById("imageInput").value.trim();
+    const result = document.getElementById("imageResult");
+    if(!val){ alert("Please describe the image first."); return; }
+    result.innerHTML = '<p class="loading-text">Generating image...</p>';
+    const img = new Image();
+    img.className = "generated-img";
+    img.alt = val;
+    img.onload = () => { result.innerHTML = ""; result.appendChild(img); };
+    img.onerror = () => { result.innerHTML = '<p class="loading-text">Could not generate image. Please try again.</p>'; };
+    img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(val);
+});
 
-    askBtn.addEventListener("click",(e)=>{
+// ==========================
+// Video modal
+// ==========================
 
-        e.preventDefault();
+document.getElementById("videoModalClose").addEventListener("click", () => closeModal("videoModal"));
+document.getElementById("videoGenBtn").addEventListener("click", () => {
+    const val = document.getElementById("videoInput").value.trim();
+    const result = document.getElementById("videoResult");
+    if(!val){ alert("Please describe the video first."); return; }
+    result.innerHTML =
+        '<video class="generated-vid" controls autoplay muted loop>' +
+        '<source src="https://www.w3schools.com/html/mov_bbb.mp4" type="video/mp4">' +
+        "</video>" +
+        '<p class="loading-text">Demo preview — full AI video generation coming soon.</p>';
+});
 
-        chatModal.classList.add("show");
+// ==========================
+// Voice modal
+// ==========================
 
+document.getElementById("voiceModalClose").addEventListener("click", () => closeModal("voiceModal"));
+
+const voiceBox = document.getElementById("voiceBox");
+const voiceMicBtn = document.getElementById("voiceMicBtn");
+
+function addVoiceMsg(text, who){
+    const p = document.createElement("p");
+    p.className = "chat-msg " + who;
+    p.textContent = text;
+    voiceBox.appendChild(p);
+    voiceBox.scrollTop = voiceBox.scrollHeight;
+}
+
+const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+if(!SpeechRecognitionAPI){
+    voiceMicBtn.addEventListener("click", () => {
+        addVoiceMsg("Voice recognition is not supported in this browser.", "ai");
+    });
+} else {
+    const recognition = new SpeechRecognitionAPI();
+    recognition.lang = "en-US";
+
+    voiceMicBtn.addEventListener("click", () => {
+        voiceMicBtn.textContent = "🎙 Listening...";
+        recognition.start();
     });
 
+    recognition.onresult = async (e) => {
+        const said = e.results[0][0].transcript;
+        voiceMicBtn.textContent = "🎤 Tap to speak";
+        addVoiceMsg(said, "user");
+        addVoiceMsg("Thinking...", "ai-loading");
+        try{
+            const reply = await askAI(said);
+            voiceBox.removeChild(voiceBox.lastChild);
+            addVoiceMsg(reply.replace(/\*\*/g,""), "ai");
+            const utter = new SpeechSynthesisUtterance(reply.replace(/\*\*/g,""));
+            speechSynthesis.speak(utter);
+        }catch(err){
+            voiceBox.removeChild(voiceBox.lastChild);
+            addVoiceMsg("Sorry, I couldn't process that.", "ai");
+        }
+    };
+
+    recognition.onerror = () => {
+        voiceMicBtn.textContent = "🎤 Tap to speak";
+    };
 }
-
-// Close button
-closeChat.onclick = () => {
-
-    chatModal.classList.remove("show");
-
-};
-
-// Close when clicking outside
-chatModal.onclick = (e)=>{
-
-    if(e.target === chatModal){
-
-        chatModal.classList.remove("show");
-
-    }
-
-};
-chatModal.onclick = (e)=>{
-
-    if(e.target === chatModal){
-
-        chatModal.classList.remove("show");
-
-    }
-
-};
+\
