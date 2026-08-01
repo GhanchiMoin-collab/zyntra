@@ -38,7 +38,7 @@
         </div>
         <a href="#" id="pricingBtn">Pricing</a>
         <a href="#" id="aboutBtn">About</a>
-        <a href="#">Blog</a>
+        <a href="#" id="navBlogLink">Blog</a>
         <a href="#" id="contactBtn">Contact</a>
     </nav>
 
@@ -232,6 +232,17 @@
             <input type="password" id="signinPass" placeholder="Password">
             <button id="signinSubmit">Sign In</button>
         </div>
+    </div>
+</div>
+
+<!-- ================= CHAT HISTORY MODAL ================= -->
+<div class="modal-overlay" id="historyModal">
+    <div class="modal-box">
+        <button class="modal-close" id="historyModalClose">✕</button>
+        <span class="tag">CHAT HISTORY</span>
+        <h1>Your <span>Conversations</span></h1>
+        <div class="chat-box" id="historyBox"></div>
+        <button id="clearHistoryBtn" class="mic-btn">🗑 Clear History</button>
     </div>
 </div>
 
