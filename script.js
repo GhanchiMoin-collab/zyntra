@@ -225,7 +225,7 @@ document.getElementById("getProBtn")?.addEventListener("click", async () => {
     if(!isLoggedIn()){
         closeModal("pricingModal");
         document.getElementById("signinContext").style.display = "block";
-        openModal("signinModal");
+        resetSigninModalUI(); openModal("signinModal");
         return;
     }
 
@@ -417,7 +417,7 @@ document.getElementById("profileModalClose")?.addEventListener("click", () => cl
 document.getElementById("profileSigninBtn")?.addEventListener("click", () => {
     closeModal("profileModal");
     document.getElementById("signinContext").style.display = "none";
-    openModal("signinModal");
+    resetSigninModalUI(); openModal("signinModal");
 });
 
 document.getElementById("profileSaveBtn")?.addEventListener("click", () => {
@@ -452,33 +452,131 @@ document.getElementById("signinBtn")?.addEventListener("click", () => {
         openModal("signoutModal");
     } else {
         document.getElementById("signinContext").style.display = "none";
-        openModal("signinModal");
+        resetSigninModalUI(); openModal("signinModal");
     }
 });
 document.getElementById("signoutModalClose")?.addEventListener("click", () => closeModal("signoutModal"));
 document.getElementById("signoutCancel")?.addEventListener("click", () => closeModal("signoutModal"));
 document.getElementById("signoutConfirm")?.addEventListener("click", () => {
+    firebase.auth().signOut().catch(() => {});
     localStorage.removeItem("zyntra-user");
     closeModal("signoutModal");
     renderAuthNav();
 });
 document.getElementById("signinModalClose")?.addEventListener("click", () => closeModal("signinModal"));
-document.getElementById("signinSubmit")?.addEventListener("click", () => {
-    const email = document.getElementById("signinEmail").value.trim();
-    if(!email){
-        alert("Please enter your email.");
-        return;
+let isSignupMode = false;
+
+function showSigninError(message){
+    const errEl = document.getElementById("signinError");
+    errEl.textContent = message;
+    errEl.style.display = "block";
+}
+
+function clearSigninError(){
+    document.getElementById("signinError").style.display = "none";
+}
+
+function firebaseErrorMessage(code){
+    switch(code){
+        case "auth/user-not-found":
+            return "No account exists with this email.";
+        case "auth/wrong-password":
+        case "auth/invalid-credential":
+            return "Incorrect password. Please try again.";
+        case "auth/invalid-email":
+            return "Please enter a valid email address.";
+        case "auth/email-already-in-use":
+            return "An account with this email already exists. Try signing in instead.";
+        case "auth/weak-password":
+            return "Password should be at least 6 characters.";
+        case "auth/too-many-requests":
+            return "Too many attempts. Please wait a moment and try again.";
+        default:
+            return "Something went wrong. Please try again.";
     }
-    const cameFromPro = document.getElementById("signinContext").style.display !== "none";
+}
+
+function finishSignin(email, cameFromPro){
     localStorage.setItem("zyntra-user", email);
     document.getElementById("signinEmail").value = "";
     document.getElementById("signinPass").value = "";
     document.getElementById("signinContext").style.display = "none";
+    clearSigninError();
     closeModal("signinModal");
     renderAuthNav();
     if(cameFromPro){
         openModal("pricingModal");
     }
+}
+
+function resetSigninModalUI(){
+    isSignupMode = false;
+    clearSigninError();
+    document.getElementById("signinTitle").innerHTML = 'Welcome <span>Back</span>';
+    document.getElementById("signinSubmit").textContent = "Sign In";
+    document.getElementById("signupToggleText").innerHTML = 'Don\'t have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign up</a>';
+    document.getElementById("signupToggleLink").addEventListener("click", handleSignupToggleClick);
+}
+
+function handleSignupToggleClick(e){
+    e.preventDefault();
+    isSignupMode = !isSignupMode;
+    clearSigninError();
+    document.getElementById("signinTitle").innerHTML = isSignupMode
+        ? 'Create <span>Account</span>'
+        : 'Welcome <span>Back</span>';
+    document.getElementById("signinSubmit").textContent = isSignupMode ? "Sign Up" : "Sign In";
+    document.getElementById("signupToggleText").innerHTML = isSignupMode
+        ? 'Already have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign in</a>'
+        : 'Don\'t have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign up</a>';
+    document.getElementById("signupToggleLink").addEventListener("click", handleSignupToggleClick);
+}
+document.getElementById("signupToggleLink")?.addEventListener("click", handleSignupToggleClick);
+
+document.getElementById("signinSubmit")?.addEventListener("click", () => {
+    const email = document.getElementById("signinEmail").value.trim();
+    const password = document.getElementById("signinPass").value;
+    clearSigninError();
+
+    if(!email || !password){
+        showSigninError("Please enter both email and password.");
+        return;
+    }
+
+    const cameFromPro = document.getElementById("signinContext").style.display !== "none";
+    const btn = document.getElementById("signinSubmit");
+    const original = btn.textContent;
+    btn.textContent = isSignupMode ? "Creating account..." : "Signing in...";
+    btn.disabled = true;
+
+    const authAction = isSignupMode
+        ? firebase.auth().createUserWithEmailAndPassword(email, password)
+        : firebase.auth().signInWithEmailAndPassword(email, password);
+
+    authAction
+        .then(userCredential => {
+            finishSignin(userCredential.user.email, cameFromPro);
+        })
+        .catch(err => {
+            showSigninError(firebaseErrorMessage(err.code));
+        })
+        .finally(() => {
+            btn.textContent = original;
+            btn.disabled = false;
+        });
+});
+
+document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
+    clearSigninError();
+    const cameFromPro = document.getElementById("signinContext").style.display !== "none";
+    const provider = new firebase.auth.GoogleAuthProvider();
+    firebase.auth().signInWithPopup(provider)
+        .then(result => {
+            finishSignin(result.user.email, cameFromPro);
+        })
+        .catch(err => {
+            showSigninError(firebaseErrorMessage(err.code));
+        });
 });
 
 renderAuthNav();
@@ -1081,4 +1179,3 @@ if(!SpeechRecognitionAPI){
         voiceMicBtn.textContent = "🎤 Tap to speak";
     };
 }
-
