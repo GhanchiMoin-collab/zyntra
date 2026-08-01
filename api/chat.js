@@ -17,20 +17,14 @@ export default async function handler(req, res) {
     // qwen/qwen3.6-27b is Groq's current multimodal (text + image) model.
     const model = hasImage ? 'qwen/qwen3.6-27b' : 'openai/gpt-oss-20b';
 
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.7,
-        max_tokens: 2048,
-        messages: [
-          {
-            role: "system",
-            content: `
+    const body = {
+      model,
+      temperature: 0.7,
+      max_tokens: 2048,
+      messages: [
+        {
+          role: "system",
+          content: `
 You are Zyntra AI, a premium AI assistant.
 Write exactly like ChatGPT.
 Rules:
@@ -45,10 +39,23 @@ Rules:
 - Sound friendly, intelligent, and helpful.
 - If the user sends an image, look at it carefully and help solve, explain, or answer whatever they're asking about it.
 `
-          },
-          ...messages
-        ]
-      })
+        },
+        ...messages
+      ]
+    };
+
+    // qwen3.6-27b (the vision model) shows its raw <think> reasoning unless told to hide it.
+    if(hasImage){
+      body.reasoning_format = "hidden";
+    }
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
     });
     const data = await response.json();
     if (!response.ok) {
