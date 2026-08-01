@@ -149,25 +149,51 @@ if(window.location.hash === "#privacy"){
 
 // ---------- Pricing / Stripe checkout ----------
 
-function getProAccounts(){
-    return JSON.parse(localStorage.getItem("zyntra-pro-accounts") || "[]");
+const PRO_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 1 month
+
+function getProRecord(email){
+    const accounts = JSON.parse(localStorage.getItem("zyntra-pro-accounts") || "{}");
+    return accounts[email] || null;
+}
+
+function saveProRecord(email, record){
+    const accounts = JSON.parse(localStorage.getItem("zyntra-pro-accounts") || "{}");
+    accounts[email] = record;
+    localStorage.setItem("zyntra-pro-accounts", JSON.stringify(accounts));
 }
 
 function markCurrentUserPro(){
     const email = localStorage.getItem("zyntra-user");
     if(!email) return;
-    const accounts = getProAccounts();
-    if(!accounts.includes(email)){
-        accounts.push(email);
-        localStorage.setItem("zyntra-pro-accounts", JSON.stringify(accounts));
-    }
+    saveProRecord(email, { purchasedAt: Date.now(), notified: false });
 }
 
 function isPro(){
     const email = localStorage.getItem("zyntra-user");
     if(!email) return false;
-    return getProAccounts().includes(email);
+    const record = getProRecord(email);
+    if(!record) return false;
+    return (Date.now() - record.purchasedAt) < PRO_DURATION_MS;
 }
+
+function checkProExpiry(){
+    const email = localStorage.getItem("zyntra-user");
+    if(!email) return;
+    const record = getProRecord(email);
+    if(!record) return;
+    const expired = (Date.now() - record.purchasedAt) >= PRO_DURATION_MS;
+    if(expired && !record.notified){
+        record.notified = true;
+        saveProRecord(email, record);
+        openModal("proExpiredModal");
+    }
+}
+
+document.getElementById("proExpiredOkBtn")?.addEventListener("click", () => {
+    closeModal("proExpiredModal");
+    renderPlanUI();
+    openModal("pricingModal");
+});
 
 function renderPlanUI(){
     const badge = document.getElementById("proBadge");
@@ -345,6 +371,7 @@ function renderAuthNav(){
     const signinBtn = document.getElementById("signinBtn");
     signinBtn.textContent = isLoggedIn() ? "Sign Out" : "Sign In";
     renderPlanUI();
+    checkProExpiry();
 }
 
 // ---------- Profile modal ----------
