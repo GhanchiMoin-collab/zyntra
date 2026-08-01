@@ -30,6 +30,23 @@ function formatAIText(text){
     return html || "<p>" + safe + "</p>";
 }
 
+function typeOutText(el, fullText, scrollContainer, onDone){
+    const words = fullText.split(" ");
+    let i = 0;
+
+    function step(){
+        i++;
+        el.innerHTML = formatAIText(words.slice(0, i).join(" "));
+        if(scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        if(i < words.length){
+            setTimeout(step, 25);
+        } else if(onDone){
+            onDone();
+        }
+    }
+    step();
+}
+
 async function callChatAPI(messages){
     const res = await fetch("/api/chat", {
         method: "POST",
@@ -168,7 +185,8 @@ async function sendChatMessage(prefill){
     try{
         const reply = await callChatAPI(chatHistory);
         chatHistory.push({ role: "assistant", content: reply });
-        loadingDiv.innerHTML = formatAIText(reply);
+        loadingDiv.textContent = "";
+        typeOutText(loadingDiv, reply, chatMessages, () => loadingDiv.classList.add("done"));
     }catch(err){
         loadingDiv.textContent = "Sorry, something went wrong. Please try again.";
     }
@@ -368,7 +386,10 @@ if(!SpeechRecognitionAPI){
             voiceHistory.push({ role: "assistant", content: reply });
             voiceBox.removeChild(voiceBox.lastChild);
             const clean = reply.replace(/\*\*/g, "");
-            addVoiceMsg(clean, "ai");
+            const aiDiv = document.createElement("p");
+            aiDiv.className = "chat-msg ai";
+            voiceBox.appendChild(aiDiv);
+            typeOutText(aiDiv, clean, voiceBox, () => aiDiv.classList.add("done"));
             const utter = new SpeechSynthesisUtterance(clean);
             speechSynthesis.speak(utter);
         }catch(err){
