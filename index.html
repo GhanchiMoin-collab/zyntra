@@ -41,7 +41,7 @@
         </div>
         <a href="#" id="pricingBtn">Pricing</a>
         <a href="#" id="aboutBtn">About</a>
-        <a href="#" id="navBlogLink">Blog</a>
+        <a href="#" id="profileBtn">Profile</a>
         <a href="#" id="contactBtn">Contact</a>
     </nav>
 
@@ -252,6 +252,56 @@
         <div class="modal-input-row" style="margin-top:20px;">
             <button id="signoutCancel" style="flex:1; padding:13px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:white; font-weight:600; cursor:pointer;">Cancel</button>
             <button id="signoutConfirm" style="flex:1; padding:13px; border:none; border-radius:12px; background:linear-gradient(135deg,#e14b6a,#ff5db5); color:white; font-weight:700; cursor:pointer;">Confirm</button>
+        </div>
+    </div>
+</div>
+
+<!-- ================= PROFILE MODAL ================= -->
+<div class="modal-overlay" id="profileModal">
+    <div class="modal-box">
+        <button class="modal-close" id="profileModalClose">✕</button>
+        <span class="tag">PROFILE</span>
+        <h1>Your <span>Profile</span></h1>
+
+        <div id="profileGuestView">
+            <p>Sign in to set up your profile, save custom instructions, and unlock Pro features.</p>
+            <button id="profileSigninBtn" class="mic-btn">Sign In</button>
+        </div>
+
+        <div id="profileSignedInView" style="display:none;">
+            <div style="display:flex; align-items:center; gap:16px; margin-bottom:24px;">
+                <div class="profile-avatar" id="profileAvatar">M</div>
+                <p id="profileEmailDisplay" style="color:#9aa0c0; font-size:14px; margin:0;"></p>
+            </div>
+
+            <div class="modal-input-row modal-input-col">
+                <label class="profile-label">Full name</label>
+                <input type="text" id="profileFullName" placeholder="Your full name">
+
+                <label class="profile-label">What should Zyntra AI call you?</label>
+                <input type="text" id="profileNickname" placeholder="Nickname">
+
+                <label class="profile-label">What best describes your work?</label>
+                <select id="profileWork">
+                    <option value="">Select one</option>
+                    <option value="Engineering">Engineering</option>
+                    <option value="Design">Design</option>
+                    <option value="Marketing">Marketing</option>
+                    <option value="Business">Business</option>
+                    <option value="Student">Student</option>
+                    <option value="Other">Other</option>
+                </select>
+
+                <label class="profile-label">Instructions for Zyntra AI</label>
+                <textarea id="profileInstructions" rows="4" placeholder="e.g. keep explanations brief and to the point"></textarea>
+
+                <button id="profileSaveBtn">Save</button>
+            </div>
+
+            <div style="border-top:1px solid #232a4d; margin-top:24px; padding-top:20px; display:flex; gap:10px;">
+                <button id="profileHistoryBtn" style="flex:1; padding:12px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:white; font-weight:600; cursor:pointer;">📜 Chat History</button>
+                <button id="profileSignoutBtn" style="flex:1; padding:12px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:#ff8fa8; font-weight:600; cursor:pointer;">🚪 Sign Out</button>
+            </div>
         </div>
     </div>
 </div>
