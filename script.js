@@ -127,9 +127,39 @@ document.getElementById("contactSubmit")?.addEventListener("click", () => {
     closeModal("contactModal");
 });
 
-// ---------- Sign in modal ----------
+// ---------- Auth state (guest vs signed in) ----------
 
-document.getElementById("signinBtn")?.addEventListener("click", () => openModal("signinModal"));
+function isLoggedIn(){
+    return !!localStorage.getItem("zyntra-user");
+}
+
+function renderAuthNav(){
+    const blogLink = document.getElementById("navBlogLink");
+    const signinBtn = document.getElementById("signinBtn");
+
+    if(isLoggedIn()){
+        blogLink.textContent = "Chat History";
+        blogLink.onclick = (e) => {
+            e.preventDefault();
+            openModal("historyModal");
+            renderHistory();
+        };
+        signinBtn.textContent = "Sign Out";
+    } else {
+        blogLink.textContent = "Blog";
+        blogLink.onclick = (e) => e.preventDefault();
+        signinBtn.textContent = "Sign In";
+    }
+}
+
+document.getElementById("signinBtn")?.addEventListener("click", () => {
+    if(isLoggedIn()){
+        localStorage.removeItem("zyntra-user");
+        renderAuthNav();
+    } else {
+        openModal("signinModal");
+    }
+});
 document.getElementById("signinModalClose")?.addEventListener("click", () => closeModal("signinModal"));
 document.getElementById("signinSubmit")?.addEventListener("click", () => {
     const email = document.getElementById("signinEmail").value.trim();
@@ -137,7 +167,44 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
         alert("Please enter your email.");
         return;
     }
-    alert("Sign in is coming soon!");
+    localStorage.setItem("zyntra-user", email);
+    document.getElementById("signinEmail").value = "";
+    document.getElementById("signinPass").value = "";
+    closeModal("signinModal");
+    renderAuthNav();
+});
+
+renderAuthNav();
+
+// ---------- Chat history log ----------
+
+function saveToHistoryLog(role, content){
+    const log = JSON.parse(localStorage.getItem("zyntra-chat-log") || "[]");
+    log.push({ role, content, time: Date.now() });
+    localStorage.setItem("zyntra-chat-log", JSON.stringify(log));
+}
+
+function renderHistory(){
+    const log = JSON.parse(localStorage.getItem("zyntra-chat-log") || "[]");
+    const box = document.getElementById("historyBox");
+    box.innerHTML = "";
+    if(log.length === 0){
+        box.innerHTML = '<p class="loading-text">No conversations yet.</p>';
+        return;
+    }
+    log.forEach(entry => {
+        const p = document.createElement("p");
+        p.className = "chat-msg " + (entry.role === "user" ? "user" : "ai");
+        p.textContent = entry.content;
+        box.appendChild(p);
+    });
+    box.scrollTop = box.scrollHeight;
+}
+
+document.getElementById("historyModalClose")?.addEventListener("click", () => closeModal("historyModal"));
+document.getElementById("clearHistoryBtn")?.addEventListener("click", () => {
+    localStorage.removeItem("zyntra-chat-log");
+    renderHistory();
 });
 
 // ---------- Get Started ----------
@@ -188,6 +255,7 @@ async function sendChatMessage(prefill){
     chatMessages.scrollTop = chatMessages.scrollHeight;
 
     chatHistory.push({ role: "user", content: msg });
+    saveToHistoryLog("user", msg);
 
     const loadingDiv = document.createElement("div");
     loadingDiv.className = "ai-message";
@@ -198,6 +266,7 @@ async function sendChatMessage(prefill){
     try{
         const reply = await callChatAPI(chatHistory);
         chatHistory.push({ role: "assistant", content: reply });
+        saveToHistoryLog("assistant", reply);
         loadingDiv.textContent = "";
         typeOutText(loadingDiv, reply, chatMessages, () => {
             loadingDiv.classList.add("done");
