@@ -1064,6 +1064,28 @@ margin-bottom:0;
     content:none;
 }
 
+.copy-btn{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    margin-top:8px;
+    padding:6px 12px;
+    border-radius:10px;
+    border:1px solid #2b3154;
+    background:#171d3d;
+    color:#c9a8ff;
+    font-size:12.5px;
+    font-weight:600;
+    cursor:pointer;
+    transition:.2s;
+}
+
+.copy-btn:hover{
+    border-color:#8b5cf6;
+    background:linear-gradient(135deg,#7c5cff,#ff5db5);
+    color:white;
+}
+
 @keyframes blink{
     50%{ opacity:0; }
 }
