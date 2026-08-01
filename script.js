@@ -30,10 +30,15 @@ function formatAIText(text){
     return html || "<p>" + safe + "</p>";
 }
 
-async function askAI(prompt){
-    const res = await fetch("https://text.pollinations.ai/" + encodeURIComponent(prompt));
-    if(!res.ok) throw new Error("Request failed");
-    return await res.text();
+async function callChatAPI(messages){
+    const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages })
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || "Request failed");
+    return data.choices[0].message.content;
 }
 
 // ---------- Generic modal open/close ----------
@@ -139,6 +144,7 @@ const chatModal = document.getElementById("chatModal");
 const chatMessages = document.getElementById("chatMessages");
 const userInput = document.getElementById("userInput");
 const closeChat = document.getElementById("closeChat");
+let chatHistory = [];
 
 async function sendChatMessage(prefill){
     const msg = (prefill !== undefined ? prefill : userInput.value.trim());
@@ -151,6 +157,8 @@ async function sendChatMessage(prefill){
     userInput.value = "";
     chatMessages.scrollTop = chatMessages.scrollHeight;
 
+    chatHistory.push({ role: "user", content: msg });
+
     const loadingDiv = document.createElement("div");
     loadingDiv.className = "ai-message";
     loadingDiv.textContent = "Typing...";
@@ -158,7 +166,8 @@ async function sendChatMessage(prefill){
     chatMessages.scrollTop = chatMessages.scrollHeight;
 
     try{
-        const reply = await askAI(msg);
+        const reply = await callChatAPI(chatHistory);
+        chatHistory.push({ role: "assistant", content: reply });
         loadingDiv.innerHTML = formatAIText(reply);
     }catch(err){
         loadingDiv.textContent = "Sorry, something went wrong. Please try again.";
@@ -287,6 +296,7 @@ function addVoiceMsg(text, who){
 }
 
 const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+let voiceHistory = [];
 
 if(!SpeechRecognitionAPI){
     voiceMicBtn.addEventListener("click", () => {
@@ -305,12 +315,15 @@ if(!SpeechRecognitionAPI){
         const said = e.results[0][0].transcript;
         voiceMicBtn.textContent = "🎤 Tap to speak";
         addVoiceMsg(said, "user");
+        voiceHistory.push({ role: "user", content: said });
         addVoiceMsg("Thinking...", "ai-loading");
         try{
-            const reply = await askAI(said);
+            const reply = await callChatAPI(voiceHistory);
+            voiceHistory.push({ role: "assistant", content: reply });
             voiceBox.removeChild(voiceBox.lastChild);
-            addVoiceMsg(reply.replace(/\*\*/g,""), "ai");
-            const utter = new SpeechSynthesisUtterance(reply.replace(/\*\*/g,""));
+            const clean = reply.replace(/\*\*/g, "");
+            addVoiceMsg(clean, "ai");
+            const utter = new SpeechSynthesisUtterance(clean);
             speechSynthesis.speak(utter);
         }catch(err){
             voiceBox.removeChild(voiceBox.lastChild);
@@ -322,4 +335,3 @@ if(!SpeechRecognitionAPI){
         voiceMicBtn.textContent = "🎤 Tap to speak";
     };
 }
-\
