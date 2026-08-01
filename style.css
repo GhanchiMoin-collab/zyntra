@@ -974,6 +974,95 @@ color:#9aa0c0;
 margin-bottom:0;
 }
 
+.history-list{
+display:flex;
+flex-direction:column;
+gap:8px;
+max-height:400px;
+overflow-y:auto;
+}
+
+.history-row{
+position:relative;
+display:flex;
+justify-content:space-between;
+align-items:center;
+gap:12px;
+padding:16px 18px;
+border-radius:14px;
+background:#12172d;
+border:1px solid #232a4d;
+cursor:pointer;
+transition:.2s;
+}
+
+.history-row:hover{
+background:#171d3d;
+border-color:#4c3d8f;
+}
+
+.history-row-title{
+font-size:15px;
+font-weight:600;
+color:white;
+white-space:nowrap;
+overflow:hidden;
+text-overflow:ellipsis;
+}
+
+.history-row-time{
+font-size:12.5px;
+color:#7a80a5;
+flex-shrink:0;
+white-space:nowrap;
+}
+
+.history-menu-btn{
+background:none;
+border:none;
+color:#9aa0c0;
+font-size:18px;
+cursor:pointer;
+padding:4px 8px;
+border-radius:6px;
+flex-shrink:0;
+}
+
+.history-menu-btn:hover{
+background:#232a4d;
+color:white;
+}
+
+.history-menu-dropdown{
+position:absolute;
+top:44px;
+right:14px;
+background:#0e1330;
+border:1px solid #232a4d;
+border-radius:12px;
+padding:6px;
+z-index:10;
+box-shadow:0 15px 30px rgba(0,0,0,.4);
+}
+
+.history-menu-dropdown button{
+display:block;
+width:100%;
+text-align:left;
+background:none;
+border:none;
+color:#ff8fa8;
+font-size:13.5px;
+padding:9px 12px;
+border-radius:8px;
+cursor:pointer;
+white-space:nowrap;
+}
+
+.history-menu-dropdown button:hover{
+background:#2a1522;
+}
+
 /* ================= CHAT MODAL (unchanged) ================= */
 
 .chat-modal{
