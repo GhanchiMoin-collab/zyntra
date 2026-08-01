@@ -392,6 +392,7 @@ function renderProfileModal(){
 
     guestView.style.display = "none";
     signedInView.style.display = "block";
+    renderPinnedChats();
 
     const email = localStorage.getItem("zyntra-user");
     const profile = getProfile();
@@ -551,6 +552,40 @@ async function generateSessionTitle(sessionId, firstMessage){
     }
 }
 
+function renderPinnedChats(){
+    const box = document.getElementById("pinnedChatsBox");
+    if(!box) return;
+    const pinned = getSessions().filter(s => s.pinned);
+    box.innerHTML = "";
+
+    if(pinned.length === 0){
+        box.innerHTML = '<p class="pinned-empty">No pinned chats yet. Pin a conversation from Chat History.</p>';
+        return;
+    }
+
+    pinned.forEach(session => {
+        const row = document.createElement("div");
+        row.className = "history-row pinned";
+
+        const title = document.createElement("span");
+        title.className = "history-row-title";
+        title.textContent = session.title;
+
+        const time = document.createElement("span");
+        time.className = "history-row-time";
+        time.textContent = timeAgo(session.time);
+
+        row.appendChild(title);
+        row.appendChild(time);
+        box.appendChild(row);
+
+        row.addEventListener("click", () => {
+            openSession(session);
+            closeModal("profileModal");
+        });
+    });
+}
+
 function renderHistory(){
     const sessions = getSessions();
     const box = document.getElementById("historyBox");
@@ -563,7 +598,7 @@ function renderHistory(){
 
     sessions.forEach(session => {
         const row = document.createElement("div");
-        row.className = "history-row";
+        row.className = "history-row" + (session.pinned ? " pinned" : "");
 
         const title = document.createElement("span");
         title.className = "history-row-title";
@@ -573,12 +608,29 @@ function renderHistory(){
         time.className = "history-row-time";
         time.textContent = timeAgo(session.time);
 
+        const pinBtn = document.createElement("button");
+        pinBtn.className = "pin-btn" + (session.pinned ? " pinned" : "");
+        pinBtn.textContent = "📌";
+        pinBtn.title = session.pinned ? "Unpin" : "Pin";
+        pinBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const all = getSessions();
+            const s = all.find(x => x.id === session.id);
+            if(s){
+                s.pinned = !s.pinned;
+                saveSessions(all);
+                renderHistory();
+                renderPinnedChats();
+            }
+        });
+
         const menuBtn = document.createElement("button");
         menuBtn.className = "history-menu-btn";
         menuBtn.textContent = "⋮";
 
         row.appendChild(title);
         row.appendChild(time);
+        row.appendChild(pinBtn);
         row.appendChild(menuBtn);
         box.appendChild(row);
 
@@ -596,30 +648,35 @@ function renderHistory(){
                 saveSessions(updated);
                 if(currentSessionId === session.id) currentSessionId = null;
                 renderHistory();
+                renderPinnedChats();
             });
             dropdown.appendChild(deleteBtn);
             row.appendChild(dropdown);
         });
 
         row.addEventListener("click", () => {
-            chatHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
-            currentSessionId = session.id;
-            chatMessages.innerHTML = "";
-            session.messages.forEach(m => {
-                const div = document.createElement("div");
-                div.className = m.role === "user" ? "user-message" : "ai-message done";
-                if(m.role === "user"){
-                    div.textContent = m.content;
-                } else {
-                    div.innerHTML = formatAIText(m.content);
-                }
-                chatMessages.appendChild(div);
-            });
+            openSession(session);
             closeModal("historyModal");
-            chatModal.classList.add("show");
-            chatMessages.scrollTop = chatMessages.scrollHeight;
         });
     });
+}
+
+function openSession(session){
+    chatHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
+    currentSessionId = session.id;
+    chatMessages.innerHTML = "";
+    session.messages.forEach(m => {
+        const div = document.createElement("div");
+        div.className = m.role === "user" ? "user-message" : "ai-message done";
+        if(m.role === "user"){
+            div.textContent = m.content;
+        } else {
+            div.innerHTML = formatAIText(m.content);
+        }
+        chatMessages.appendChild(div);
+    });
+    chatModal.classList.add("show");
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 document.addEventListener("click", () => {
@@ -1024,3 +1081,4 @@ if(!SpeechRecognitionAPI){
         voiceMicBtn.textContent = "🎤 Tap to speak";
     };
 }
+
