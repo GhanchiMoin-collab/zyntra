@@ -109,8 +109,14 @@ gap:10px;
 }
 
 .logo-mark{
-color:#bf6cff;
-font-size:24px;
+width:30px !important;
+height:30px !important;
+max-width:30px;
+max-height:30px;
+object-fit:contain;
+border-radius:8px;
+flex-shrink:0;
+display:inline-block;
 }
 
 .logo-text{
