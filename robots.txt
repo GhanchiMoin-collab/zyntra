@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://one-ai-blond.vercel.app/sitemap.xml
+Sitemap: https://zyntra-ai-psi.vercel.app/sitemap.xml
