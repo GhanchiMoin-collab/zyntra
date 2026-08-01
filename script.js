@@ -271,11 +271,57 @@ document.getElementById("videoGenBtn").addEventListener("click", () => {
     const val = document.getElementById("videoInput").value.trim();
     const result = document.getElementById("videoResult");
     if(!val){ alert("Please describe the video first."); return; }
-    result.innerHTML =
-        '<video class="generated-vid" controls autoplay muted loop>' +
-        '<source src="https://www.w3schools.com/html/mov_bbb.mp4" type="video/mp4">' +
-        "</video>" +
-        '<p class="loading-text">Demo preview — full AI video generation coming soon.</p>';
+
+    result.innerHTML = '<p class="loading-text">Generating preview frames...</p>';
+
+    const variations = [
+        val,
+        val + ", wide shot",
+        val + ", close up",
+        val + ", cinematic lighting"
+    ];
+
+    const urls = variations.map((v, i) =>
+        "https://image.pollinations.ai/prompt/" + encodeURIComponent(v) + "?seed=" + (i + 1)
+    );
+
+    let loaded = 0;
+    const images = urls.map(src => {
+        const img = new Image();
+        img.src = src;
+        img.onload = () => {
+            loaded++;
+            if(loaded === images.length) startSlideshow();
+        };
+        img.onerror = () => {
+            loaded++;
+            if(loaded === images.length) startSlideshow();
+        };
+        return img;
+    });
+
+    function startSlideshow(){
+        const wrapper = document.createElement("div");
+        wrapper.className = "slideshow";
+        images.forEach((img, i) => {
+            img.className = i === 0 ? "active" : "";
+            wrapper.appendChild(img);
+        });
+
+        result.innerHTML = "";
+        result.appendChild(wrapper);
+        const caption = document.createElement("p");
+        caption.className = "loading-text";
+        caption.textContent = "AI-generated preview (image sequence) — full video generation coming soon.";
+        result.appendChild(caption);
+
+        let current = 0;
+        setInterval(() => {
+            images[current].classList.remove("active");
+            current = (current + 1) % images.length;
+            images[current].classList.add("active");
+        }, 2200);
+    }
 });
 
 // ==========================
