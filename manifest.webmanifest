@@ -1,6 +1,6 @@
 {
-  "name": "One AI",
-  "short_name": "One AI",
+  "name": "Zyntra AI",
+  "short_name": "Zyntra AI",
   "description": "Your Personal AI Assistant",
   "start_url": "/one-ai.html",
   "display": "standalone",
