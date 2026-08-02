@@ -549,16 +549,47 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
     btn.textContent = isSignupMode ? "Creating account..." : "Signing in...";
     btn.disabled = true;
 
-    const authAction = isSignupMode
-        ? firebase.auth().createUserWithEmailAndPassword(email, password)
-        : firebase.auth().signInWithEmailAndPassword(email, password);
+    if(!isSignupMode){
+        firebase.auth().fetchSignInMethodsForEmail(email)
+            .then(methods => {
+                if(methods.length > 0 && !methods.includes("password")){
+                    btn.textContent = original;
+                    btn.disabled = false;
+                    showSigninError("This email is linked to Google Sign-In. Please use \"Continue with Google\" instead.");
+                    return;
+                }
+                firebase.auth().signInWithEmailAndPassword(email, password)
+                    .then(userCredential => {
+                        finishSignin(userCredential.user.email, cameFromPro);
+                    })
+                    .catch(err => {
+                        showSigninError(firebaseErrorMessage(err.code));
+                    })
+                    .finally(() => {
+                        btn.textContent = original;
+                        btn.disabled = false;
+                    });
+            })
+            .catch(() => {
+                btn.textContent = original;
+                btn.disabled = false;
+                showSigninError("Something went wrong. Please try again.");
+            });
+        return;
+    }
+
+    const authAction = firebase.auth().createUserWithEmailAndPassword(email, password);
 
     authAction
         .then(userCredential => {
             finishSignin(userCredential.user.email, cameFromPro);
         })
         .catch(err => {
-            showSigninError(firebaseErrorMessage(err.code));
+            if(err.code === "auth/email-already-in-use"){
+                showSigninError("This email already has an account. If you signed up with Google before, use \"Continue with Google\" instead.");
+            } else {
+                showSigninError(firebaseErrorMessage(err.code));
+            }
         })
         .finally(() => {
             btn.textContent = original;
