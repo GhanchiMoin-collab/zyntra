@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "app.vercel.zyntra_ai_psi.twa",
+    "sha256_cert_fingerprints": ["93:DB:B9:E4:6A:98:B7:BE:86:DB:1B:13:19:7D:9F:EA:30:D3:94:48:78:D1:BE:E4:D5:2B:95:95:AD:A2:ED:64"]
+  }
+}]
