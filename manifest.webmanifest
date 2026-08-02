@@ -2,18 +2,18 @@
   "name": "Zyntra AI",
   "short_name": "Zyntra AI",
   "description": "Your Personal AI Assistant",
-  "start_url": "/one-ai.html",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#080a17",
   "theme_color": "#8b5cf6",
   "icons": [
     {
-      "src": "/icon-192.png",
+      "src": "/favicon.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "/icon-512.png",
+      "src": "/favicon.png",
       "sizes": "512x512",
       "type": "image/png"
     }
