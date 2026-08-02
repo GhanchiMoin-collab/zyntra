@@ -1517,4 +1517,73 @@ footer{ padding:40px 20px; }
 .chat-input input{ padding:12px 14px; font-size:14px; }
 .attach-btn{ width:38px; height:38px; font-size:16px; }
 .chat-input #sendMessage{ padding:0 14px; font-size:13px; }
+
+.logo-text{ font-size:15px; }
+.logo-text small{ font-size:10px; }
+.logo-mark{ width:26px !important; height:26px !important; }
+
+.badge{ font-size:11.5px; padding:7px 13px; }
+.hero-left h1{ font-size:32px; letter-spacing:-1px; }
+.hero-left > p{ font-size:15.5px; }
+.hero-search{ flex-direction:column; padding:10px; gap:8px; }
+.hero-search input{ padding:12px; }
+.hero-search button{ width:100%; justify-content:center; }
+.quick-chips{ gap:8px; }
+.chip{ font-size:12px; padding:8px 12px; }
+
+.tools-section h2{ font-size:24px; }
+.tools-subtitle{ font-size:13.5px; }
+
+.stat{ padding:14px 16px; }
+
+.modal-box{ padding:28px 20px; max-height:88vh; }
+.modal-box h1{ font-size:24px; }
+.modal-box .tag{ font-size:11.5px; }
+.modal-box p{ font-size:14px; }
+#googleSigninBtn{ font-size:14px; padding:12px !important; }
+
+.developer-badge{ flex-wrap:wrap; }
+
+.pricing-plan{ padding:18px; }
+.pricing-plan .price{ font-size:22px; }
+
+.history-row{ padding:12px 14px; gap:6px; }
+.history-row-title{ font-size:13.5px; }
+.history-row-time{ font-size:11px; }
+.pin-btn, .history-menu-btn{ font-size:14px; padding:4px 5px; }
+
+#profileSignedInView > div:first-child{ flex-wrap:wrap; }
+
+.newsletter-form{ flex-direction:column; }
+.newsletter-form input{ width:100%; }
+
+.about-card, .modal-box[style]{ width:100%; }
+
+.hero-right{ height:300px; }
+.ai-core{ width:150px; height:150px; }
+.core-star{ font-size:48px; }
+.orbit1{ width:200px; height:200px; }
+.orbit2{ width:260px; height:260px; }
+.orbit3{ width:320px; height:320px; }
+.tool{ font-size:12px; padding:9px 12px; }
+.tool .icon, .tool{ gap:6px; }
+.video{ top:130px; right:0; }
+.study{ bottom:110px; left:0; }
+.voice{ bottom:10px; left:10px; }
+.business{ bottom:-10px; right:0; }
+.image{ top:20px; right:0; }
+.ai-chat{ top:0; left:0; }
+}
+
+@media(max-width:420px){
+.hero-left h1{ font-size:27px; }
+.badge{ font-size:10.5px; padding:6px 11px; }
+.chip{ font-size:11px; padding:7px 10px; }
+.tools-section h2{ font-size:20px; }
+.modal-box{ padding:22px 16px; }
+.modal-box h1{ font-size:21px; }
+.logo-text{ font-size:14px; }
+.ai-core{ width:150px; height:150px; }
+.core-star{ font-size:48px; }
+.pricing-plan .price{ font-size:19px; }
 }
