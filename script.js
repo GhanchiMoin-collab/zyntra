@@ -482,7 +482,7 @@ function firebaseErrorMessage(code){
             return "No account exists with this email.";
         case "auth/wrong-password":
         case "auth/invalid-credential":
-            return "Incorrect password. Please try again.";
+            return "Incorrect email or password. If you signed up with Google before, use \"Continue with Google\" instead.";
         case "auth/invalid-email":
             return "Please enter a valid email address.";
         case "auth/email-already-in-use":
@@ -550,30 +550,16 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
     btn.disabled = true;
 
     if(!isSignupMode){
-        firebase.auth().fetchSignInMethodsForEmail(email)
-            .then(methods => {
-                if(methods.length > 0 && !methods.includes("password")){
-                    btn.textContent = original;
-                    btn.disabled = false;
-                    showSigninError("This email is linked to Google Sign-In. Please use \"Continue with Google\" instead.");
-                    return;
-                }
-                firebase.auth().signInWithEmailAndPassword(email, password)
-                    .then(userCredential => {
-                        finishSignin(userCredential.user.email, cameFromPro);
-                    })
-                    .catch(err => {
-                        showSigninError(firebaseErrorMessage(err.code));
-                    })
-                    .finally(() => {
-                        btn.textContent = original;
-                        btn.disabled = false;
-                    });
+        firebase.auth().signInWithEmailAndPassword(email, password)
+            .then(userCredential => {
+                finishSignin(userCredential.user.email, cameFromPro);
             })
-            .catch(() => {
+            .catch(err => {
+                showSigninError(firebaseErrorMessage(err.code));
+            })
+            .finally(() => {
                 btn.textContent = original;
                 btn.disabled = false;
-                showSigninError("Something went wrong. Please try again.");
             });
         return;
     }
