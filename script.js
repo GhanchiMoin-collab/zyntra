@@ -198,26 +198,36 @@ document.getElementById("proExpiredOkBtn")?.addEventListener("click", () => {
 function renderPlanUI(){
     const badge = document.getElementById("proBadge");
     const getProBtn = document.getElementById("getProBtn");
+    const adBanner = document.getElementById("adBanner");
+
     if(isPro()){
         badge.style.display = "inline";
         getProBtn.textContent = "You're on Pro ✓";
         getProBtn.disabled = true;
         getProBtn.style.opacity = "0.7";
         getProBtn.style.cursor = "default";
+        if(adBanner) adBanner.style.display = "none";
     } else if(!isLoggedIn()){
         badge.style.display = "none";
         getProBtn.textContent = "Sign In to Upgrade";
         getProBtn.disabled = false;
         getProBtn.style.opacity = "1";
         getProBtn.style.cursor = "pointer";
+        if(adBanner) adBanner.style.display = "flex";
     } else {
         badge.style.display = "none";
         getProBtn.textContent = "Get Pro";
         getProBtn.disabled = false;
         getProBtn.style.opacity = "1";
         getProBtn.style.cursor = "pointer";
+        if(adBanner) adBanner.style.display = "flex";
     }
 }
+
+document.getElementById("adBanner")?.addEventListener("click", () => {
+    chatModal.classList.remove("show");
+    openModal("pricingModal");
+});
 
 document.getElementById("getProBtn")?.addEventListener("click", async () => {
     if(isPro()) return;
@@ -491,8 +501,20 @@ function firebaseErrorMessage(code){
             return "Password should be at least 6 characters.";
         case "auth/too-many-requests":
             return "Too many attempts. Please wait a moment and try again.";
+        case "auth/account-exists-with-different-credential":
+            return "This email already has a password-based account. Please sign in with your email and password instead of Google.";
+        case "auth/popup-closed-by-user":
+            return "Sign-in was closed before finishing. Please try again.";
+        case "auth/popup-blocked":
+            return "Your browser blocked the sign-in popup. Please allow popups for this site and try again.";
+        case "auth/cancelled-popup-request":
+            return "";
+        case "auth/network-request-failed":
+            return "Network error. Please check your connection and try again.";
+        case "auth/unauthorized-domain":
+            return "This domain isn't authorized for sign-in yet. Please contact support.";
         default:
-            return "Something went wrong. Please try again.";
+            return "Something went wrong (" + (code || "unknown error") + "). Please try again.";
     }
 }
 
@@ -592,7 +614,8 @@ document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
             finishSignin(result.user.email, cameFromPro);
         })
         .catch(err => {
-            showSigninError(firebaseErrorMessage(err.code));
+            const msg = firebaseErrorMessage(err.code);
+            if(msg) showSigninError(msg);
         });
 });
 
@@ -1012,10 +1035,16 @@ function openTool(tool, prefix){
             if(prefix){ userInput.value = prefix; userInput.focus(); }
             break;
         case "image":
+            if(!isPro()){
+                if(!isLoggedIn()){
+                    document.getElementById("signinContext").style.display = "none";
+                    openModal("signinModal");
+                } else {
+                    openModal("pricingModal");
+                }
+                return;
+            }
             openModal("imageModal");
-            break;
-        case "video":
-            openModal("videoModal");
             break;
         case "voice":
             openModal("voiceModal");
@@ -1031,105 +1060,117 @@ document.querySelectorAll("[data-tool]").forEach(el => {
 });
 
 // ==========================
-// Image modal
+// Image modal (with optional reference image upload)
 // ==========================
 
 document.getElementById("imageModalClose").addEventListener("click", () => closeModal("imageModal"));
 
-const IMAGE_COOLDOWN_MS = 8000;
-let lastImageGenTime = 0;
+let imgUploadedFile = null;
 
-document.getElementById("imageGenBtn").addEventListener("click", () => {
-    const val = document.getElementById("imageInput").value.trim();
-    const result = document.getElementById("imageResult");
-    if(!val){ alert("Please describe the image first."); return; }
+document.getElementById("imgUploadBtn").addEventListener("click", () => {
+    document.getElementById("imgUploadInput").click();
+});
 
-    if(!isPro()){
-        const remaining = IMAGE_COOLDOWN_MS - (Date.now() - lastImageGenTime);
-        if(remaining > 0){
-            alert("Please wait " + Math.ceil(remaining / 1000) + "s before generating another image (Free tier). Upgrade to Pro to remove this wait.");
-            return;
+document.getElementById("imgUploadInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    if(!file.type.startsWith("image/")){
+        alert("Please select an image file.");
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        imgUploadedFile = reader.result;
+        renderImgUploadPreview();
+    };
+    reader.readAsDataURL(file);
+});
+
+function renderImgUploadPreview(){
+    const preview = document.getElementById("imgUploadPreview");
+    preview.innerHTML = "";
+    if(!imgUploadedFile) return;
+    const thumb = document.createElement("div");
+    thumb.className = "attach-thumb";
+    const img = document.createElement("img");
+    img.src = imgUploadedFile;
+    const removeBtn = document.createElement("button");
+    removeBtn.textContent = "✕";
+    removeBtn.addEventListener("click", () => {
+        imgUploadedFile = null;
+        document.getElementById("imgUploadInput").value = "";
+        renderImgUploadPreview();
+    });
+    thumb.appendChild(img);
+    thumb.appendChild(removeBtn);
+    preview.appendChild(thumb);
+}
+
+function showCreatingAnimation(container, label){
+    container.innerHTML = `
+        <div class="creating-box">
+            <p class="creating-label">${label}</p>
+            <div class="creating-dots"></div>
+        </div>
+    `;
+}
+
+async function describeUploadedImage(dataUrl){
+    const reply = await callChatAPI([
+        {
+            role: "user",
+            content: [
+                { type: "text", text: "Describe this image in one vivid sentence, focused on visual details useful for recreating a similar scene in a new AI-generated image." },
+                { type: "image_url", image_url: { url: dataUrl } }
+            ]
         }
-        lastImageGenTime = Date.now();
+    ]);
+    return reply.replace(/\*\*/g, "").trim();
+}
+
+document.getElementById("imageGenBtn").addEventListener("click", async () => {
+    if(!isPro()){
+        closeModal("imageModal");
+        openModal("pricingModal");
+        return;
     }
 
-    result.innerHTML = '<p class="loading-text">Generating image...</p>';
+    const val = document.getElementById("imageInput").value.trim();
+    const result = document.getElementById("imageResult");
+    if(!val && !imgUploadedFile){ alert("Please describe the image or upload a reference image."); return; }
+
+    showCreatingAnimation(result, "Creating image");
+
+    let finalPrompt = val;
+
+    if(imgUploadedFile){
+        try{
+            const description = await describeUploadedImage(imgUploadedFile);
+            finalPrompt = val ? `${description}. ${val}` : description;
+        }catch(err){
+            // fall back to just the typed prompt if description fails
+        }
+    }
+
+    if(!finalPrompt){
+        result.innerHTML = '<p class="loading-text">Please describe the image or upload a reference image.</p>';
+        return;
+    }
+
     const img = new Image();
     img.className = "generated-img";
-    img.alt = val;
+    img.alt = finalPrompt;
     img.onload = () => {
         result.innerHTML = "";
         result.appendChild(img);
         bumpStat("images", "statImages");
-        addReportButton(result, "Generated image for prompt: \"" + val + "\"");
+        addReportButton(result, "Generated image for prompt: \"" + finalPrompt + "\"");
+        imgUploadedFile = null;
+        document.getElementById("imgUploadInput").value = "";
+        renderImgUploadPreview();
     };
     img.onerror = () => { result.innerHTML = '<p class="loading-text">Could not generate image. Please try again.</p>'; };
-    img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(val);
-});
-
-// ==========================
-// Video modal
-// ==========================
-
-document.getElementById("videoModalClose").addEventListener("click", () => closeModal("videoModal"));
-document.getElementById("videoGenBtn").addEventListener("click", () => {
-    const val = document.getElementById("videoInput").value.trim();
-    const result = document.getElementById("videoResult");
-    if(!val){ alert("Please describe the video first."); return; }
-
-    result.innerHTML = '<p class="loading-text">Generating preview frames...</p>';
-
-    const allVariations = [
-        val,
-        val + ", wide shot",
-        val + ", close up",
-        val + ", cinematic lighting",
-        val + ", dramatic angle",
-        val + ", golden hour lighting"
-    ];
-    const variations = isPro() ? allVariations : allVariations.slice(0, 4);
-
-    const urls = variations.map((v, i) =>
-        "https://image.pollinations.ai/prompt/" + encodeURIComponent(v) + "?seed=" + (i + 1)
-    );
-
-    let loaded = 0;
-    const images = urls.map(src => {
-        const img = new Image();
-        img.src = src;
-        img.onload = () => {
-            loaded++;
-            if(loaded === images.length) startSlideshow();
-        };
-        img.onerror = () => {
-            loaded++;
-            if(loaded === images.length) startSlideshow();
-        };
-        return img;
-    });
-
-    function startSlideshow(){
-        const wrapper = document.createElement("div");
-        wrapper.className = "slideshow";
-        images.forEach((img, i) => {
-            img.className = i === 0 ? "active" : "";
-            wrapper.appendChild(img);
-        });
-
-        result.innerHTML = "";
-        result.appendChild(wrapper);
-        const caption = document.createElement("p");
-        caption.className = "loading-text";
-        caption.textContent = "AI-generated preview (image sequence) — full video generation coming soon.";
-        result.appendChild(caption);
-
-        let current = 0;
-        setInterval(() => {
-            images[current].classList.remove("active");
-            current = (current + 1) % images.length;
-            images[current].classList.add("active");
-        }, 2200);
-    }
+    img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(finalPrompt);
 });
 
 // ==========================
