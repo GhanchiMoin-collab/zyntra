@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Zyntra AI — Your Personal AI Assistant for Chat, Images, Video & More</title>
-<meta name="description" content="Zyntra AI is your all-in-one AI assistant — chat, generate images, create videos, get study help, and grow your business, all in one place.">
+<title>Zyntra AI — Your Personal AI Assistant for Chat, Images & More</title>
+<meta name="description" content="Zyntra AI is your all-in-one AI assistant — chat, generate images, get study help, and grow your business, all in one place.">
 <link rel="canonical" href="https://zyntra-ai-psi.vercel.app/">
 
 <meta property="og:site_name" content="Zyntra AI">
@@ -67,7 +67,6 @@
             <div class="dropdown-menu">
                 <a href="#" data-tool="chat">AI Chat</a>
                 <a href="#" data-tool="image">Image Generator</a>
-                <a href="#" data-tool="video">Video Creator</a>
                 <a href="#" data-tool="study">Study Helper</a>
                 <a href="#" data-tool="voice">Voice Assistant</a>
                 <a href="#" data-tool="business">Business Tools</a>
@@ -120,7 +119,6 @@
         <div class="star s4"></div>
         <div class="tool ai-chat" data-tool="chat">💬 AI Chat</div>
         <div class="tool img" data-tool="image">🖼️ Image Generation</div>
-        <div class="tool video" data-tool="video">🎬 Video Creation</div>
         <div class="tool study" data-tool="study">📚 Study Helper</div>
         <div class="tool voice" data-tool="voice">🎤 Voice Assistant</div>
         <div class="tool business" data-tool="business">💼 Business Tools</div>
@@ -148,13 +146,6 @@
             <h2>Image Generator</h2>
             <p>Create stunning images from simple text prompts.</p>
             <span class="card-link link-green">Try Now →</span>
-        </div>
-
-        <div class="card" data-tool="video">
-            <div class="card-icon c-pink">🎬</div>
-            <h2>Video Creator</h2>
-            <p>Generate engaging videos with AI in seconds.</p>
-            <span class="card-link link-pink">Try Now →</span>
         </div>
 
         <div class="card" data-tool="study">
@@ -226,26 +217,16 @@
         <span class="tag">IMAGE GENERATOR</span>
         <h1>Create with <span>Zyntra AI</span></h1>
         <p class="ai-disclosure">⚡ Images are AI-generated and may not always be accurate.</p>
+
+        <div id="imgUploadPreview" class="attach-preview"></div>
+
         <div class="modal-input-row">
+            <input type="file" id="imgUploadInput" accept="image/*" style="display:none">
+            <button id="imgUploadBtn" class="attach-btn" title="Upload a reference image">📎</button>
             <input type="text" id="imageInput" placeholder="Describe the image you want...">
             <button id="imageGenBtn">Generate</button>
         </div>
         <div id="imageResult" class="img-result"></div>
-    </div>
-</div>
-
-<!-- ================= VIDEO MODAL ================= -->
-<div class="modal-overlay" id="videoModal">
-    <div class="modal-box">
-        <button class="modal-close" id="videoModalClose">✕</button>
-        <span class="tag">VIDEO CREATOR</span>
-        <h1>Create with <span>Zyntra AI</span></h1>
-        <p class="ai-disclosure">⚡ AI-generated preview images, not a real video. Content may not always be accurate.</p>
-        <div class="modal-input-row">
-            <input type="text" id="videoInput" placeholder="Describe the video you want...">
-            <button id="videoGenBtn">Generate</button>
-        </div>
-        <div id="videoResult" class="vid-result"></div>
     </div>
 </div>
 
@@ -393,13 +374,13 @@
             <div class="pricing-plan">
                 <h3>Free</h3>
                 <p class="price">$0<span>/mo</span></p>
-                <p>Chat, basic image generation, limited requests per day.</p>
+                <p>20 AI chats per day. Includes a small banner ad.</p>
                 <button id="freeplanBtn" disabled style="width:100%; margin-top:14px; padding:13px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:#9aa0c0; font-weight:600; cursor:default;">Current Plan</button>
             </div>
             <div class="pricing-plan featured">
                 <h3>Pro <span id="proBadge" style="display:none; font-size:11px; color:#5fe0a0;">✓ Active</span></h3>
                 <p class="price">$9<span>/mo</span></p>
-                <p>Unlimited chat, faster image & video generation, priority support.</p>
+                <p>Unlimited chats, no ads, faster responses, and image generation.</p>
                 <button id="getProBtn" style="width:100%; margin-top:14px; padding:13px; border:none; border-radius:12px; background:linear-gradient(135deg,#7c5cff,#ff5db5); color:white; font-weight:700; cursor:pointer;">Get Pro</button>
             </div>
         </div>
@@ -431,16 +412,16 @@
         <p>Zyntra AI ("we", "our", "the app") is a personal AI assistant developed by Ghanchi Moin. This policy explains what information Zyntra AI collects, how it is used, and your choices.</p>
 
         <p><strong>Information we collect</strong></p>
-        <p>When you use Zyntra AI, the messages you send to AI Chat, Study Helper, Business Tools and Voice Assistant, along with the prompts you enter into Image Generator and Video Creator, are sent to our AI provider to generate a response. If you sign in, the email you enter is stored locally in your browser. If you submit the Contact form, we receive the name, email, and message you provide.</p>
+        <p>When you use Zyntra AI, the messages you send to AI Chat, Study Helper, Business Tools and Voice Assistant, along with the prompts and any reference images you provide to Image Generator, are sent to our AI provider to generate a response. If you sign in, the email you enter is stored locally in your browser. If you submit the Contact form, we receive the name, email, and message you provide.</p>
 
         <p><strong>Where your data is processed</strong></p>
-        <p>Chat, Study Helper, Business Tools and Voice Assistant replies are generated using Groq's AI API. Images and video preview frames are generated using Pollinations AI. These third-party providers process your prompts to generate a response; we do not control their servers.</p>
+        <p>Chat, Study Helper, Business Tools and Voice Assistant replies are generated using Groq's AI API. Images are generated using Pollinations AI. These third-party providers process your prompts to generate a response; we do not control their servers.</p>
 
         <p><strong>Local storage</strong></p>
         <p>Zyntra AI stores your sign-in state, chat history, and usage stats directly in your browser's local storage. This data stays on your device and is not sent to us unless you submit it through the Contact or Report feature.</p>
 
         <p><strong>AI-generated content</strong></p>
-        <p>Responses, images, and video previews are generated by AI and may sometimes be inaccurate, incomplete, or inappropriate. You can flag any AI output using the Report button, which sends the flagged content to us via the Contact form.</p>
+        <p>Responses and images are generated by AI and may sometimes be inaccurate, incomplete, or inappropriate. You can flag any AI output using the Report button, which sends the flagged content to us via the Contact form.</p>
 
         <p><strong>Children's privacy</strong></p>
         <p>Zyntra AI is not directed at children under 13, and we do not knowingly collect personal information from children under 13.</p>
@@ -531,6 +512,11 @@
 
         <div id="attachPreview" class="attach-preview"></div>
 
+        <div id="adBanner" class="ad-banner" style="display:none;">
+            <span class="ad-banner-label">Ad</span>
+            <span>Upgrade to Zyntra AI Pro to remove ads →</span>
+        </div>
+
         <div class="chat-input">
 
             <input type="file" id="chatFileInput" accept="image/*" style="display:none">
@@ -568,5 +554,12 @@
 </script>
 
 <script src="script.js"></script>
+<script>
+    if("serviceWorker" in navigator){
+        window.addEventListener("load", () => {
+            navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+        });
+    }
+</script>
 </body>
 </html>
