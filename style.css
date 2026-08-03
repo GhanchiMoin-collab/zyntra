@@ -856,6 +856,21 @@ cursor:pointer;
 white-space:nowrap;
 }
 
+.modal-input-row .attach-btn{
+padding:0;
+width:44px;
+height:44px;
+flex-shrink:0;
+background:#171d3d;
+color:#c9a8ff;
+font-weight:400;
+}
+
+.modal-input-row .attach-btn:hover{
+background:linear-gradient(135deg,#7c5cff,#ff5db5);
+color:white;
+}
+
 .img-result,
 .vid-result{
 margin-top:10px;
