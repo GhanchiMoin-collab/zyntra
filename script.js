@@ -605,10 +605,25 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
         });
 });
 
+function isMobileDevice(){
+    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
 document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
     clearSigninError();
     const cameFromPro = document.getElementById("signinContext").style.display !== "none";
     const provider = new firebase.auth.GoogleAuthProvider();
+
+    if(isMobileDevice()){
+        if(cameFromPro){
+            sessionStorage.setItem("zyntra-signin-from-pro", "1");
+        } else {
+            sessionStorage.removeItem("zyntra-signin-from-pro");
+        }
+        firebase.auth().signInWithRedirect(provider);
+        return;
+    }
+
     firebase.auth().signInWithPopup(provider)
         .then(result => {
             finishSignin(result.user.email, cameFromPro);
@@ -618,6 +633,24 @@ document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
             if(msg) showSigninError(msg);
         });
 });
+
+// Catch the result when returning from a mobile redirect sign-in
+firebase.auth().getRedirectResult()
+    .then(result => {
+        if(result && result.user){
+            const cameFromPro = sessionStorage.getItem("zyntra-signin-from-pro") === "1";
+            sessionStorage.removeItem("zyntra-signin-from-pro");
+            finishSignin(result.user.email, cameFromPro);
+        }
+    })
+    .catch(err => {
+        const msg = firebaseErrorMessage(err.code);
+        if(msg){
+            document.getElementById("signinContext").style.display = "none";
+            openModal("signinModal");
+            showSigninError(msg);
+        }
+    });
 
 renderAuthNav();
 
