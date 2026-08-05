@@ -486,7 +486,7 @@ function clearSigninError(){
     document.getElementById("signinError").style.display = "none";
 }
 
-function firebaseErrorMessage(code){
+function firebaseErrorMessage(code, rawMessage){
     switch(code){
         case "auth/user-not-found":
             return "No account exists with this email.";
