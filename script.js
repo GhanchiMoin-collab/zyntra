@@ -514,7 +514,7 @@ function firebaseErrorMessage(code, rawMessage){
         case "auth/unauthorized-domain":
             return "This domain isn't authorized for sign-in yet. Please contact support.";
         default:
-            return "Something went wrong (" + (code || "unknown error") + "). Please try again.";
+            return "Something went wrong: " + (rawMessage || code || "unknown error") + ". Please try again.";
     }
 }
 
@@ -577,7 +577,7 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
                 finishSignin(userCredential.user.email, cameFromPro);
             })
             .catch(err => {
-                showSigninError(firebaseErrorMessage(err.code));
+                showSigninError(firebaseErrorMessage(err.code, err.message));
             })
             .finally(() => {
                 btn.textContent = original;
@@ -596,7 +596,7 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
             if(err.code === "auth/email-already-in-use"){
                 showSigninError("This email already has an account. If you signed up with Google before, use \"Continue with Google\" instead.");
             } else {
-                showSigninError(firebaseErrorMessage(err.code));
+                showSigninError(firebaseErrorMessage(err.code, err.message));
             }
         })
         .finally(() => {
@@ -629,7 +629,7 @@ document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
             finishSignin(result.user.email, cameFromPro);
         })
         .catch(err => {
-            const msg = firebaseErrorMessage(err.code);
+            const msg = firebaseErrorMessage(err.code, err.message);
             if(msg) showSigninError(msg);
         });
 });
@@ -644,7 +644,7 @@ firebase.auth().getRedirectResult()
         }
     })
     .catch(err => {
-        const msg = firebaseErrorMessage(err.code);
+        const msg = firebaseErrorMessage(err.code, err.message);
         if(msg){
             document.getElementById("signinContext").style.display = "none";
             openModal("signinModal");
@@ -1190,20 +1190,31 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
         return;
     }
 
-    const img = new Image();
-    img.className = "generated-img";
-    img.alt = finalPrompt;
-    img.onload = () => {
-        result.innerHTML = "";
-        result.appendChild(img);
-        bumpStat("images", "statImages");
-        addReportButton(result, "Generated image for prompt: \"" + finalPrompt + "\"");
-        imgUploadedFile = null;
-        document.getElementById("imgUploadInput").value = "";
-        renderImgUploadPreview();
-    };
-    img.onerror = () => { result.innerHTML = '<p class="loading-text">Could not generate image. Please try again.</p>'; };
-    img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(finalPrompt);
+    function attemptGenerate(retryCount){
+        const img = new Image();
+        img.className = "generated-img";
+        img.alt = finalPrompt;
+        img.onload = () => {
+            result.innerHTML = "";
+            result.appendChild(img);
+            bumpStat("images", "statImages");
+            addReportButton(result, "Generated image for prompt: \"" + finalPrompt + "\"");
+            imgUploadedFile = null;
+            document.getElementById("imgUploadInput").value = "";
+            renderImgUploadPreview();
+        };
+        img.onerror = () => {
+            if(retryCount < 2){
+                showCreatingAnimation(result, "Creating image");
+                setTimeout(() => attemptGenerate(retryCount + 1), 800);
+            } else {
+                result.innerHTML = '<p class="loading-text">Could not generate image right now. Please try again in a moment.</p>';
+            }
+        };
+        const seed = Math.floor(Math.random() * 1000000);
+        img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(finalPrompt) + "?seed=" + seed;
+    }
+    attemptGenerate(0);
 });
 
 // ==========================
