@@ -1596,6 +1596,14 @@ footer{ padding:40px 20px; }
 .attach-btn{ width:38px; height:38px; font-size:16px; }
 .chat-input #sendMessage{ padding:0 14px; font-size:13px; }
 
+.modal-input-row{ flex-wrap:wrap; }
+.modal-input-row input[type="text"]{ min-width:0; flex:1 1 100%; order:2; }
+.modal-input-row .attach-btn{ order:1; }
+.modal-input-row #imageGenBtn,
+.modal-input-row #imgUploadBtn{ order:1; }
+.modal-input-row button:not(.attach-btn){ order:3; flex:1 1 100%; margin-top:8px; }
+#imageInput{ padding:12px 14px; font-size:14px; }
+
 .logo-text{ font-size:15px; }
 .logo-text small{ font-size:10px; }
 .logo-mark{ width:26px !important; height:26px !important; }
