@@ -446,12 +446,6 @@ document.getElementById("profileSaveBtn")?.addEventListener("click", () => {
     setTimeout(() => { btn.textContent = original; }, 1500);
 });
 
-document.getElementById("profileHistoryBtn")?.addEventListener("click", () => {
-    closeModal("profileModal");
-    openModal("historyModal");
-    renderHistory();
-});
-
 document.getElementById("profileSignoutBtn")?.addEventListener("click", () => {
     closeModal("profileModal");
     openModal("signoutModal");
@@ -1066,6 +1060,10 @@ function openTool(tool, prefix){
             chatModal.classList.add("show");
             userInput.placeholder = "Ask a business or growth question...";
             if(prefix){ userInput.value = prefix; userInput.focus(); }
+            break;
+        case "history":
+            openModal("historyModal");
+            renderHistory();
             break;
         case "image":
             if(!isPro()){
