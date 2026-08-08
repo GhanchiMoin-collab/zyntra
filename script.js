@@ -45,6 +45,14 @@ function incrementTodayCount(){
     localStorage.setItem("zyntra-daily-usage", JSON.stringify({ date: today, count }));
 }
 
+function grantBonusMessages(amount){
+    const today = new Date().toISOString().slice(0, 10);
+    const stored = JSON.parse(localStorage.getItem("zyntra-daily-usage") || "{}");
+    const currentCount = stored.date === today ? (stored.count || 0) : 0;
+    const newCount = Math.max(0, currentCount - amount);
+    localStorage.setItem("zyntra-daily-usage", JSON.stringify({ date: today, count: newCount }));
+}
+
 function typeOutText(el, fullText, scrollContainer, onDone){
     const words = fullText.split(" ");
     const speed = isPro() ? 8 : 25;
@@ -855,6 +863,26 @@ document.getElementById("clearHistoryBtn")?.addEventListener("click", () => {
     renderHistory();
 });
 
+document.getElementById("watchAdBtn")?.addEventListener("click", () => {
+    if(isPro()){
+        alert("You're on Pro — you already have unlimited chats! 🎉");
+        return;
+    }
+    const btn = document.getElementById("watchAdBtn");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "🎬 Watching ad...";
+
+    setTimeout(() => {
+        grantBonusMessages(5);
+        btn.textContent = "✅ +5 Messages Added!";
+        setTimeout(() => {
+            btn.textContent = original;
+            btn.disabled = false;
+        }, 2000);
+    }, 3000);
+});
+
 // ---------- Get Started ----------
 
 document.getElementById("getStartedBtn")?.addEventListener("click", () => {
@@ -1061,20 +1089,16 @@ function openTool(tool, prefix){
             userInput.placeholder = "Ask a business or growth question...";
             if(prefix){ userInput.value = prefix; userInput.focus(); }
             break;
+        case "code":
+            chatModal.classList.add("show");
+            userInput.placeholder = "Ask me to write, debug, or explain code...";
+            if(prefix){ userInput.value = prefix; userInput.focus(); }
+            break;
         case "history":
             openModal("historyModal");
             renderHistory();
             break;
         case "image":
-            if(!isPro()){
-                if(!isLoggedIn()){
-                    document.getElementById("signinContext").style.display = "none";
-                    openModal("signinModal");
-                } else {
-                    openModal("pricingModal");
-                }
-                return;
-            }
             openModal("imageModal");
             break;
         case "voice":
@@ -1160,17 +1184,12 @@ async function describeUploadedImage(dataUrl){
 }
 
 document.getElementById("imageGenBtn").addEventListener("click", async () => {
-    if(!isPro()){
-        closeModal("imageModal");
-        openModal("pricingModal");
-        return;
-    }
-
     const val = document.getElementById("imageInput").value.trim();
     const result = document.getElementById("imageResult");
     if(!val && !imgUploadedFile){ alert("Please describe the image or upload a reference image."); return; }
 
-    showCreatingAnimation(result, "Creating image");
+    const waitLabel = isPro() ? "Creating image" : "Creating image (upgrade to Pro for faster generation)";
+    showCreatingAnimation(result, waitLabel);
 
     let finalPrompt = val;
 
@@ -1196,14 +1215,45 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
             result.innerHTML = "";
             result.appendChild(img);
             bumpStat("images", "statImages");
-            addReportButton(result, "Generated image for prompt: \"" + finalPrompt + "\"");
+
+            const actionsRow = document.createElement("div");
+            actionsRow.style.display = "flex";
+            actionsRow.style.gap = "8px";
+            actionsRow.style.marginTop = "8px";
+            result.appendChild(actionsRow);
+
+            const downloadBtn = document.createElement("button");
+            downloadBtn.className = "copy-btn";
+            downloadBtn.textContent = "⬇ Download";
+            downloadBtn.addEventListener("click", async () => {
+                downloadBtn.textContent = "Downloading...";
+                try{
+                    const res = await fetch(img.src);
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "zyntra-ai-image.png";
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(url);
+                }catch(err){
+                    window.open(img.src, "_blank");
+                }
+                downloadBtn.textContent = "⬇ Download";
+            });
+            actionsRow.appendChild(downloadBtn);
+
+            addReportButton(actionsRow, "Generated image for prompt: \"" + finalPrompt + "\"");
+
             imgUploadedFile = null;
             document.getElementById("imgUploadInput").value = "";
             renderImgUploadPreview();
         };
         img.onerror = () => {
             if(retryCount < 2){
-                showCreatingAnimation(result, "Creating image");
+                showCreatingAnimation(result, waitLabel);
                 setTimeout(() => attemptGenerate(retryCount + 1), 800);
             } else {
                 result.innerHTML = '<p class="loading-text">Could not generate image right now. Please try again in a moment.</p>';
@@ -1212,7 +1262,9 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
         const seed = Math.floor(Math.random() * 1000000);
         img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(finalPrompt) + "?seed=" + seed;
     }
-    attemptGenerate(0);
+
+    const waitMs = isPro() ? 2000 : 10000;
+    setTimeout(() => attemptGenerate(0), waitMs);
 });
 
 // ==========================
