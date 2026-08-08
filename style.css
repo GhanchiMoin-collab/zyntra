@@ -1209,6 +1209,43 @@ animation:creatingPulse 2.2s ease-in-out infinite;
 50%{ opacity:1; transform:scale(1.05); }
 }
 
+.lock-visual{
+position:relative;
+width:120px;
+height:120px;
+margin:20px auto;
+border-radius:50%;
+background:#1a1f38;
+overflow:hidden;
+display:flex;
+align-items:center;
+justify-content:center;
+}
+
+.lock-dots{
+position:absolute;
+inset:0;
+background-image:radial-gradient(circle, rgba(255,255,255,.16) 1.5px, transparent 1.5px);
+background-size:16px 16px;
+animation:creatingPulse 2.2s ease-in-out infinite;
+}
+
+.lock-icon{
+position:relative;
+z-index:2;
+font-size:42px;
+}
+
+.lock-countdown{
+font-size:36px;
+font-weight:800;
+font-variant-numeric:tabular-nums;
+background:linear-gradient(90deg,#9d7bff,#ff72c8);
+-webkit-background-clip:text;
+-webkit-text-fill-color:transparent;
+margin:16px 0 24px;
+}
+
 /* ================= CHAT MODAL (unchanged) ================= */
 
 .chat-modal{
