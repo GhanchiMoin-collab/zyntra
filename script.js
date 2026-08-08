@@ -43,35 +43,73 @@ function extractCodeBlocks(text){
     return { withPlaceholders, blocks };
 }
 
+function escapeForDisplay(code){
+    return code
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+
 function buildFileCardHTML(block){
+    const encoded = encodeCodeForCard(block.code);
     return `
         <div class="file-card">
-            <div class="file-card-icon">&lt;/&gt;</div>
-            <div class="file-card-info">
-                <p class="file-card-title">${block.filename}</p>
-                <p class="file-card-sub">Code · ${block.label}</p>
+            <div class="file-card-header">
+                <div class="file-card-icon">&lt;/&gt;</div>
+                <div class="file-card-info">
+                    <p class="file-card-title">${block.filename}</p>
+                    <p class="file-card-sub">Code · ${block.label}</p>
+                </div>
+                <span class="file-card-chevron">▾</span>
+                <button class="filecard-download-btn" data-filename="${block.filename}" data-code="${encoded}">Download</button>
             </div>
-            <button class="filecard-download-btn" data-filename="${block.filename}" data-code="${encodeCodeForCard(block.code)}">Download</button>
+            <div class="file-card-preview">
+                <div class="file-card-preview-top">
+                    <span>${block.filename}</span>
+                    <button class="filecard-copy-btn" data-code="${encoded}">📋 Copy</button>
+                </div>
+                <pre><code>${escapeForDisplay(block.code)}</code></pre>
+            </div>
         </div>
     `;
 }
 
 document.addEventListener("click", (e) => {
-    const btn = e.target.closest(".filecard-download-btn");
-    if(!btn) return;
-    try{
-        const code = decodeURIComponent(escape(atob(btn.dataset.code)));
-        const blob = new Blob([code], { type: "text/plain" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = btn.dataset.filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-    }catch(err){
-        alert("Could not download the file.");
+    const downloadBtn = e.target.closest(".filecard-download-btn");
+    if(downloadBtn){
+        try{
+            const code = decodeURIComponent(escape(atob(downloadBtn.dataset.code)));
+            const blob = new Blob([code], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = downloadBtn.dataset.filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }catch(err){
+            alert("Could not download the file.");
+        }
+        return;
+    }
+
+    const copyBtn = e.target.closest(".filecard-copy-btn");
+    if(copyBtn){
+        try{
+            const code = decodeURIComponent(escape(atob(copyBtn.dataset.code)));
+            navigator.clipboard.writeText(code).then(() => {
+                const original = copyBtn.textContent;
+                copyBtn.textContent = "✅ Copied";
+                setTimeout(() => { copyBtn.textContent = original; }, 1500);
+            });
+        }catch(err){}
+        return;
+    }
+
+    const header = e.target.closest(".file-card-header");
+    if(header){
+        header.closest(".file-card").classList.toggle("open");
     }
 });
 
