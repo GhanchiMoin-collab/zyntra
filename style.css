@@ -1176,14 +1176,19 @@ color:#c9a8ff;
 }
 
 .file-card{
-display:flex;
-align-items:center;
-gap:14px;
-padding:14px 16px;
 background:#171d3d;
 border:1px solid #2b3154;
 border-radius:14px;
 margin:10px 0;
+overflow:hidden;
+}
+
+.file-card-header{
+display:flex;
+align-items:center;
+gap:14px;
+padding:14px 16px;
+cursor:pointer;
 }
 
 .file-card-icon{
@@ -1221,6 +1226,17 @@ color:#8a90b5;
 margin:2px 0 0;
 }
 
+.file-card-chevron{
+color:#8a90b5;
+font-size:13px;
+flex-shrink:0;
+transition:transform .2s;
+}
+
+.file-card.open .file-card-chevron{
+transform:rotate(180deg);
+}
+
 .filecard-download-btn{
 padding:9px 16px;
 border:1px solid #3a3f66;
@@ -1237,6 +1253,55 @@ white-space:nowrap;
 .filecard-download-btn:hover{
 background:linear-gradient(135deg,#7c5cff,#ff5db5);
 border-color:transparent;
+}
+
+.file-card-preview{
+display:none;
+border-top:1px solid #2b3154;
+}
+
+.file-card.open .file-card-preview{
+display:block;
+}
+
+.file-card-preview-top{
+display:flex;
+align-items:center;
+justify-content:space-between;
+padding:10px 14px;
+background:#12172d;
+font-size:12px;
+color:#8a90b5;
+}
+
+.filecard-copy-btn{
+background:none;
+border:1px solid #3a3f66;
+border-radius:8px;
+color:#c9a8ff;
+font-size:12px;
+padding:5px 10px;
+cursor:pointer;
+}
+
+.filecard-copy-btn:hover{
+background:#232a4d;
+}
+
+.file-card-preview pre{
+margin:0;
+padding:14px;
+max-height:320px;
+overflow:auto;
+background:#0d1124;
+}
+
+.file-card-preview code{
+font-family:"SF Mono","Consolas","Monaco",monospace;
+font-size:12.5px;
+line-height:1.6;
+color:#d4d7f0;
+white-space:pre;
 }
 
 .creating-box{
