@@ -68,14 +68,15 @@
                 <a href="#" data-tool="chat">AI Chat</a>
                 <a href="#" data-tool="image">Image Generator</a>
                 <a href="#" data-tool="study">Study Helper</a>
+                <a href="#" data-tool="code">Code with Zyntra</a>
                 <a href="#" data-tool="voice">Voice Assistant</a>
                 <a href="#" data-tool="business">Business Tools</a>
-                <a href="#" data-tool="history">Chat History</a>
             </div>
         </div>
         <a href="#" id="pricingBtn">Pricing</a>
         <a href="#" id="aboutBtn">About</a>
         <a href="#" id="profileBtn">Profile</a>
+        <a href="#" data-tool="history">Chat History</a>
         <a href="#" id="contactBtn">Contact</a>
     </nav>
 
@@ -170,11 +171,11 @@
             <span class="card-link link-indigo">Try Now →</span>
         </div>
 
-        <div class="card" data-tool="history">
-            <div class="card-icon c-purple">📜</div>
-            <h2>Chat History</h2>
-            <p>Revisit and continue any of your past conversations.</p>
-            <span class="card-link link-purple">Try Now →</span>
+        <div class="card" data-tool="code">
+            <div class="card-icon c-pink">💻</div>
+            <h2>Code with Zyntra</h2>
+            <p>Get help writing, debugging, and explaining code in any language.</p>
+            <span class="card-link link-pink">Try Now →</span>
         </div>
 
     </div>
@@ -368,6 +369,7 @@
         <h1>Your <span>Conversations</span></h1>
         <div class="history-list" id="historyBox"></div>
         <button id="clearHistoryBtn" class="mic-btn">🗑 Clear History</button>
+        <button id="watchAdBtn" style="width:100%; margin-top:10px; padding:14px; border:1px dashed #3a3f66; border-radius:14px; background:#171d3d; color:#c9a8ff; font-weight:700; font-size:14px; cursor:pointer;">🎬 Watch Ad for +5 Messages</button>
     </div>
 </div>
 
@@ -381,13 +383,13 @@
             <div class="pricing-plan">
                 <h3>Free</h3>
                 <p class="price">$0<span>/mo</span></p>
-                <p>20 AI chats per day. Includes a small banner ad.</p>
+                <p>20 AI chats per day. Includes a small banner ad. Image generation takes ~10s.</p>
                 <button id="freeplanBtn" disabled style="width:100%; margin-top:14px; padding:13px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:#9aa0c0; font-weight:600; cursor:default;">Current Plan</button>
             </div>
             <div class="pricing-plan featured">
                 <h3>Pro <span id="proBadge" style="display:none; font-size:11px; color:#5fe0a0;">✓ Active</span></h3>
                 <p class="price">$9<span>/mo</span></p>
-                <p>Unlimited chats, no ads, faster responses, and image generation.</p>
+                <p>Unlimited chats, no ads, and image generation in ~2s instead of 10s.</p>
                 <button id="getProBtn" style="width:100%; margin-top:14px; padding:13px; border:none; border-radius:12px; background:linear-gradient(135deg,#7c5cff,#ff5db5); color:white; font-weight:700; cursor:pointer;">Get Pro</button>
             </div>
         </div>
