@@ -4,8 +4,81 @@
 
 // ---------- Helpers ----------
 
+const CODE_FILE_MAP = {
+    html: { filename: "index.html", label: "HTML" },
+    css: { filename: "style.css", label: "CSS" },
+    js: { filename: "script.js", label: "JS" },
+    javascript: { filename: "script.js", label: "JavaScript" },
+    jsx: { filename: "component.jsx", label: "JSX" },
+    ts: { filename: "script.ts", label: "TypeScript" },
+    tsx: { filename: "component.tsx", label: "TSX" },
+    python: { filename: "script.py", label: "Python" },
+    py: { filename: "script.py", label: "Python" },
+    json: { filename: "data.json", label: "JSON" },
+    java: { filename: "Main.java", label: "Java" },
+    cpp: { filename: "main.cpp", label: "C++" },
+    c: { filename: "main.c", label: "C" },
+    sql: { filename: "query.sql", label: "SQL" },
+    php: { filename: "index.php", label: "PHP" },
+    bash: { filename: "script.sh", label: "Bash" },
+    sh: { filename: "script.sh", label: "Shell" },
+    yaml: { filename: "config.yaml", label: "YAML" },
+    xml: { filename: "data.xml", label: "XML" }
+};
+
+function encodeCodeForCard(code){
+    return btoa(unescape(encodeURIComponent(code)));
+}
+
+function extractCodeBlocks(text){
+    const blocks = [];
+    let index = 0;
+    const withPlaceholders = text.replace(/```(\w+)?\n?([\s\S]*?)```/g, (match, lang, code) => {
+        const key = (lang || "").toLowerCase();
+        const meta = CODE_FILE_MAP[key] || { filename: "code.txt", label: key ? key.toUpperCase() : "TEXT" };
+        const id = "codeblock-" + Date.now() + "-" + (index++);
+        blocks.push({ id, filename: meta.filename, label: meta.label, code: code.trim() });
+        return "\n%%" + id + "%%\n";
+    });
+    return { withPlaceholders, blocks };
+}
+
+function buildFileCardHTML(block){
+    return `
+        <div class="file-card">
+            <div class="file-card-icon">&lt;/&gt;</div>
+            <div class="file-card-info">
+                <p class="file-card-title">${block.filename}</p>
+                <p class="file-card-sub">Code · ${block.label}</p>
+            </div>
+            <button class="filecard-download-btn" data-filename="${block.filename}" data-code="${encodeCodeForCard(block.code)}">Download</button>
+        </div>
+    `;
+}
+
+document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".filecard-download-btn");
+    if(!btn) return;
+    try{
+        const code = decodeURIComponent(escape(atob(btn.dataset.code)));
+        const blob = new Blob([code], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = btn.dataset.filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    }catch(err){
+        alert("Could not download the file.");
+    }
+});
+
 function formatAIText(text){
-    let safe = text
+    const { withPlaceholders, blocks } = extractCodeBlocks(text);
+
+    let safe = withPlaceholders
         .replace(/&/g,"&amp;")
         .replace(/</g,"&lt;")
         .replace(/>/g,"&gt;");
@@ -27,7 +100,15 @@ function formatAIText(text){
         }
     });
     if(inList) html += "</ul>";
-    return html || "<p>" + safe + "</p>";
+    if(!html) html = "<p>" + safe + "</p>";
+
+    blocks.forEach(block => {
+        const placeholder = "%%" + block.id + "%%";
+        html = html.replace("<p>" + placeholder + "</p>", buildFileCardHTML(block));
+        html = html.replace(placeholder, buildFileCardHTML(block));
+    });
+
+    return html;
 }
 
 const FREE_MESSAGE_LIMIT = 10;
@@ -122,9 +203,10 @@ function typeOutText(el, fullText, scrollContainer, onDone){
 
     function step(){
         i++;
-        el.innerHTML = formatAIText(words.slice(0, i).join(" "));
+        const isLast = i >= words.length;
+        el.innerHTML = formatAIText(isLast ? fullText : words.slice(0, i).join(" "));
         if(scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
-        if(i < words.length){
+        if(!isLast){
             setTimeout(step, speed);
         } else if(onDone){
             onDone();
