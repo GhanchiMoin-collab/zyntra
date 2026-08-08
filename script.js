@@ -385,10 +385,17 @@ document.getElementById("proExpiredOkBtn")?.addEventListener("click", () => {
     openModal("pricingModal");
 });
 
+function isRunningInApp(){
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches;
+    const isTwaReferrer = document.referrer.startsWith("android-app://");
+    return isStandalone || isTwaReferrer;
+}
+
 function renderPlanUI(){
     const badge = document.getElementById("proBadge");
     const getProBtn = document.getElementById("getProBtn");
     const adBanner = document.getElementById("adBanner");
+    const twaNotice = document.getElementById("twaBuyNotice");
 
     if(isPro()){
         badge.style.display = "inline";
@@ -397,6 +404,15 @@ function renderPlanUI(){
         getProBtn.style.opacity = "0.7";
         getProBtn.style.cursor = "default";
         if(adBanner) adBanner.style.display = "none";
+        if(twaNotice) twaNotice.style.display = "none";
+    } else if(isRunningInApp()){
+        badge.style.display = "none";
+        getProBtn.textContent = "Purchase Unavailable Here";
+        getProBtn.disabled = true;
+        getProBtn.style.opacity = "0.5";
+        getProBtn.style.cursor = "default";
+        if(adBanner) adBanner.style.display = "flex";
+        if(twaNotice) twaNotice.style.display = "block";
     } else if(!isLoggedIn()){
         badge.style.display = "none";
         getProBtn.textContent = "Sign In to Upgrade";
@@ -404,6 +420,7 @@ function renderPlanUI(){
         getProBtn.style.opacity = "1";
         getProBtn.style.cursor = "pointer";
         if(adBanner) adBanner.style.display = "flex";
+        if(twaNotice) twaNotice.style.display = "none";
     } else {
         badge.style.display = "none";
         getProBtn.textContent = "Get Pro";
@@ -411,6 +428,7 @@ function renderPlanUI(){
         getProBtn.style.opacity = "1";
         getProBtn.style.cursor = "pointer";
         if(adBanner) adBanner.style.display = "flex";
+        if(twaNotice) twaNotice.style.display = "none";
     }
 }
 
@@ -421,6 +439,10 @@ document.getElementById("adBanner")?.addEventListener("click", () => {
 
 document.getElementById("getProBtn")?.addEventListener("click", async () => {
     if(isPro()) return;
+
+    if(isRunningInApp()){
+        return;
+    }
 
     if(!isLoggedIn()){
         closeModal("pricingModal");
@@ -557,6 +579,49 @@ function renderStats(){
 }
 
 renderStats();
+
+// ---------- Splash screen ----------
+
+function hideSplashScreen(){
+    setTimeout(() => {
+        const splash = document.getElementById("splashScreen");
+        if(splash) splash.classList.add("hide");
+    }, 900);
+}
+
+if(document.readyState === "complete"){
+    hideSplashScreen();
+} else {
+    window.addEventListener("load", hideSplashScreen);
+}
+
+// ---------- Install app button ----------
+
+let deferredInstallPrompt = null;
+
+window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const btn = document.getElementById("installAppBtn");
+    if(btn && !isRunningInApp()) btn.style.display = "block";
+});
+
+document.getElementById("installAppBtn")?.addEventListener("click", async () => {
+    if(!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    const choice = await deferredInstallPrompt.userChoice;
+    if(choice.outcome === "accepted"){
+        showToast("📥 Installing Zyntra AI...");
+    }
+    deferredInstallPrompt = null;
+    document.getElementById("installAppBtn").style.display = "none";
+});
+
+window.addEventListener("appinstalled", () => {
+    showToast("✅ Zyntra AI installed!");
+    const btn = document.getElementById("installAppBtn");
+    if(btn) btn.style.display = "none";
+});
 
 if(!localStorage.getItem("zyntra-visited")){
     localStorage.setItem("zyntra-visited", "1");
@@ -710,9 +775,26 @@ function finishSignin(email, cameFromPro){
     clearSigninError();
     closeModal("signinModal");
     renderAuthNav();
+    showToast("✅ You're signed in successfully!");
     if(cameFromPro){
         openModal("pricingModal");
     }
+}
+
+function showToast(message){
+    let toast = document.getElementById("zyntraToast");
+    if(!toast){
+        toast = document.createElement("div");
+        toast.id = "zyntraToast";
+        toast.className = "zyntra-toast";
+        document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add("show");
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => {
+        toast.classList.remove("show");
+    }, 3000);
 }
 
 function resetSigninModalUI(){
@@ -999,11 +1081,17 @@ function renderHistory(){
             deleteBtn.textContent = "🗑 Delete";
             deleteBtn.addEventListener("click", (ev) => {
                 ev.stopPropagation();
-                const updated = getSessions().filter(s => s.id !== session.id);
-                saveSessions(updated);
-                if(currentSessionId === session.id) currentSessionId = null;
-                renderHistory();
-                renderPinnedChats();
+                confirmAction(
+                    "Delete This Chat?",
+                    "Are you sure you want to delete this conversation? This can't be undone.",
+                    () => {
+                        const updated = getSessions().filter(s => s.id !== session.id);
+                        saveSessions(updated);
+                        if(currentSessionId === session.id) currentSessionId = null;
+                        renderHistory();
+                        renderPinnedChats();
+                    }
+                );
             });
             dropdown.appendChild(deleteBtn);
             row.appendChild(dropdown);
@@ -1015,6 +1103,23 @@ function renderHistory(){
         });
     });
 }
+
+function confirmAction(title, text, onConfirm){
+    document.getElementById("confirmActionTitle").innerHTML = title;
+    document.getElementById("confirmActionText").textContent = text;
+    openModal("confirmActionModal");
+
+    const okBtn = document.getElementById("confirmActionOk");
+    const newOkBtn = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+    newOkBtn.addEventListener("click", () => {
+        closeModal("confirmActionModal");
+        onConfirm();
+    });
+}
+
+document.getElementById("confirmActionClose")?.addEventListener("click", () => closeModal("confirmActionModal"));
+document.getElementById("confirmActionCancel")?.addEventListener("click", () => closeModal("confirmActionModal"));
 
 function openSession(session){
     chatHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
@@ -1040,9 +1145,15 @@ document.addEventListener("click", () => {
 
 document.getElementById("historyModalClose")?.addEventListener("click", () => closeModal("historyModal"));
 document.getElementById("clearHistoryBtn")?.addEventListener("click", () => {
-    saveSessions([]);
-    currentSessionId = null;
-    renderHistory();
+    confirmAction(
+        "Clear All History?",
+        "Are you sure you want to delete every saved conversation? This can't be undone.",
+        () => {
+            saveSessions([]);
+            currentSessionId = null;
+            renderHistory();
+        }
+    );
 });
 
 document.getElementById("watchAdBtn")?.addEventListener("click", () => {
