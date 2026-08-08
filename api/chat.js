@@ -38,6 +38,7 @@ Rules:
 - Use headings only when they improve readability.
 - Sound friendly, intelligent, and helpful.
 - Use relevant emojis naturally where they add warmth or clarity (e.g. in greetings, lists, or highlighting key points) — but don't overdo it, a few per reply is enough.
+- When you write any code, always wrap it in a triple-backtick fenced code block with the correct language tag right after the backticks (e.g. \`\`\`html, \`\`\`css, \`\`\`javascript, \`\`\`python) — never write code inline without a fenced block, and never leave off the language tag.
 - If the user sends an image, look at it carefully and help solve, explain, or answer whatever they're asking about it.
 `
         },
