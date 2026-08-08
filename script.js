@@ -30,28 +30,90 @@ function formatAIText(text){
     return html || "<p>" + safe + "</p>";
 }
 
-const FREE_DAILY_LIMIT = 20;
+const FREE_MESSAGE_LIMIT = 10;
+const LOCKOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
 
-function getTodayCount(){
-    const today = new Date().toISOString().slice(0, 10);
-    const stored = JSON.parse(localStorage.getItem("zyntra-daily-usage") || "{}");
-    return stored.date === today ? (stored.count || 0) : 0;
+function getChatUsage(){
+    return JSON.parse(localStorage.getItem("zyntra-chat-usage") || '{"count":0,"lockoutUntil":0}');
 }
 
-function incrementTodayCount(){
-    const today = new Date().toISOString().slice(0, 10);
-    const stored = JSON.parse(localStorage.getItem("zyntra-daily-usage") || "{}");
-    const count = (stored.date === today ? stored.count : 0) + 1;
-    localStorage.setItem("zyntra-daily-usage", JSON.stringify({ date: today, count }));
+function saveChatUsage(usage){
+    localStorage.setItem("zyntra-chat-usage", JSON.stringify(usage));
 }
 
-function grantBonusMessages(amount){
-    const today = new Date().toISOString().slice(0, 10);
-    const stored = JSON.parse(localStorage.getItem("zyntra-daily-usage") || "{}");
-    const currentCount = stored.date === today ? (stored.count || 0) : 0;
-    const newCount = Math.max(0, currentCount - amount);
-    localStorage.setItem("zyntra-daily-usage", JSON.stringify({ date: today, count: newCount }));
+function isLockedOut(){
+    return getChatUsage().lockoutUntil > Date.now();
 }
+
+function recordFreeMessage(){
+    const usage = getChatUsage();
+    usage.count = (usage.count || 0) + 1;
+    if(usage.count >= FREE_MESSAGE_LIMIT){
+        usage.lockoutUntil = Date.now() + LOCKOUT_MS;
+        usage.count = 0;
+    }
+    saveChatUsage(usage);
+}
+
+let lockCountdownInterval = null;
+
+function formatCountdown(ms){
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const h = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
+    const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");
+    const s = String(totalSeconds % 60).padStart(2, "0");
+    return `${h}:${m}:${s}`;
+}
+
+function showChatLockedModal(){
+    chatModal.classList.remove("show");
+    openModal("chatLockedModal");
+
+    const countdownEl = document.getElementById("lockCountdown");
+
+    function tick(){
+        const usage = getChatUsage();
+        const remaining = usage.lockoutUntil - Date.now();
+        if(remaining <= 0){
+            countdownEl.textContent = "00:00:00";
+            clearInterval(lockCountdownInterval);
+            saveChatUsage({ count: 0, lockoutUntil: 0 });
+            closeModal("chatLockedModal");
+            chatModal.classList.add("show");
+            return;
+        }
+        countdownEl.textContent = formatCountdown(remaining);
+    }
+
+    tick();
+    clearInterval(lockCountdownInterval);
+    lockCountdownInterval = setInterval(tick, 1000);
+}
+
+document.getElementById("lockUpgradeBtn")?.addEventListener("click", () => {
+    closeModal("chatLockedModal");
+    if(!isLoggedIn()){
+        document.getElementById("signinContext").style.display = "none";
+        openModal("signinModal");
+    } else {
+        openModal("pricingModal");
+    }
+});
+
+document.getElementById("lockWatchAdBtn")?.addEventListener("click", () => {
+    const btn = document.getElementById("lockWatchAdBtn");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "🎬 Watching ad...";
+    setTimeout(() => {
+        saveChatUsage({ count: 0, lockoutUntil: 0 });
+        clearInterval(lockCountdownInterval);
+        closeModal("chatLockedModal");
+        chatModal.classList.add("show");
+        btn.textContent = original;
+        btn.disabled = false;
+    }, 3000);
+});
 
 function typeOutText(el, fullText, scrollContainer, onDone){
     const words = fullText.split(" ");
@@ -874,7 +936,10 @@ document.getElementById("watchAdBtn")?.addEventListener("click", () => {
     btn.textContent = "🎬 Watching ad...";
 
     setTimeout(() => {
-        grantBonusMessages(5);
+        const usage = getChatUsage();
+        usage.lockoutUntil = 0;
+        usage.count = Math.max(0, (usage.count || 0) - 5);
+        saveChatUsage(usage);
         btn.textContent = "✅ +5 Messages Added!";
         setTimeout(() => {
             btn.textContent = original;
@@ -963,10 +1028,8 @@ async function sendChatMessage(prefill){
     const msg = (prefill !== undefined ? prefill : userInput.value.trim());
     if(!msg && !attachedImage) return;
 
-    if(!isPro() && getTodayCount() >= FREE_DAILY_LIMIT){
-        chatModal.classList.remove("show");
-        openModal("pricingModal");
-        alert("You've reached today's free limit (" + FREE_DAILY_LIMIT + " messages). Upgrade to Pro for unlimited chat!");
+    if(!isPro() && isLockedOut()){
+        showChatLockedModal();
         return;
     }
 
@@ -1011,7 +1074,7 @@ async function sendChatMessage(prefill){
     chatHistory.push({ role: "user", content: historyContent });
     logMessageToHistory("user", msg || "[Image attached]");
     bumpStat("conversations", "statConversations");
-    if(!isPro()) incrementTodayCount();
+    if(!isPro()) recordFreeMessage();
 
     attachedImage = null;
     document.getElementById("chatFileInput").value = "";
