@@ -1304,6 +1304,99 @@ color:#d4d7f0;
 white-space:pre;
 }
 
+.zyntra-toast{
+position:fixed;
+top:24px;
+left:50%;
+transform:translateX(-50%) translateY(-20px);
+background:#171d3d;
+border:1px solid #2b3154;
+color:white;
+padding:14px 24px;
+border-radius:14px;
+font-size:14px;
+font-weight:600;
+box-shadow:0 15px 40px rgba(0,0,0,.5);
+opacity:0;
+pointer-events:none;
+transition:opacity .25s, transform .25s;
+z-index:999;
+}
+
+.zyntra-toast.show{
+opacity:1;
+transform:translateX(-50%) translateY(0);
+}
+
+.splash-screen{
+position:fixed;
+inset:0;
+z-index:9999;
+background:#070b18;
+display:flex;
+flex-direction:column;
+align-items:center;
+justify-content:center;
+gap:16px;
+transition:opacity .5s ease, visibility .5s ease;
+}
+
+.splash-screen.hide{
+opacity:0;
+visibility:hidden;
+pointer-events:none;
+}
+
+.splash-dots{
+position:absolute;
+inset:0;
+background-image:radial-gradient(circle, rgba(255,255,255,.06) 1.5px, transparent 1.5px);
+background-size:24px 24px;
+mask-image:radial-gradient(circle at 50% 40%, black 0%, transparent 65%);
+-webkit-mask-image:radial-gradient(circle at 50% 40%, black 0%, transparent 65%);
+animation:creatingPulse 2.2s ease-in-out infinite;
+}
+
+.splash-logo{
+width:80px;
+height:80px;
+border-radius:20px;
+position:relative;
+z-index:2;
+animation:float 3s ease-in-out infinite;
+}
+
+.splash-text{
+position:relative;
+z-index:2;
+font-size:22px;
+font-weight:800;
+color:white;
+}
+
+.splash-text span{
+background:linear-gradient(90deg,#9d7bff,#ff72c8);
+-webkit-background-clip:text;
+-webkit-text-fill-color:transparent;
+}
+
+.install-app-btn{
+margin-top:16px;
+padding:13px 24px;
+border:1px solid #2b3154;
+border-radius:14px;
+background:#171d3d;
+color:white;
+font-weight:700;
+font-size:14px;
+cursor:pointer;
+}
+
+.install-app-btn:hover{
+border-color:#8b5cf6;
+background:linear-gradient(135deg,#7c5cff,#ff5db5);
+}
+
 .creating-box{
 position:relative;
 width:100%;
