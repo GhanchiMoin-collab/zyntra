@@ -580,6 +580,32 @@ function renderStats(){
 
 renderStats();
 
+// ---------- Mobile tab bar ----------
+
+function setMobileTabActive(id){
+    document.querySelectorAll(".mobile-tab").forEach(t => t.classList.remove("active"));
+    document.getElementById(id)?.classList.add("active");
+}
+
+document.getElementById("mtabChat")?.addEventListener("click", () => {
+    setMobileTabActive("mtabChat");
+    chatModal.classList.add("show");
+});
+document.getElementById("mtabTools")?.addEventListener("click", () => {
+    setMobileTabActive("mtabTools");
+    document.getElementById("tools")?.scrollIntoView({ behavior: "smooth" });
+});
+document.getElementById("mtabHistory")?.addEventListener("click", () => {
+    setMobileTabActive("mtabHistory");
+    openModal("historyModal");
+    renderHistory();
+});
+document.getElementById("mtabProfile")?.addEventListener("click", () => {
+    setMobileTabActive("mtabProfile");
+    openModal("profileModal");
+    renderProfileModal();
+});
+
 // ---------- Splash screen ----------
 
 function hideSplashScreen(){
@@ -1264,6 +1290,9 @@ async function sendChatMessage(prefill){
         return;
     }
 
+    const quickCards = document.getElementById("mobileQuickCards");
+    if(quickCards) quickCards.style.display = "none";
+
     const userDiv = document.createElement("div");
     userDiv.className = "user-message";
     if(attachedImage){
@@ -1278,6 +1307,10 @@ async function sendChatMessage(prefill){
         p.style.margin = "0";
         userDiv.appendChild(p);
     }
+    const userTime = document.createElement("span");
+    userTime.className = "msg-time";
+    userTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    userDiv.appendChild(userTime);
     chatMessages.appendChild(userDiv);
     userInput.value = "";
     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1326,6 +1359,10 @@ async function sendChatMessage(prefill){
             loadingDiv.classList.add("done");
             addCopyButton(loadingDiv, reply);
             addReportButton(loadingDiv, reply);
+            const aiTime = document.createElement("span");
+            aiTime.className = "msg-time";
+            aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            loadingDiv.appendChild(aiTime);
         });
     }catch(err){
         loadingDiv.textContent = "Sorry, something went wrong. Please try again.";
