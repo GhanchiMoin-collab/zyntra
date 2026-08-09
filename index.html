@@ -552,6 +552,29 @@
 
         <div id="chatMessages" class="chat-messages">
 
+            <div class="mobile-quick-cards" id="mobileQuickCards">
+                <button class="mqc-card" data-tool="image">
+                    <span class="mqc-icon c-green">🖼️</span>
+                    <span class="mqc-title">Create Image</span>
+                    <span class="mqc-sub">Generate images from your ideas</span>
+                </button>
+                <button class="mqc-card" data-tool="study">
+                    <span class="mqc-icon c-orange">📚</span>
+                    <span class="mqc-title">Study Helper</span>
+                    <span class="mqc-sub">Learn anything faster and better</span>
+                </button>
+                <button class="mqc-card" data-tool="code">
+                    <span class="mqc-icon c-pink">💻</span>
+                    <span class="mqc-title">Code with Zyntra</span>
+                    <span class="mqc-sub">Write, debug, and explain code</span>
+                </button>
+                <button class="mqc-card" data-tool="business">
+                    <span class="mqc-icon c-indigo">💼</span>
+                    <span class="mqc-title">Business Tools</span>
+                    <span class="mqc-sub">Grow your business faster</span>
+                </button>
+            </div>
+
             <div class="ai-message">
                 Hello! 👋 I'm Zyntra AI. How can I help you today?
             </div>
@@ -587,6 +610,25 @@
 </div>
 
 <button id="floatingChatBtn" class="floating-chat-btn">💬</button>
+
+<nav id="mobileTabBar" class="mobile-tab-bar">
+    <button class="mobile-tab" id="mtabChat">
+        <span class="mobile-tab-icon">💬</span>
+        <span>Chat</span>
+    </button>
+    <button class="mobile-tab" id="mtabTools">
+        <span class="mobile-tab-icon">🧰</span>
+        <span>Tools</span>
+    </button>
+    <button class="mobile-tab" id="mtabHistory">
+        <span class="mobile-tab-icon">🕘</span>
+        <span>History</span>
+    </button>
+    <button class="mobile-tab" id="mtabProfile">
+        <span class="mobile-tab-icon">👤</span>
+        <span>Profile</span>
+    </button>
+</nav>
 
     <script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-auth-compat.js"></script>
