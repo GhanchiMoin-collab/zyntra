@@ -1474,8 +1474,13 @@ document.getElementById("imgUploadInput").addEventListener("change", (e) => {
 
 function renderImgUploadPreview(){
     const preview = document.getElementById("imgUploadPreview");
+    const removeBgBtn = document.getElementById("removeBgBtn");
     preview.innerHTML = "";
-    if(!imgUploadedFile) return;
+    if(!imgUploadedFile){
+        if(removeBgBtn) removeBgBtn.style.display = "none";
+        return;
+    }
+    if(removeBgBtn) removeBgBtn.style.display = "block";
     const thumb = document.createElement("div");
     thumb.className = "attach-thumb";
     const img = document.createElement("img");
@@ -1491,6 +1496,59 @@ function renderImgUploadPreview(){
     thumb.appendChild(removeBtn);
     preview.appendChild(thumb);
 }
+
+document.getElementById("removeBgBtn")?.addEventListener("click", async () => {
+    if(!imgUploadedFile) return;
+    const result = document.getElementById("imageResult");
+    const btn = document.getElementById("removeBgBtn");
+    const original = btn.textContent;
+    btn.textContent = "🪄 Removing background...";
+    btn.disabled = true;
+    showCreatingAnimation(result, "Removing background");
+
+    try{
+        const { removeBackground } = await import("https://esm.sh/@imgly/background-removal@1.5.5");
+        const response = await fetch(imgUploadedFile);
+        const sourceBlob = await response.blob();
+        const resultBlob = await removeBackground(sourceBlob);
+        const url = URL.createObjectURL(resultBlob);
+
+        const img = new Image();
+        img.className = "generated-img";
+        img.alt = "Background removed";
+        img.style.background = "repeating-conic-gradient(#2b3154 0% 25%, #171d3d 0% 50%) 50% / 20px 20px";
+        img.onload = () => {
+            result.innerHTML = "";
+            result.appendChild(img);
+
+            const actionsRow = document.createElement("div");
+            actionsRow.style.display = "flex";
+            actionsRow.style.gap = "8px";
+            actionsRow.style.marginTop = "8px";
+            result.appendChild(actionsRow);
+
+            const downloadBtn = document.createElement("button");
+            downloadBtn.className = "copy-btn";
+            downloadBtn.textContent = "⬇ Download PNG";
+            downloadBtn.addEventListener("click", () => {
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "zyntra-ai-no-background.png";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            });
+            actionsRow.appendChild(downloadBtn);
+            bumpStat("images", "statImages");
+        };
+        img.src = url;
+    }catch(err){
+        result.innerHTML = '<p class="loading-text">Could not remove the background. Please try a different photo.</p>';
+    }
+
+    btn.textContent = original;
+    btn.disabled = false;
+});
 
 function showCreatingAnimation(container, label){
     container.innerHTML = `
