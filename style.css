@@ -1420,6 +1420,8 @@ right:0;
 bottom:0;
 z-index:200;
 display:flex;
+align-items:stretch;
+gap:0;
 background:#0e1330;
 border-top:1px solid #232a4d;
 padding:8px 4px calc(8px + env(safe-area-inset-bottom));
@@ -1914,7 +1916,7 @@ color:#12172d;
 }
 
 @media(max-width:900px){
-nav{
+#mainNav{
     display:none;
     position:absolute;
     top:70px;
@@ -1929,8 +1931,8 @@ nav{
     gap:6px;
     margin:0 20px;
 }
-nav.show{ display:flex; }
-nav a{ padding:10px 8px; width:100%; }
+#mainNav.show{ display:flex; }
+#mainNav a{ padding:10px 8px; width:100%; }
 .dropdown-menu{ position:static; display:none; border:none; padding:0 0 0 12px; box-shadow:none; }
 .nav-dropdown:hover .dropdown-menu{ display:block; }
 .hamburger{ display:block; }
