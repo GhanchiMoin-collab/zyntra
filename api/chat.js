@@ -15,7 +15,8 @@ export default async function handler(req, res) {
     // llama-3.1-8b-instant was deprecated by Groq on June 17, 2026.
     // openai/gpt-oss-20b is the recommended text-only replacement.
     // qwen/qwen3.6-27b is Groq's current multimodal (text + image) model.
-    const model = hasImage ? 'qwen/qwen3.6-27b' : 'openai/gpt-oss-20b';
+    // groq/compound automatically searches the web when a question needs current info.
+    const model = hasImage ? 'qwen/qwen3.6-27b' : 'groq/compound';
 
     const body = {
       model,
