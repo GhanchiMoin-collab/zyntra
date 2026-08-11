@@ -597,6 +597,11 @@ document.getElementById("mtabTools")?.addEventListener("click", () => {
 });
 document.getElementById("mtabHistory")?.addEventListener("click", () => {
     setMobileTabActive("mtabHistory");
+    if(!isLoggedIn()){
+        document.getElementById("signinContext").style.display = "none";
+        resetSigninModalUI(); openModal("signinModal");
+        return;
+    }
     openModal("historyModal");
     renderHistory();
 });
@@ -967,6 +972,8 @@ function saveSessions(sessions){
 }
 
 function logMessageToHistory(role, content){
+    if(!isLoggedIn()) return;
+
     const sessions = getSessions();
     let isNewSession = false;
 
@@ -1426,6 +1433,11 @@ function openTool(tool, prefix){
             if(prefix){ userInput.value = prefix; userInput.focus(); }
             break;
         case "history":
+            if(!isLoggedIn()){
+                document.getElementById("signinContext").style.display = "none";
+                resetSigninModalUI(); openModal("signinModal");
+                return;
+            }
             openModal("historyModal");
             renderHistory();
             break;
