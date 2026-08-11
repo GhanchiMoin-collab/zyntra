@@ -18,14 +18,15 @@ export default async function handler(req, res) {
     // groq/compound automatically searches the web when a question needs current info.
     const model = hasImage ? 'qwen/qwen3.6-27b' : 'groq/compound';
 
-    const body = {
-      model,
-      temperature: 0.7,
-      max_tokens: 2048,
-      messages: [
-        {
-          role: "system",
-          content: `
+    async function callGroq(model){
+      const body = {
+        model,
+        temperature: 0.7,
+        max_tokens: 2048,
+        messages: [
+          {
+            role: "system",
+            content: `
 You are Zyntra AI, a premium AI assistant.
 Write exactly like ChatGPT.
 Rules:
@@ -45,29 +46,40 @@ Rules:
 - You understand and can respond fluently in any language the user writes in — Hindi, Spanish, Arabic, French, Chinese, and every other language. Always reply in the same language the user used, unless they ask you to switch.
 - If the user sends an image, look at it carefully and help solve, explain, or answer whatever they're asking about it.
 `
+          },
+          ...messages
+        ]
+      };
+
+      // qwen3.6-27b (the vision model) shows its raw <think> reasoning unless told to hide it.
+      if(hasImage){
+        body.reasoning_format = "hidden";
+      }
+
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
         },
-        ...messages
-      ]
-    };
-
-    // qwen3.6-27b (the vision model) shows its raw <think> reasoning unless told to hide it.
-    if(hasImage){
-      body.reasoning_format = "hidden";
+        body: JSON.stringify(body)
+      });
+      const data = await response.json();
+      return { ok: response.ok, status: response.status, data };
     }
 
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      return res.status(response.status).json({ error: data.error?.message || 'Groq API error' });
+    let result = await callGroq(model);
+
+    // If the compound model fails for any reason (tier restrictions, outage, etc.),
+    // fall back to the standard reliable text model instead of breaking the whole feature.
+    if(!result.ok && model === 'groq/compound'){
+      result = await callGroq('openai/gpt-oss-20b');
     }
-    return res.status(200).json(data);
+
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.data.error?.message || 'Groq API error' });
+    }
+    return res.status(200).json(result.data);
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
