@@ -1479,14 +1479,6 @@ userInput.addEventListener("keydown", e => {
     if(e.key === "Enter") sendChatMessage();
 });
 
-// ---------- Greeting suggestion cards ----------
-
-document.querySelectorAll(".suggestion-card").forEach(card => {
-    card.addEventListener("click", () => {
-        sendChatMessage(card.dataset.message);
-    });
-});
-
 // ==========================
 // Tool routing (sidebar nav, dropdown-less)
 // ==========================
