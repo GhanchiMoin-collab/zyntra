@@ -671,28 +671,21 @@ line-height:1.6;
 
 .ai-message{
 background:#1d2340;
-display:flex;
-gap:12px;
-align-items:flex-start;
 }
 
-.ai-message-body{
-flex:1;
-min-width:0;
-}
-
-.ai-message-avatar{
-width:30px;
-height:30px;
-border-radius:9px;
-flex-shrink:0;
-background:radial-gradient(circle at 30% 30%,#ffffff33,#8c62ff 35%,#4c28ff 100%);
-display:flex;
-align-items:center;
-justify-content:center;
-font-size:13px;
+.ai-message h4{
+font-size:15px;
 font-weight:800;
-margin-top:2px;
+color:#c9a8ff;
+margin:14px 0 8px;
+}
+
+.ai-message h4:first-child{
+margin-top:0;
+}
+
+.ai-message ol{
+margin:6px 0 10px 20px;
 }
 
 .ai-message p{
