@@ -983,6 +983,17 @@ function saveSessions(sessions){
     localStorage.setItem("zyntra-sessions", JSON.stringify(sessions));
 }
 
+function stripMarkdownForTitle(text){
+    return text
+        .replace(/```[\s\S]*?```/g, "")
+        .replace(/\*\*(.*?)\*\*/g, "$1")
+        .replace(/\*(.*?)\*/g, "$1")
+        .replace(/`([^`]*)`/g, "$1")
+        .replace(/^#{1,6}\s*/gm, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 function logMessageToHistory(role, content){
     if(!isLoggedIn()) return;
 
@@ -992,9 +1003,10 @@ function logMessageToHistory(role, content){
     if(!currentSessionId){
         currentSessionId = Date.now();
         isNewSession = true;
+        const cleanTitle = stripMarkdownForTitle(content);
         sessions.unshift({
             id: currentSessionId,
-            title: content.length > 40 ? content.slice(0, 40) + "…" : content,
+            title: cleanTitle.length > 40 ? cleanTitle.slice(0, 40) + "…" : cleanTitle,
             time: Date.now(),
             messages: []
         });
@@ -1015,10 +1027,10 @@ async function generateSessionTitle(sessionId, firstMessage){
         const title = await callChatAPI([
             {
                 role: "user",
-                content: 'Summarize the topic of this message in 3-5 words. No punctuation, no quotes, just the topic itself:\n\n"' + firstMessage + '"'
+                content: 'Summarize the topic of this message in 3-5 words. No punctuation, no quotes, no markdown, just the topic itself:\n\n"' + firstMessage + '"'
             }
         ]);
-        const clean = title.trim().replace(/["'.]/g, "");
+        const clean = stripMarkdownForTitle(title).replace(/["'.]/g, "");
         if(!clean) return;
 
         const sessions = getSessions();
@@ -1067,73 +1079,89 @@ function renderPinnedChats(){
     });
 }
 
+function buildSidebarHistoryRow(session){
+    const row = document.createElement("div");
+    row.className = "sidebar-history-row" + (session.pinned ? " pinned" : "");
+    row.title = session.title;
+
+    const title = document.createElement("span");
+    title.className = "shr-title";
+    title.textContent = session.title;
+
+    const pinBtn = document.createElement("button");
+    pinBtn.className = "shr-pin";
+    pinBtn.textContent = "📌";
+    pinBtn.title = session.pinned ? "Unpin" : "Pin";
+    pinBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const all = getSessions();
+        const s = all.find(x => x.id === session.id);
+        if(s){
+            s.pinned = !s.pinned;
+            saveSessions(all);
+            renderSidebarHistory();
+            renderPinnedChats();
+        }
+    });
+
+    const menuBtn = document.createElement("button");
+    menuBtn.className = "shr-menu";
+    menuBtn.textContent = "⋮";
+    menuBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        confirmAction(
+            "Delete This Chat?",
+            "Are you sure you want to delete this conversation? This can't be undone.",
+            () => {
+                const updated = getSessions().filter(s => s.id !== session.id);
+                saveSessions(updated);
+                if(currentSessionId === session.id) currentSessionId = null;
+                renderSidebarHistory();
+                renderPinnedChats();
+            }
+        );
+    });
+
+    row.appendChild(title);
+    row.appendChild(pinBtn);
+    row.appendChild(menuBtn);
+    row.addEventListener("click", () => openSession(session));
+    return row;
+}
+
 function renderSidebarHistory(){
     const list = document.getElementById("sidebarHistoryList");
-    if(!list) return;
+    const pinnedSection = document.getElementById("sidebarPinnedSection");
+    const pinnedList = document.getElementById("sidebarPinnedList");
+    if(!list || !pinnedSection || !pinnedList) return;
     list.innerHTML = "";
+    pinnedList.innerHTML = "";
 
     if(!isLoggedIn()){
         list.innerHTML = '<p class="sidebar-history-empty">Sign in to save and revisit your conversations.</p>';
+        pinnedSection.style.display = "none";
         return;
     }
 
     const sessions = getSessions();
+    const pinned = sessions.filter(s => s.pinned);
+    const unpinned = sessions.filter(s => !s.pinned);
 
-    if(sessions.length === 0){
-        list.innerHTML = '<p class="sidebar-history-empty">No conversations yet. Start chatting!</p>';
+    if(pinned.length > 0){
+        pinnedSection.style.display = "";
+        pinned.forEach(session => pinnedList.appendChild(buildSidebarHistoryRow(session)));
+    } else {
+        pinnedSection.style.display = "none";
+    }
+
+    if(unpinned.length === 0){
+        list.innerHTML = sessions.length === 0
+            ? '<p class="sidebar-history-empty">No conversations yet. Start chatting!</p>'
+            : '<p class="sidebar-history-empty">All chats are pinned.</p>';
         return;
     }
 
-    sessions.forEach(session => {
-        const row = document.createElement("div");
-        row.className = "sidebar-history-row" + (session.pinned ? " pinned" : "");
-        row.title = session.title;
-
-        const title = document.createElement("span");
-        title.className = "shr-title";
-        title.textContent = session.title;
-
-        const pinBtn = document.createElement("button");
-        pinBtn.className = "shr-pin";
-        pinBtn.textContent = "📌";
-        pinBtn.title = session.pinned ? "Unpin" : "Pin";
-        pinBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            const all = getSessions();
-            const s = all.find(x => x.id === session.id);
-            if(s){
-                s.pinned = !s.pinned;
-                saveSessions(all);
-                renderSidebarHistory();
-                renderPinnedChats();
-            }
-        });
-
-        const menuBtn = document.createElement("button");
-        menuBtn.className = "shr-menu";
-        menuBtn.textContent = "⋮";
-        menuBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            confirmAction(
-                "Delete This Chat?",
-                "Are you sure you want to delete this conversation? This can't be undone.",
-                () => {
-                    const updated = getSessions().filter(s => s.id !== session.id);
-                    saveSessions(updated);
-                    if(currentSessionId === session.id) currentSessionId = null;
-                    renderSidebarHistory();
-                    renderPinnedChats();
-                }
-            );
-        });
-
-        row.appendChild(title);
-        row.appendChild(pinBtn);
-        row.appendChild(menuBtn);
-        list.appendChild(row);
-
-        row.addEventListener("click", () => openSession(session));
-    });
+    unpinned.forEach(session => list.appendChild(buildSidebarHistoryRow(session)));
 }
 
 function confirmAction(title, text, onConfirm){
