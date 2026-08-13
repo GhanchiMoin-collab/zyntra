@@ -336,84 +336,101 @@ function addReportButton(container, contentToReport){
     container.appendChild(btn);
 }
 
-function addMessageActionBar(container, text, allowRegenerate){
+const MSG_ICONS = {
+    copy: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>',
+    check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>',
+    feedback: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"></path><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"></path></svg>',
+    share: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>'
+};
+
+function addMessageActionBar(container, text){
     const bar = document.createElement("div");
     bar.className = "msg-actions";
 
-    function makeBtn(icon, title, onClick){
-        const btn = document.createElement("button");
-        btn.className = "msg-action-btn";
-        btn.title = title;
-        btn.innerHTML = icon;
-        btn.addEventListener("click", onClick);
-        bar.appendChild(btn);
-        return btn;
-    }
-
-    const copyBtn = makeBtn("📋", "Copy", () => {
+    // ---- Copy ----
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "msg-action-btn";
+    copyBtn.title = "Copy";
+    copyBtn.innerHTML = MSG_ICONS.copy;
+    copyBtn.addEventListener("click", () => {
         navigator.clipboard.writeText(text).then(() => {
-            copyBtn.innerHTML = "✅";
-            setTimeout(() => { copyBtn.innerHTML = "📋"; }, 1200);
+            copyBtn.innerHTML = MSG_ICONS.check;
+            setTimeout(() => { copyBtn.innerHTML = MSG_ICONS.copy; }, 1200);
         });
     });
+    bar.appendChild(copyBtn);
 
-    const likeBtn = makeBtn("👍", "Good response", () => {
-        likeBtn.classList.toggle("active");
-        dislikeBtn.classList.remove("active");
+    // ---- Feedback (single button, opens a small good/bad menu) ----
+    const feedbackWrap = document.createElement("div");
+    feedbackWrap.className = "msg-feedback-wrap";
+
+    const feedbackBtn = document.createElement("button");
+    feedbackBtn.className = "msg-action-btn";
+    feedbackBtn.title = "Feedback";
+    feedbackBtn.innerHTML = MSG_ICONS.feedback;
+
+    const feedbackMenu = document.createElement("div");
+    feedbackMenu.className = "msg-feedback-menu";
+
+    const goodOpt = document.createElement("button");
+    goodOpt.className = "msg-feedback-option";
+    goodOpt.textContent = "👍 Good response";
+
+    const badOpt = document.createElement("button");
+    badOpt.className = "msg-feedback-option";
+    badOpt.textContent = "👎 Needs improvement";
+
+    goodOpt.addEventListener("click", (e) => {
+        e.stopPropagation();
+        feedbackMenu.classList.remove("show");
+        feedbackBtn.classList.add("active");
+        showToast("Thanks for the feedback!");
     });
 
-    const dislikeBtn = makeBtn("👎", "Bad response", () => {
-        dislikeBtn.classList.toggle("active");
-        likeBtn.classList.remove("active");
+    badOpt.addEventListener("click", (e) => {
+        e.stopPropagation();
+        feedbackMenu.classList.remove("show");
+        feedbackBtn.classList.add("active");
         openModal("contactModal");
         const msgBox = document.getElementById("contactMsg");
         msgBox.value = 'Reporting AI-generated content:\n\n"' + text + '"\n\nReason: ';
         msgBox.focus();
     });
 
-    makeBtn("📤", "Share", async () => {
+    feedbackBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const wasOpen = feedbackMenu.classList.contains("show");
+        document.querySelectorAll(".msg-feedback-menu.show").forEach(m => m.classList.remove("show"));
+        if(!wasOpen) feedbackMenu.classList.add("show");
+    });
+
+    feedbackMenu.appendChild(goodOpt);
+    feedbackMenu.appendChild(badOpt);
+    feedbackWrap.appendChild(feedbackBtn);
+    feedbackWrap.appendChild(feedbackMenu);
+    bar.appendChild(feedbackWrap);
+
+    // ---- Share ----
+    const shareBtn = document.createElement("button");
+    shareBtn.className = "msg-action-btn";
+    shareBtn.title = "Share";
+    shareBtn.innerHTML = MSG_ICONS.share;
+    shareBtn.addEventListener("click", async () => {
         if(navigator.share){
             try{ await navigator.share({ text }); }catch(err){ /* user cancelled */ }
         } else {
             navigator.clipboard.writeText(text).then(() => showToast("📋 Copied to clipboard"));
         }
     });
-
-    if(allowRegenerate){
-        makeBtn("🔄", "Regenerate", () => regenerateReply(container));
-    }
+    bar.appendChild(shareBtn);
 
     container.appendChild(bar);
     return bar;
 }
 
-async function regenerateReply(container){
-    if(chatHistory.length === 0) return;
-    if(chatHistory[chatHistory.length - 1] && chatHistory[chatHistory.length - 1].role === "assistant"){
-        chatHistory.pop();
-    }
-    container.classList.remove("done");
-    container.innerHTML = "Typing...";
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-
-    try{
-        const reply = await callChatAPI(chatHistory);
-        chatHistory.push({ role: "assistant", content: reply });
-        logMessageToHistory("assistant", reply);
-        container.innerHTML = "";
-        typeOutText(container, reply, chatMessages, () => {
-            container.classList.add("done");
-            addMessageActionBar(container, reply, true);
-            const aiTime = document.createElement("span");
-            aiTime.className = "msg-time";
-            aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-            container.appendChild(aiTime);
-        });
-    }catch(err){
-        container.innerHTML = "Sorry, something went wrong. Please try again.";
-    }
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-}
+document.addEventListener("click", () => {
+    document.querySelectorAll(".msg-feedback-menu.show").forEach(m => m.classList.remove("show"));
+});
 
 async function callChatAPI(messages){
     const res = await fetch("/api/chat", {
@@ -1462,7 +1479,7 @@ async function sendChatMessage(prefill){
         loadingDiv.textContent = "";
         typeOutText(loadingDiv, reply, chatMessages, () => {
             loadingDiv.classList.add("done");
-            addMessageActionBar(loadingDiv, reply, true);
+            addMessageActionBar(loadingDiv, reply);
             const aiTime = document.createElement("span");
             aiTime.className = "msg-time";
             aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -1936,7 +1953,7 @@ if(!SpeechRecognitionAPI){
             voiceBox.appendChild(aiDiv);
             typeOutText(aiDiv, clean, voiceBox, () => {
                 aiDiv.classList.add("done");
-                addMessageActionBar(aiDiv, clean, false);
+                addMessageActionBar(aiDiv, clean);
             });
             const utter = new SpeechSynthesisUtterance(clean);
             speechSynthesis.speak(utter);
