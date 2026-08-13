@@ -136,8 +136,46 @@ function formatAIText(text){
         }
     }
 
-    lines.forEach(line => {
-        const trimmed = line.trim();
+    function isTableRow(line){
+        return /^\|.*\|$/.test(line.trim());
+    }
+    function isTableSeparator(line){
+        return /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$/.test(line.trim());
+    }
+    function parseTableRow(line){
+        return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+    }
+
+    let i = 0;
+    while(i < lines.length){
+        const trimmed = lines[i].trim();
+
+        // Horizontal rule (---)
+        if(/^-{3,}$/.test(trimmed)){
+            closeList();
+            html += "<hr>";
+            i++;
+            continue;
+        }
+
+        // Markdown table
+        if(isTableRow(trimmed) && i + 1 < lines.length && isTableSeparator(lines[i + 1])){
+            closeList();
+            const headerCells = parseTableRow(trimmed);
+            let tableHtml = "<div class=\"table-wrap\"><table><thead><tr>"
+                + headerCells.map(c => "<th>" + c + "</th>").join("")
+                + "</tr></thead><tbody>";
+            i += 2;
+            while(i < lines.length && isTableRow(lines[i].trim())){
+                const rowCells = parseTableRow(lines[i].trim());
+                tableHtml += "<tr>" + rowCells.map(c => "<td>" + c + "</td>").join("") + "</tr>";
+                i++;
+            }
+            tableHtml += "</tbody></table></div>";
+            html += tableHtml;
+            continue;
+        }
+
         const headerMatch = trimmed.match(/^#{1,6}\s+(.*)$/);
         const numberedMatch = trimmed.match(/^(\d+)[.)]\s+(.*)$/);
         const bulletMatch = /^[-*•]\s+/.test(trimmed);
@@ -157,7 +195,8 @@ function formatAIText(text){
             closeList();
             html += "<p>" + trimmed + "</p>";
         }
-    });
+        i++;
+    }
     closeList();
     if(!html) html = "<p>" + safe + "</p>";
 
