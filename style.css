@@ -609,49 +609,7 @@ background:linear-gradient(90deg,#9d7bff,#ff72c8);
 .chat-greeting > p{
 color:#9aa0c0;
 font-size:15px;
-margin-bottom:32px;
-}
-
-.suggestion-grid{
-display:grid;
-grid-template-columns:repeat(3,1fr);
-gap:14px;
-text-align:left;
-}
-
-.suggestion-card{
-display:flex;
-flex-direction:column;
-gap:6px;
-padding:18px;
-background:#0e1330;
-border:1px solid #232a4d;
-border-radius:16px;
-cursor:pointer;
-transition:.2s;
-color:white;
-font-family:inherit;
-}
-
-.suggestion-card:hover{
-border-color:#4c3d8f;
-transform:translateY(-3px);
-box-shadow:0 12px 28px rgba(124,92,255,.18);
-}
-
-.sc-icon{
-font-size:18px;
-}
-
-.sc-title{
-font-size:14.5px;
-font-weight:700;
-}
-
-.sc-sub{
-font-size:12.5px;
-color:#9aa0c0;
-line-height:1.4;
+margin-bottom:0;
 }
 
 .chat-messages{
@@ -1687,8 +1645,7 @@ body.light-mode .topbar-avatar,
 body.light-mode .modal-close,
 body.light-mode .developer-badge,
 body.light-mode .chat-msg.ai,
-body.light-mode .suggestion-card,
-body.left-mode .sidebar-install-btn,
+body.light-mode .sidebar-install-btn,
 body.light-mode .pricing-plan,
 body.light-mode .modal-input-row input,
 body.light-mode .modal-input-row textarea,
@@ -1771,16 +1728,24 @@ align-items:center;
 justify-content:center;
 }
 
+.topbar{
+display:grid;
+grid-template-columns:auto 1fr auto;
+align-items:center;
+}
+
 .topbar-brand{
 display:flex;
+justify-content:center;
 }
 
-.upgrade-pill span{
+.topbar-right{
+margin-left:0;
+justify-self:end;
+}
+
+.upgrade-pill{
 display:none;
-}
-
-.suggestion-grid{
-grid-template-columns:1fr;
 }
 
 .chat-greeting{
@@ -1809,10 +1774,6 @@ padding-right:14px;
 
 .chat-input-bar{
 padding:0 14px 14px;
-}
-
-.upgrade-pill{
-padding:9px 12px;
 }
 
 .modal-box{ padding:28px 20px; max-height:88vh; }
@@ -1845,4 +1806,4 @@ padding:9px 12px;
 .modal-box h1{ font-size:21px; }
 .pricing-plan .price{ font-size:19px; }
 .chat-greeting h1{ font-size:21px; }
-}s
+}
