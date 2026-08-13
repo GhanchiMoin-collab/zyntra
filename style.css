@@ -775,6 +775,39 @@ color:white;
 color:#ff8fa8;
 }
 
+.msg-actions{
+display:flex;
+align-items:center;
+gap:2px;
+margin-top:10px;
+}
+
+.msg-action-btn{
+width:30px;
+height:30px;
+display:flex;
+align-items:center;
+justify-content:center;
+border:none;
+background:none;
+border-radius:8px;
+font-size:14px;
+line-height:1;
+cursor:pointer;
+color:#9aa0c0;
+transition:.15s;
+}
+
+.msg-action-btn:hover{
+background:#232a4d;
+color:white;
+}
+
+.msg-action-btn.active{
+color:#c9a8ff;
+background:#232a4d;
+}
+
 .report-btn:hover{
 background:linear-gradient(135deg,#e14b6a,#ff5db5);
 border-color:#e14b6a;
@@ -1382,7 +1415,8 @@ font-weight:600;
 margin-top:6px;
 }
 
-#profileWork{
+#profileWork,
+#posterAspect{
 background:#12172d;
 border:1px solid #2b3154;
 border-radius:12px;
@@ -1811,4 +1845,4 @@ padding:9px 12px;
 .modal-box h1{ font-size:21px; }
 .pricing-plan .price{ font-size:19px; }
 .chat-greeting h1{ font-size:21px; }
-}
+}s
