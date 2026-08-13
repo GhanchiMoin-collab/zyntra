@@ -336,6 +336,85 @@ function addReportButton(container, contentToReport){
     container.appendChild(btn);
 }
 
+function addMessageActionBar(container, text, allowRegenerate){
+    const bar = document.createElement("div");
+    bar.className = "msg-actions";
+
+    function makeBtn(icon, title, onClick){
+        const btn = document.createElement("button");
+        btn.className = "msg-action-btn";
+        btn.title = title;
+        btn.innerHTML = icon;
+        btn.addEventListener("click", onClick);
+        bar.appendChild(btn);
+        return btn;
+    }
+
+    const copyBtn = makeBtn("📋", "Copy", () => {
+        navigator.clipboard.writeText(text).then(() => {
+            copyBtn.innerHTML = "✅";
+            setTimeout(() => { copyBtn.innerHTML = "📋"; }, 1200);
+        });
+    });
+
+    const likeBtn = makeBtn("👍", "Good response", () => {
+        likeBtn.classList.toggle("active");
+        dislikeBtn.classList.remove("active");
+    });
+
+    const dislikeBtn = makeBtn("👎", "Bad response", () => {
+        dislikeBtn.classList.toggle("active");
+        likeBtn.classList.remove("active");
+        openModal("contactModal");
+        const msgBox = document.getElementById("contactMsg");
+        msgBox.value = 'Reporting AI-generated content:\n\n"' + text + '"\n\nReason: ';
+        msgBox.focus();
+    });
+
+    makeBtn("📤", "Share", async () => {
+        if(navigator.share){
+            try{ await navigator.share({ text }); }catch(err){ /* user cancelled */ }
+        } else {
+            navigator.clipboard.writeText(text).then(() => showToast("📋 Copied to clipboard"));
+        }
+    });
+
+    if(allowRegenerate){
+        makeBtn("🔄", "Regenerate", () => regenerateReply(container));
+    }
+
+    container.appendChild(bar);
+    return bar;
+}
+
+async function regenerateReply(container){
+    if(chatHistory.length === 0) return;
+    if(chatHistory[chatHistory.length - 1] && chatHistory[chatHistory.length - 1].role === "assistant"){
+        chatHistory.pop();
+    }
+    container.classList.remove("done");
+    container.innerHTML = "Typing...";
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    try{
+        const reply = await callChatAPI(chatHistory);
+        chatHistory.push({ role: "assistant", content: reply });
+        logMessageToHistory("assistant", reply);
+        container.innerHTML = "";
+        typeOutText(container, reply, chatMessages, () => {
+            container.classList.add("done");
+            addMessageActionBar(container, reply, true);
+            const aiTime = document.createElement("span");
+            aiTime.className = "msg-time";
+            aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            container.appendChild(aiTime);
+        });
+    }catch(err){
+        container.innerHTML = "Sorry, something went wrong. Please try again.";
+    }
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
 async function callChatAPI(messages){
     const res = await fetch("/api/chat", {
         method: "POST",
@@ -1383,8 +1462,7 @@ async function sendChatMessage(prefill){
         loadingDiv.textContent = "";
         typeOutText(loadingDiv, reply, chatMessages, () => {
             loadingDiv.classList.add("done");
-            addCopyButton(loadingDiv, reply);
-            addReportButton(loadingDiv, reply);
+            addMessageActionBar(loadingDiv, reply, true);
             const aiTime = document.createElement("span");
             aiTime.className = "msg-time";
             aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -1445,6 +1523,9 @@ function openTool(tool, prefix){
         closeSidebarMobile();
     } else if(tool === "image"){
         openModal("imageModal");
+        closeSidebarMobile();
+    } else if(tool === "poster"){
+        openModal("posterModal");
         closeSidebarMobile();
     } else if(tool === "voice"){
         openModal("voiceModal");
@@ -1672,6 +1753,149 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
 });
 
 // ==========================
+// Poster Maker
+// ==========================
+
+document.getElementById("posterModalClose")?.addEventListener("click", () => closeModal("posterModal"));
+
+const POSTER_SIZES = {
+    portrait: { w: 900, h: 1200 },
+    square: { w: 1000, h: 1000 },
+    landscape: { w: 1200, h: 900 }
+};
+
+// Wraps text inside maxWidth, drawing top-down starting at (x, y). Returns lines drawn.
+function wrapCanvasTextTop(ctx, text, x, y, maxWidth, lineHeight){
+    const words = text.split(" ");
+    let line = "";
+    let linesDrawn = 0;
+    words.forEach(word => {
+        const testLine = line ? line + " " + word : word;
+        if(ctx.measureText(testLine).width > maxWidth && line){
+            ctx.fillText(line, x, y + linesDrawn * lineHeight);
+            linesDrawn++;
+            line = word;
+        } else {
+            line = testLine;
+        }
+    });
+    if(line){
+        ctx.fillText(line, x, y + linesDrawn * lineHeight);
+        linesDrawn++;
+    }
+    return linesDrawn;
+}
+
+document.getElementById("posterGenBtn")?.addEventListener("click", () => {
+    const title = document.getElementById("posterTitleInput").value.trim();
+    const subtitle = document.getElementById("posterSubtitleInput").value.trim();
+    const theme = document.getElementById("posterThemeInput").value.trim();
+    const aspect = document.getElementById("posterAspect").value;
+    const result = document.getElementById("posterResult");
+
+    if(!title && !theme){
+        alert("Please add a title or describe the background style.");
+        return;
+    }
+
+    const size = POSTER_SIZES[aspect] || POSTER_SIZES.portrait;
+    const waitLabel = isPro() ? "Designing poster" : "Designing poster (upgrade to Pro for faster generation)";
+    showCreatingAnimation(result, waitLabel);
+
+    const promptText = (theme || "abstract poster background") + ", poster background art, no text, no watermark, high detail";
+    const seed = Math.floor(Math.random() * 1000000);
+    const bgUrl = "https://image.pollinations.ai/prompt/" + encodeURIComponent(promptText)
+        + "?width=" + size.w + "&height=" + size.h + "&seed=" + seed;
+
+    function drawPoster(){
+        fetch(bgUrl)
+            .then(res => res.blob())
+            .then(blob => {
+                const objectUrl = URL.createObjectURL(blob);
+                const bgImg = new Image();
+
+                bgImg.onload = () => {
+                    const canvas = document.createElement("canvas");
+                    canvas.width = size.w;
+                    canvas.height = size.h;
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(bgImg, 0, 0, size.w, size.h);
+                    URL.revokeObjectURL(objectUrl);
+
+                    // Dark gradient at the bottom so text stays readable
+                    const gradient = ctx.createLinearGradient(0, size.h * 0.55, 0, size.h);
+                    gradient.addColorStop(0, "rgba(5,6,16,0)");
+                    gradient.addColorStop(1, "rgba(5,6,16,0.85)");
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, size.h * 0.55, size.w, size.h * 0.45);
+
+                    const padding = size.w * 0.08;
+                    const maxTextWidth = size.w - padding * 2;
+                    let cursorY = size.h * 0.62;
+                    ctx.textBaseline = "top";
+
+                    if(title){
+                        const titleFontSize = Math.round(size.w * 0.075);
+                        ctx.font = "800 " + titleFontSize + "px Inter, sans-serif";
+                        ctx.fillStyle = "#ffffff";
+                        const lineHeight = titleFontSize * 1.15;
+                        const linesUsed = wrapCanvasTextTop(ctx, title, padding, cursorY, maxTextWidth, lineHeight);
+                        cursorY += linesUsed * lineHeight + titleFontSize * 0.4;
+                    }
+
+                    if(subtitle){
+                        const subFontSize = Math.round(size.w * 0.035);
+                        ctx.font = "600 " + subFontSize + "px Inter, sans-serif";
+                        ctx.fillStyle = "#c9a8ff";
+                        wrapCanvasTextTop(ctx, subtitle, padding, cursorY, maxTextWidth, subFontSize * 1.3);
+                    }
+
+                    result.innerHTML = "";
+                    const previewImg = document.createElement("img");
+                    previewImg.className = "generated-img";
+                    previewImg.alt = title || "Generated poster";
+                    previewImg.src = canvas.toDataURL("image/png");
+                    result.appendChild(previewImg);
+                    bumpStat("images");
+
+                    const actionsRow = document.createElement("div");
+                    actionsRow.style.display = "flex";
+                    actionsRow.style.gap = "8px";
+                    actionsRow.style.marginTop = "8px";
+                    result.appendChild(actionsRow);
+
+                    const downloadBtn = document.createElement("button");
+                    downloadBtn.className = "copy-btn";
+                    downloadBtn.textContent = "⬇ Download Poster";
+                    downloadBtn.addEventListener("click", () => {
+                        const a = document.createElement("a");
+                        a.href = canvas.toDataURL("image/png");
+                        a.download = "zyntra-ai-poster.png";
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                    });
+                    actionsRow.appendChild(downloadBtn);
+
+                    addReportButton(actionsRow, "Generated poster for: \"" + (title || theme) + "\"");
+                };
+
+                bgImg.onerror = () => {
+                    result.innerHTML = '<p class="loading-text">Could not generate the poster background. Please try again.</p>';
+                };
+
+                bgImg.src = objectUrl;
+            })
+            .catch(() => {
+                result.innerHTML = '<p class="loading-text">Could not generate the poster background. Please try again.</p>';
+            });
+    }
+
+    const waitMs = isPro() ? 2000 : 10000;
+    setTimeout(drawPoster, waitMs);
+});
+
+// ==========================
 // Voice modal
 // ==========================
 
@@ -1720,8 +1944,7 @@ if(!SpeechRecognitionAPI){
             voiceBox.appendChild(aiDiv);
             typeOutText(aiDiv, clean, voiceBox, () => {
                 aiDiv.classList.add("done");
-                addCopyButton(aiDiv, clean);
-                addReportButton(aiDiv, clean);
+                addMessageActionBar(aiDiv, clean, false);
             });
             const utter = new SpeechSynthesisUtterance(clean);
             speechSynthesis.speak(utter);
