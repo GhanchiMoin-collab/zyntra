@@ -749,11 +749,14 @@ justify-content:center;
 border:none;
 background:none;
 border-radius:8px;
-font-size:14px;
 line-height:1;
 cursor:pointer;
 color:#9aa0c0;
 transition:.15s;
+}
+
+.msg-action-btn svg{
+display:block;
 }
 
 .msg-action-btn:hover{
@@ -763,6 +766,45 @@ color:white;
 
 .msg-action-btn.active{
 color:#c9a8ff;
+background:#232a4d;
+}
+
+.msg-feedback-wrap{
+position:relative;
+}
+
+.msg-feedback-menu{
+display:none;
+flex-direction:column;
+gap:2px;
+position:absolute;
+bottom:38px;
+left:0;
+min-width:180px;
+background:#12172d;
+border:1px solid #2b3154;
+border-radius:12px;
+padding:6px;
+box-shadow:0 15px 30px rgba(0,0,0,.45);
+z-index:20;
+}
+
+.msg-feedback-menu.show{
+display:flex;
+}
+
+.msg-feedback-option{
+background:none;
+border:none;
+text-align:left;
+color:white;
+font-size:13px;
+padding:8px 10px;
+border-radius:8px;
+cursor:pointer;
+}
+
+.msg-feedback-option:hover{
 background:#232a4d;
 }
 
