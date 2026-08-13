@@ -74,6 +74,7 @@
         <nav class="sidebar-nav">
             <button class="nav-item active" id="navChat" data-tool="chat"><span class="nav-icon">💬</span> AI Chat</button>
             <button class="nav-item" data-tool="image"><span class="nav-icon">🖼️</span> Image Generator</button>
+            <button class="nav-item" data-tool="poster"><span class="nav-icon">🪧</span> Poster Maker</button>
             <button class="nav-item" data-tool="study" data-prefix="Help me study this topic: "><span class="nav-icon">📘</span> Study Helper</button>
             <button class="nav-item" data-tool="code"><span class="nav-icon">💻</span> Code with Zyntra</button>
             <button class="nav-item" data-tool="voice"><span class="nav-icon">🎤</span> Voice Assistant</button>
@@ -222,6 +223,29 @@
             <button id="imageGenBtn">Generate</button>
         </div>
         <div id="imageResult" class="img-result"></div>
+    </div>
+</div>
+
+<!-- ================= POSTER MAKER MODAL ================= -->
+<div class="modal-overlay" id="posterModal">
+    <div class="modal-box">
+        <button class="modal-close" id="posterModalClose">✕</button>
+        <span class="tag">POSTER MAKER</span>
+        <h1>Design a <span>Poster</span></h1>
+        <p class="ai-disclosure">⚡ The background is AI-generated. Your title &amp; subtitle are placed on top automatically.</p>
+
+        <div class="modal-input-row modal-input-col">
+            <input type="text" id="posterTitleInput" placeholder="Poster title (e.g. Summer Sale)">
+            <input type="text" id="posterSubtitleInput" placeholder="Subtitle (optional)">
+            <input type="text" id="posterThemeInput" placeholder="Describe the background style (e.g. neon city, minimal gradient, nature)">
+            <select id="posterAspect">
+                <option value="portrait">Portrait (3:4) — Print / Instagram</option>
+                <option value="square">Square (1:1) — Social post</option>
+                <option value="landscape">Landscape (4:3) — Banner</option>
+            </select>
+            <button id="posterGenBtn">Generate Poster</button>
+        </div>
+        <div id="posterResult" class="img-result"></div>
     </div>
 </div>
 
