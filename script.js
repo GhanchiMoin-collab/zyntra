@@ -185,7 +185,6 @@ function formatCountdown(ms){
 }
 
 function showChatLockedModal(){
-    chatModal.classList.remove("show");
     openModal("chatLockedModal");
 
     const countdownEl = document.getElementById("lockCountdown");
@@ -198,7 +197,6 @@ function showChatLockedModal(){
             clearInterval(lockCountdownInterval);
             saveChatUsage({ count: 0, lockoutUntil: 0 });
             closeModal("chatLockedModal");
-            chatModal.classList.add("show");
             return;
         }
         countdownEl.textContent = formatCountdown(remaining);
@@ -228,7 +226,6 @@ document.getElementById("lockWatchAdBtn")?.addEventListener("click", () => {
         saveChatUsage({ count: 0, lockoutUntil: 0 });
         clearInterval(lockCountdownInterval);
         closeModal("chatLockedModal");
-        chatModal.classList.add("show");
         btn.textContent = original;
         btn.disabled = false;
     }, 3000);
@@ -308,22 +305,14 @@ document.querySelectorAll(".modal-overlay").forEach(overlay => {
 document.addEventListener("keydown", e => {
     if(e.key === "Escape"){
         document.querySelectorAll(".modal-overlay.show").forEach(m => m.classList.remove("show"));
-        chatModal.classList.remove("show");
+        closeSidebarMobile();
     }
 });
 
 // ---------- About modal ----------
 
-const aboutModal = document.getElementById("aboutModal");
 document.getElementById("aboutBtn")?.addEventListener("click", e => { e.preventDefault(); openModal("aboutModal"); });
-document.getElementById("aboutBtnFooter")?.addEventListener("click", e => { e.preventDefault(); openModal("aboutModal"); });
 document.getElementById("aboutClose")?.addEventListener("click", () => closeModal("aboutModal"));
-
-// ---------- Pricing modal ----------
-
-document.getElementById("pricingBtn")?.addEventListener("click", e => { e.preventDefault(); openModal("pricingModal"); });
-document.getElementById("pricingBtnFooter")?.addEventListener("click", e => { e.preventDefault(); openModal("pricingModal"); });
-document.getElementById("pricingModalClose")?.addEventListener("click", () => closeModal("pricingModal"));
 
 // ---------- Privacy Policy modal ----------
 
@@ -396,6 +385,8 @@ function renderPlanUI(){
     const getProBtn = document.getElementById("getProBtn");
     const adBanner = document.getElementById("adBanner");
     const twaNotice = document.getElementById("twaBuyNotice");
+    const topUpgradeBtn = document.getElementById("topUpgradeBtn");
+    const sidebarUpgradeCard = document.getElementById("sidebarUpgradeCard");
 
     if(isPro()){
         badge.style.display = "inline";
@@ -405,6 +396,8 @@ function renderPlanUI(){
         getProBtn.style.cursor = "default";
         if(adBanner) adBanner.style.display = "none";
         if(twaNotice) twaNotice.style.display = "none";
+        if(topUpgradeBtn) topUpgradeBtn.style.display = "none";
+        if(sidebarUpgradeCard) sidebarUpgradeCard.style.display = "none";
     } else if(isRunningInApp()){
         badge.style.display = "none";
         getProBtn.textContent = "Purchase Unavailable Here";
@@ -413,29 +406,34 @@ function renderPlanUI(){
         getProBtn.style.cursor = "default";
         if(adBanner) adBanner.style.display = "flex";
         if(twaNotice) twaNotice.style.display = "block";
-    } else if(!isLoggedIn()){
-        badge.style.display = "none";
-        getProBtn.textContent = "Sign In to Upgrade";
-        getProBtn.disabled = false;
-        getProBtn.style.opacity = "1";
-        getProBtn.style.cursor = "pointer";
-        if(adBanner) adBanner.style.display = "flex";
-        if(twaNotice) twaNotice.style.display = "none";
+        if(topUpgradeBtn) topUpgradeBtn.style.display = "";
+        if(sidebarUpgradeCard) sidebarUpgradeCard.style.display = "";
     } else {
         badge.style.display = "none";
-        getProBtn.textContent = "Get Pro";
+        getProBtn.textContent = isLoggedIn() ? "Get Pro" : "Sign In to Upgrade";
         getProBtn.disabled = false;
         getProBtn.style.opacity = "1";
         getProBtn.style.cursor = "pointer";
         if(adBanner) adBanner.style.display = "flex";
         if(twaNotice) twaNotice.style.display = "none";
+        if(topUpgradeBtn) topUpgradeBtn.style.display = "";
+        if(sidebarUpgradeCard) sidebarUpgradeCard.style.display = "";
     }
 }
 
 document.getElementById("adBanner")?.addEventListener("click", () => {
-    chatModal.classList.remove("show");
     openModal("pricingModal");
 });
+
+["topUpgradeBtn", "sidebarUpgradeBtn"].forEach(id => {
+    document.getElementById(id)?.addEventListener("click", e => {
+        e.preventDefault();
+        openModal("pricingModal");
+        closeSidebarMobile();
+    });
+});
+
+document.getElementById("pricingModalClose")?.addEventListener("click", () => closeModal("pricingModal"));
 
 document.getElementById("getProBtn")?.addEventListener("click", async () => {
     if(isPro()) return;
@@ -485,9 +483,7 @@ if(urlParams.get("payment") === "success"){
 
 renderPlanUI();
 
-["contactBtn","contactBtnFooter","contactBtnFooter2","contactBtnFooter3"].forEach(id => {
-    document.getElementById(id)?.addEventListener("click", e => { e.preventDefault(); openModal("contactModal"); });
-});
+document.getElementById("contactBtn")?.addEventListener("click", e => { e.preventDefault(); openModal("contactModal"); closeSidebarMobile(); });
 document.getElementById("contactModalClose")?.addEventListener("click", () => closeModal("contactModal"));
 document.getElementById("contactSubmit")?.addEventListener("click", async () => {
     const name = document.getElementById("contactName").value.trim();
@@ -531,85 +527,22 @@ document.getElementById("contactSubmit")?.addEventListener("click", async () => 
     btn.disabled = false;
 });
 
-// ---------- Live stats (real, shared globally across all visitors via CountAPI) ----------
+// ---------- Live stats (kept running in the background, no UI display) ----------
 
-const STAT_BASE = {
-    users: 50000,
-    conversations: 1000000,
-    images: 250000
-};
 const STAT_NAMESPACE = "zyntra-ai-ghanchimoin";
 
-function formatCount(n){
-    if(n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, "") + "M+";
-    if(n >= 1000) return Math.round(n / 1000) + "K+";
-    return n + "+";
-}
-
-async function fetchStatValue(key, shouldHit){
+async function bumpStat(key){
     try{
-        const endpoint = shouldHit ? "hit" : "get";
-        const res = await fetch(`https://api.countapi.xyz/${endpoint}/${STAT_NAMESPACE}/${key}`);
-        const data = await res.json();
-        return typeof data.value === "number" ? data.value : 0;
+        await fetch(`https://api.countapi.xyz/hit/${STAT_NAMESPACE}/${key}`);
     }catch(err){
-        return null;
+        // ignore
     }
 }
 
-async function updateStatDisplay(key, elId){
-    const val = await fetchStatValue(key, false);
-    if(val !== null){
-        document.getElementById(elId).textContent = formatCount(STAT_BASE[key] + val);
-    }
+if(!localStorage.getItem("zyntra-visited")){
+    localStorage.setItem("zyntra-visited", "1");
+    bumpStat("users");
 }
-
-async function bumpStat(key, elId){
-    const val = await fetchStatValue(key, true);
-    if(val !== null){
-        document.getElementById(elId).textContent = formatCount(STAT_BASE[key] + val);
-    }
-}
-
-function renderStats(){
-    updateStatDisplay("users", "statUsers");
-    updateStatDisplay("conversations", "statConversations");
-    updateStatDisplay("images", "statImages");
-    document.getElementById("statUptime").textContent = "99.9%";
-}
-
-renderStats();
-
-// ---------- Mobile tab bar ----------
-
-function setMobileTabActive(id){
-    document.querySelectorAll(".mobile-tab").forEach(t => t.classList.remove("active"));
-    document.getElementById(id)?.classList.add("active");
-}
-
-document.getElementById("mtabChat")?.addEventListener("click", () => {
-    setMobileTabActive("mtabChat");
-    chatModal.classList.add("show");
-});
-document.getElementById("mtabTools")?.addEventListener("click", () => {
-    setMobileTabActive("mtabTools");
-    document.getElementById("tools")?.scrollIntoView({ behavior: "smooth" });
-});
-document.getElementById("mtabHistory")?.addEventListener("click", () => {
-    setMobileTabActive("mtabHistory");
-    if(!isLoggedIn()){
-        document.getElementById("signinContext").style.display = "none";
-        resetSigninModalUI(); openModal("signinModal");
-        return;
-    }
-    openModal("historyModal");
-    renderHistory();
-});
-document.getElementById("mtabProfile")?.addEventListener("click", () => {
-    setMobileTabActive("mtabProfile");
-    openModal("profileModal");
-    renderProfileModal();
-});
 
 // ---------- Splash screen ----------
 
@@ -654,21 +587,50 @@ window.addEventListener("appinstalled", () => {
     if(btn) btn.style.display = "none";
 });
 
-if(!localStorage.getItem("zyntra-visited")){
-    localStorage.setItem("zyntra-visited", "1");
-    bumpStat("users", "statUsers");
-}
-
 function isLoggedIn(){
     return !!localStorage.getItem("zyntra-user");
 }
 
 function renderAuthNav(){
-    const signinBtn = document.getElementById("signinBtn");
-    signinBtn.textContent = isLoggedIn() ? "Sign Out" : "Sign In";
+    const loggedIn = isLoggedIn();
+    const nameEl = document.getElementById("sidebarUserName");
+    const planEl = document.getElementById("sidebarUserPlan");
+    const avatarEl = document.getElementById("sidebarUserAvatar");
+    const topbarAvatar = document.getElementById("topbarProfileBtn");
+
+    if(loggedIn){
+        const email = localStorage.getItem("zyntra-user");
+        const profile = getProfile();
+        const display = (profile.nickname || profile.fullName || email || "Account").trim();
+        const letter = display.charAt(0).toUpperCase();
+        nameEl.textContent = display;
+        planEl.textContent = isPro() ? "Pro Plan" : "Free Plan";
+        avatarEl.textContent = letter;
+        topbarAvatar.textContent = letter;
+    } else {
+        nameEl.textContent = "Guest";
+        planEl.textContent = "Sign in";
+        avatarEl.textContent = "?";
+        topbarAvatar.textContent = "👤";
+    }
     renderPlanUI();
     checkProExpiry();
 }
+
+function handleProfileEntry(){
+    if(isLoggedIn()){
+        openModal("profileModal");
+        renderProfileModal();
+    } else {
+        document.getElementById("signinContext").style.display = "none";
+        resetSigninModalUI();
+        openModal("signinModal");
+    }
+    closeSidebarMobile();
+}
+
+document.getElementById("topbarProfileBtn")?.addEventListener("click", handleProfileEntry);
+document.getElementById("sidebarUser")?.addEventListener("click", handleProfileEntry);
 
 // ---------- Profile modal ----------
 
@@ -703,11 +665,6 @@ function renderProfileModal(){
     document.getElementById("profileAvatar").textContent = letter;
 }
 
-document.getElementById("profileBtn")?.addEventListener("click", e => {
-    e.preventDefault();
-    openModal("profileModal");
-    renderProfileModal();
-});
 document.getElementById("profileModalClose")?.addEventListener("click", () => closeModal("profileModal"));
 
 document.getElementById("profileSigninBtn")?.addEventListener("click", () => {
@@ -725,6 +682,7 @@ document.getElementById("profileSaveBtn")?.addEventListener("click", () => {
     };
     localStorage.setItem("zyntra-profile", JSON.stringify(profile));
     renderProfileModal();
+    renderAuthNav();
 
     const btn = document.getElementById("profileSaveBtn");
     const original = btn.textContent;
@@ -737,14 +695,6 @@ document.getElementById("profileSignoutBtn")?.addEventListener("click", () => {
     openModal("signoutModal");
 });
 
-document.getElementById("signinBtn")?.addEventListener("click", () => {
-    if(isLoggedIn()){
-        openModal("signoutModal");
-    } else {
-        document.getElementById("signinContext").style.display = "none";
-        resetSigninModalUI(); openModal("signinModal");
-    }
-});
 document.getElementById("signoutModalClose")?.addEventListener("click", () => closeModal("signoutModal"));
 document.getElementById("signoutCancel")?.addEventListener("click", () => closeModal("signoutModal"));
 document.getElementById("signoutConfirm")?.addEventListener("click", () => {
@@ -752,6 +702,7 @@ document.getElementById("signoutConfirm")?.addEventListener("click", () => {
     localStorage.removeItem("zyntra-user");
     closeModal("signoutModal");
     renderAuthNav();
+    renderSidebarHistory();
 });
 document.getElementById("signinModalClose")?.addEventListener("click", () => closeModal("signinModal"));
 let isSignupMode = false;
@@ -806,6 +757,7 @@ function finishSignin(email, cameFromPro){
     clearSigninError();
     closeModal("signinModal");
     renderAuthNav();
+    renderSidebarHistory();
     showToast("✅ You're signed in successfully!");
     if(cameFromPro){
         openModal("pricingModal");
@@ -951,16 +903,16 @@ firebase.auth().getRedirectResult()
 
 renderAuthNav();
 
-// ---------- Chat history (session based, Claude-style list) ----------
+// ---------- Chat history (session based sidebar list) ----------
 
 let currentSessionId = null;
 
 function timeAgo(ts){
     const diff = Math.floor((Date.now() - ts) / 1000);
     if(diff < 60) return "Just now";
-    if(diff < 3600) return Math.floor(diff / 60) + " minutes ago";
-    if(diff < 86400) return Math.floor(diff / 3600) + " hours ago";
-    return Math.floor(diff / 86400) + " days ago";
+    if(diff < 3600) return Math.floor(diff / 60) + "m ago";
+    if(diff < 86400) return Math.floor(diff / 3600) + "h ago";
+    return Math.floor(diff / 86400) + "d ago";
 }
 
 function getSessions(){
@@ -991,6 +943,7 @@ function logMessageToHistory(role, content){
     const session = sessions.find(s => s.id === currentSessionId);
     if(session) session.messages.push({ role, content });
     saveSessions(sessions);
+    renderSidebarHistory();
 
     if(isNewSession && role === "user"){
         generateSessionTitle(currentSessionId, content);
@@ -1013,9 +966,7 @@ async function generateSessionTitle(sessionId, firstMessage){
         if(session){
             session.title = clean.length > 60 ? clean.slice(0, 60) : clean;
             saveSessions(sessions);
-            if(document.getElementById("historyModal").classList.contains("show")){
-                renderHistory();
-            }
+            renderSidebarHistory();
         }
     }catch(err){
         // keep the fallback title already saved
@@ -1029,7 +980,7 @@ function renderPinnedChats(){
     box.innerHTML = "";
 
     if(pinned.length === 0){
-        box.innerHTML = '<p class="pinned-empty">No pinned chats yet. Pin a conversation from Chat History.</p>';
+        box.innerHTML = '<p class="pinned-empty">No pinned chats yet. Pin a conversation from the sidebar.</p>';
         return;
     }
 
@@ -1056,30 +1007,34 @@ function renderPinnedChats(){
     });
 }
 
-function renderHistory(){
+function renderSidebarHistory(){
+    const list = document.getElementById("sidebarHistoryList");
+    if(!list) return;
+    list.innerHTML = "";
+
+    if(!isLoggedIn()){
+        list.innerHTML = '<p class="sidebar-history-empty">Sign in to save and revisit your conversations.</p>';
+        return;
+    }
+
     const sessions = getSessions();
-    const box = document.getElementById("historyBox");
-    box.innerHTML = "";
 
     if(sessions.length === 0){
-        box.innerHTML = '<p class="loading-text">No conversations yet.</p>';
+        list.innerHTML = '<p class="sidebar-history-empty">No conversations yet. Start chatting!</p>';
         return;
     }
 
     sessions.forEach(session => {
         const row = document.createElement("div");
-        row.className = "history-row" + (session.pinned ? " pinned" : "");
+        row.className = "sidebar-history-row" + (session.pinned ? " pinned" : "");
+        row.title = session.title;
 
         const title = document.createElement("span");
-        title.className = "history-row-title";
+        title.className = "shr-title";
         title.textContent = session.title;
 
-        const time = document.createElement("span");
-        time.className = "history-row-time";
-        time.textContent = timeAgo(session.time);
-
         const pinBtn = document.createElement("button");
-        pinBtn.className = "pin-btn" + (session.pinned ? " pinned" : "");
+        pinBtn.className = "shr-pin";
         pinBtn.textContent = "📌";
         pinBtn.title = session.pinned ? "Unpin" : "Pin";
         pinBtn.addEventListener("click", (e) => {
@@ -1089,51 +1044,35 @@ function renderHistory(){
             if(s){
                 s.pinned = !s.pinned;
                 saveSessions(all);
-                renderHistory();
+                renderSidebarHistory();
                 renderPinnedChats();
             }
         });
 
         const menuBtn = document.createElement("button");
-        menuBtn.className = "history-menu-btn";
+        menuBtn.className = "shr-menu";
         menuBtn.textContent = "⋮";
-
-        row.appendChild(title);
-        row.appendChild(time);
-        row.appendChild(pinBtn);
-        row.appendChild(menuBtn);
-        box.appendChild(row);
-
         menuBtn.addEventListener("click", (e) => {
             e.stopPropagation();
-            document.querySelectorAll(".history-menu-dropdown").forEach(m => m.remove());
-
-            const dropdown = document.createElement("div");
-            dropdown.className = "history-menu-dropdown";
-            const deleteBtn = document.createElement("button");
-            deleteBtn.textContent = "🗑 Delete";
-            deleteBtn.addEventListener("click", (ev) => {
-                ev.stopPropagation();
-                confirmAction(
-                    "Delete This Chat?",
-                    "Are you sure you want to delete this conversation? This can't be undone.",
-                    () => {
-                        const updated = getSessions().filter(s => s.id !== session.id);
-                        saveSessions(updated);
-                        if(currentSessionId === session.id) currentSessionId = null;
-                        renderHistory();
-                        renderPinnedChats();
-                    }
-                );
-            });
-            dropdown.appendChild(deleteBtn);
-            row.appendChild(dropdown);
+            confirmAction(
+                "Delete This Chat?",
+                "Are you sure you want to delete this conversation? This can't be undone.",
+                () => {
+                    const updated = getSessions().filter(s => s.id !== session.id);
+                    saveSessions(updated);
+                    if(currentSessionId === session.id) currentSessionId = null;
+                    renderSidebarHistory();
+                    renderPinnedChats();
+                }
+            );
         });
 
-        row.addEventListener("click", () => {
-            openSession(session);
-            closeModal("historyModal");
-        });
+        row.appendChild(title);
+        row.appendChild(pinBtn);
+        row.appendChild(menuBtn);
+        list.appendChild(row);
+
+        row.addEventListener("click", () => openSession(session));
     });
 }
 
@@ -1154,9 +1093,24 @@ function confirmAction(title, text, onConfirm){
 document.getElementById("confirmActionClose")?.addEventListener("click", () => closeModal("confirmActionModal"));
 document.getElementById("confirmActionCancel")?.addEventListener("click", () => closeModal("confirmActionModal"));
 
+document.getElementById("sidebarClearHistoryBtn")?.addEventListener("click", () => {
+    if(!isLoggedIn()) return;
+    confirmAction(
+        "Clear All History?",
+        "Are you sure you want to delete every saved conversation? This can't be undone.",
+        () => {
+            saveSessions([]);
+            currentSessionId = null;
+            renderSidebarHistory();
+            renderPinnedChats();
+        }
+    );
+});
+
 function openSession(session){
     chatHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
     currentSessionId = session.id;
+    document.getElementById("chatGreeting").style.display = "none";
     chatMessages.innerHTML = "";
     session.messages.forEach(m => {
         const div = document.createElement("div");
@@ -1168,54 +1122,19 @@ function openSession(session){
         }
         chatMessages.appendChild(div);
     });
-    chatModal.classList.add("show");
+    closeSidebarMobile();
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-document.addEventListener("click", () => {
-    document.querySelectorAll(".history-menu-dropdown").forEach(m => m.remove());
-});
+// ---------- New chat ----------
 
-document.getElementById("historyModalClose")?.addEventListener("click", () => closeModal("historyModal"));
-document.getElementById("clearHistoryBtn")?.addEventListener("click", () => {
-    confirmAction(
-        "Clear All History?",
-        "Are you sure you want to delete every saved conversation? This can't be undone.",
-        () => {
-            saveSessions([]);
-            currentSessionId = null;
-            renderHistory();
-        }
-    );
-});
-
-document.getElementById("watchAdBtn")?.addEventListener("click", () => {
-    if(isPro()){
-        alert("You're on Pro — you already have unlimited chats! 🎉");
-        return;
-    }
-    const btn = document.getElementById("watchAdBtn");
-    const original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "🎬 Watching ad...";
-
-    setTimeout(() => {
-        const usage = getChatUsage();
-        usage.lockoutUntil = 0;
-        usage.count = Math.max(0, (usage.count || 0) - 5);
-        saveChatUsage(usage);
-        btn.textContent = "✅ +5 Messages Added!";
-        setTimeout(() => {
-            btn.textContent = original;
-            btn.disabled = false;
-        }, 2000);
-    }, 3000);
-});
-
-// ---------- Get Started ----------
-
-document.getElementById("getStartedBtn")?.addEventListener("click", () => {
-    chatModal.classList.add("show");
+document.getElementById("newChatBtn")?.addEventListener("click", () => {
+    chatHistory = [];
+    currentSessionId = null;
+    chatMessages.innerHTML = "";
+    document.getElementById("chatGreeting").style.display = "";
+    closeSidebarMobile();
+    userInput.focus();
 });
 
 // ---------- Theme toggle ----------
@@ -1232,20 +1151,27 @@ themeToggle?.addEventListener("click", () => {
     localStorage.setItem("zyntra-theme", isLight ? "light" : "dark");
 });
 
-// ---------- Mobile hamburger ----------
+// ---------- Sidebar (mobile off-canvas) ----------
 
-document.getElementById("hamburgerBtn")?.addEventListener("click", () => {
-    document.getElementById("mainNav").classList.toggle("show");
-});
+function openSidebarMobile(){
+    document.getElementById("sidebar").classList.add("show");
+    document.getElementById("sidebarOverlay").classList.add("show");
+}
+function closeSidebarMobile(){
+    document.getElementById("sidebar").classList.remove("show");
+    document.getElementById("sidebarOverlay").classList.remove("show");
+}
+
+document.getElementById("hamburgerBtn")?.addEventListener("click", openSidebarMobile);
+document.getElementById("sidebarCloseBtn")?.addEventListener("click", closeSidebarMobile);
+document.getElementById("sidebarOverlay")?.addEventListener("click", closeSidebarMobile);
 
 // ==========================
-// AI CHAT MODAL
+// AI CHAT
 // ==========================
 
-const chatModal = document.getElementById("chatModal");
 const chatMessages = document.getElementById("chatMessages");
 const userInput = document.getElementById("userInput");
-const closeChat = document.getElementById("closeChat");
 let chatHistory = [];
 let attachedImage = null;
 
@@ -1297,8 +1223,7 @@ async function sendChatMessage(prefill){
         return;
     }
 
-    const quickCards = document.getElementById("mobileQuickCards");
-    if(quickCards) quickCards.style.display = "none";
+    document.getElementById("chatGreeting").style.display = "none";
 
     const userDiv = document.createElement("div");
     userDiv.className = "user-message";
@@ -1344,7 +1269,7 @@ async function sendChatMessage(prefill){
 
     chatHistory.push({ role: "user", content: historyContent });
     logMessageToHistory("user", msg || "[Image attached]");
-    bumpStat("conversations", "statConversations");
+    bumpStat("conversations");
     if(!isPro()) recordFreeMessage();
 
     attachedImage = null;
@@ -1382,72 +1307,64 @@ userInput.addEventListener("keydown", e => {
     if(e.key === "Enter") sendChatMessage();
 });
 
-closeChat.addEventListener("click", () => chatModal.classList.remove("show"));
-chatModal.addEventListener("click", e => {
-    if(e.target === chatModal) chatModal.classList.remove("show");
-});
+// ---------- Greeting suggestion cards ----------
 
-document.getElementById("floatingChatBtn").addEventListener("click", () => {
-    chatModal.classList.add("show");
-});
-
-// ---------- Hero "Ask AI" ----------
-
-document.getElementById("heroAskBtn").addEventListener("click", () => {
-    const q = document.getElementById("heroInput").value.trim();
-    if(q === ""){
-        alert("Please enter a question.");
-        return;
-    }
-    document.getElementById("heroInput").value = "";
-    chatModal.classList.add("show");
-    sendChatMessage(q);
-});
-document.getElementById("heroInput").addEventListener("keydown", e => {
-    if(e.key === "Enter") document.getElementById("heroAskBtn").click();
+document.querySelectorAll(".suggestion-card").forEach(card => {
+    card.addEventListener("click", () => {
+        sendChatMessage(card.dataset.message);
+    });
 });
 
 // ==========================
-// Tool routing (cards, pills, dropdown, chips)
+// Tool routing (sidebar nav, dropdown-less)
 // ==========================
+
+function setActiveNav(tool){
+    document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+    const el = document.querySelector(`.nav-item[data-tool="${tool}"]`);
+    if(el) el.classList.add("active");
+}
 
 function openTool(tool, prefix){
     switch(tool){
         case "chat":
-            chatModal.classList.add("show");
-            if(prefix){ userInput.value = prefix; userInput.focus(); }
+            document.getElementById("chatGreeting").style.display = chatHistory.length ? "none" : "";
+            userInput.placeholder = "Type your message...";
+            if(prefix){ userInput.value = prefix; }
+            userInput.focus();
+            closeSidebarMobile();
             break;
         case "study":
-            chatModal.classList.add("show");
+            document.getElementById("chatGreeting").style.display = chatHistory.length ? "none" : "";
             userInput.placeholder = "Ask me to explain, summarize, or solve...";
-            if(prefix){ userInput.value = prefix; userInput.focus(); }
+            if(prefix){ userInput.value = prefix; }
+            userInput.focus();
+            closeSidebarMobile();
             break;
         case "business":
-            chatModal.classList.add("show");
+            document.getElementById("chatGreeting").style.display = chatHistory.length ? "none" : "";
             userInput.placeholder = "Ask a business or growth question...";
-            if(prefix){ userInput.value = prefix; userInput.focus(); }
+            if(prefix){ userInput.value = prefix; }
+            userInput.focus();
+            closeSidebarMobile();
             break;
         case "code":
-            chatModal.classList.add("show");
+            document.getElementById("chatGreeting").style.display = chatHistory.length ? "none" : "";
             userInput.placeholder = "Ask me to write, debug, or explain code...";
-            if(prefix){ userInput.value = prefix; userInput.focus(); }
-            break;
-        case "history":
-            if(!isLoggedIn()){
-                document.getElementById("signinContext").style.display = "none";
-                resetSigninModalUI(); openModal("signinModal");
-                return;
-            }
-            openModal("historyModal");
-            renderHistory();
+            if(prefix){ userInput.value = prefix; }
+            userInput.focus();
+            closeSidebarMobile();
             break;
         case "image":
             openModal("imageModal");
+            closeSidebarMobile();
             break;
         case "voice":
             openModal("voiceModal");
+            closeSidebarMobile();
             break;
     }
+    setActiveNav(tool);
 }
 
 document.querySelectorAll("[data-tool]").forEach(el => {
@@ -1551,7 +1468,7 @@ document.getElementById("removeBgBtn")?.addEventListener("click", async () => {
                 a.remove();
             });
             actionsRow.appendChild(downloadBtn);
-            bumpStat("images", "statImages");
+            bumpStat("images");
         };
         img.src = url;
     }catch(err){
@@ -1615,7 +1532,7 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
         img.onload = () => {
             result.innerHTML = "";
             result.appendChild(img);
-            bumpStat("images", "statImages");
+            bumpStat("images");
 
             const actionsRow = document.createElement("div");
             actionsRow.style.display = "flex";
@@ -1732,3 +1649,7 @@ if(!SpeechRecognitionAPI){
         voiceMicBtn.textContent = "🎤 Tap to speak";
     };
 }
+
+// ---------- Initial render ----------
+
+renderSidebarHistory();
