@@ -57,156 +57,128 @@
     <p class="splash-text">Zyntra <span>AI</span></p>
 </div>
 
-<header class="navbar">
-    <div class="logo">
-        <img src="favicon.png" alt="Zyntra AI" class="logo-mark">
-        <div class="logo-text">
-            Zyntra <span>AI</span>
-            <small>Your AI Assistant</small>
-        </div>
-    </div>
+<div class="app-shell">
 
-    <nav id="mainNav">
-        <a href="#" class="active">Home</a>
-        <div class="nav-dropdown">
-            <a href="#tools">Tools ▾</a>
-            <div class="dropdown-menu">
-                <a href="#" data-tool="chat">AI Chat</a>
-                <a href="#" data-tool="image">Image Generator</a>
-                <a href="#" data-tool="study">Study Helper</a>
-                <a href="#" data-tool="code">Code with Zyntra</a>
-                <a href="#" data-tool="voice">Voice Assistant</a>
-                <a href="#" data-tool="business">Business Tools</a>
+    <!-- ================= SIDEBAR ================= -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <img src="favicon.png" alt="Zyntra AI" class="logo-mark">
+                <div class="logo-text">Zyntra <span>AI</span></div>
+            </div>
+            <button class="sidebar-close-btn" id="sidebarCloseBtn">✕</button>
+        </div>
+
+        <button id="newChatBtn" class="new-chat-btn">＋ New Chat</button>
+
+        <nav class="sidebar-nav">
+            <button class="nav-item active" id="navChat" data-tool="chat"><span class="nav-icon">💬</span> AI Chat</button>
+            <button class="nav-item" data-tool="image"><span class="nav-icon">🖼️</span> Image Generator</button>
+            <button class="nav-item" data-tool="study" data-prefix="Help me study this topic: "><span class="nav-icon">📘</span> Study Helper</button>
+            <button class="nav-item" data-tool="code"><span class="nav-icon">💻</span> Code with Zyntra</button>
+            <button class="nav-item" data-tool="voice"><span class="nav-icon">🎤</span> Voice Assistant</button>
+            <button class="nav-item" data-tool="business" data-prefix="Give me business ideas for "><span class="nav-icon">💼</span> Business Tools</button>
+        </nav>
+
+        <div class="sidebar-history">
+            <p class="sidebar-label">
+                Today
+                <button id="sidebarClearHistoryBtn" class="sidebar-clear-btn" title="Clear all history">🗑</button>
+            </p>
+            <div id="sidebarHistoryList" class="sidebar-history-list"></div>
+        </div>
+
+        <div class="sidebar-footer">
+            <button id="installAppBtn" class="sidebar-install-btn" style="display:none;">📥 Get the App</button>
+
+            <div class="upgrade-card" id="sidebarUpgradeCard">
+                <p class="upgrade-title">👑 Upgrade to Pro</p>
+                <p class="upgrade-sub">Get unlimited AI chats, faster responses &amp; more.</p>
+                <button id="sidebarUpgradeBtn">Learn More</button>
+            </div>
+
+            <div class="sidebar-links">
+                <a href="#" id="aboutBtn">About</a>
+                <a href="#" id="contactBtn">Contact</a>
+                <a href="#privacy" id="privacyBtn">Privacy</a>
+            </div>
+
+            <div class="sidebar-user" id="sidebarUser">
+                <div class="sidebar-user-avatar" id="sidebarUserAvatar">?</div>
+                <div class="sidebar-user-info">
+                    <p class="sidebar-user-name" id="sidebarUserName">Guest</p>
+                    <p class="sidebar-user-plan" id="sidebarUserPlan">Sign in</p>
+                </div>
             </div>
         </div>
-        <a href="#" id="pricingBtn">Pricing</a>
-        <a href="#" id="aboutBtn">About</a>
-        <a href="#" id="profileBtn">Profile</a>
-        <a href="#" data-tool="history">Chat History</a>
-        <a href="#" id="contactBtn">Contact</a>
-    </nav>
+    </aside>
 
-    <div class="right">
-        <button class="theme-toggle" id="themeToggle">🌙</button>
-        <button class="signin" id="signinBtn">Sign In</button>
-        <button class="start" id="getStartedBtn">Get Started</button>
-        <button class="hamburger" id="hamburgerBtn">☰</button>
-    </div>
-</header>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
-<section class="hero">
-    <div class="hero-left">
-        <span class="badge">⚡ Powered by Advanced AI</span>
-        <h1>
-            One AI.<br>
-            <span>Infinite Possibilities.</span>
-        </h1>
-        <p>Chat, create, learn, work and more — all in one place with Zyntra AI ✦</p>
+    <!-- ================= MAIN AREA ================= -->
+    <main class="main-area">
 
-        <div class="hero-search">
-            <input id="heroInput" type="text" placeholder="Ask Zyntra AI anything...">
-            <button id="heroAskBtn">Ask AI →</button>
+        <header class="topbar">
+            <button class="hamburger" id="hamburgerBtn">☰</button>
+            <div class="topbar-brand">
+                <img src="favicon.png" alt="Zyntra AI" class="topbar-logo">
+                Zyntra <span>AI</span>
+            </div>
+            <div class="topbar-right">
+                <button class="upgrade-pill" id="topUpgradeBtn">✨ Upgrade to Pro</button>
+                <button class="theme-toggle" id="themeToggle">🌙</button>
+                <button class="topbar-avatar" id="topbarProfileBtn">👤</button>
+            </div>
+        </header>
+
+        <div class="chat-area" id="chatArea">
+
+            <div id="chatGreeting" class="chat-greeting">
+                <div class="greeting-logo"><img src="favicon.png" alt="Zyntra AI"></div>
+                <h1>Hey, I'm <span>Zyntra AI</span></h1>
+                <p>Your personal AI assistant. Ask me anything!</p>
+
+                <div class="suggestion-grid">
+                    <button class="suggestion-card" data-message="Explain quantum computing in simple terms">
+                        <span class="sc-icon">💡</span>
+                        <span class="sc-title">Explain</span>
+                        <span class="sc-sub">quantum computing in simple terms</span>
+                    </button>
+                    <button class="suggestion-card" data-message="Write a Python function to sort a list">
+                        <span class="sc-icon">&lt;/&gt;</span>
+                        <span class="sc-title">Write</span>
+                        <span class="sc-sub">a Python function to sort a list</span>
+                    </button>
+                    <button class="suggestion-card" data-message="Give me 5 tips to be more productive">
+                        <span class="sc-icon">✦</span>
+                        <span class="sc-title">Give me</span>
+                        <span class="sc-sub">5 tips to be more productive</span>
+                    </button>
+                </div>
+            </div>
+
+            <div id="chatMessages" class="chat-messages"></div>
         </div>
 
-        <div class="quick-chips">
-            <button class="chip" data-tool="chat" data-prefix="Solve this math problem: ">💡 Solve Math</button>
-            <button class="chip" data-tool="chat" data-prefix="Write an essay about ">✍️ Write Essay</button>
-            <button class="chip" data-tool="image">🖼️ Create Image</button>
-            <button class="chip" data-tool="chat" data-prefix="Help me study this topic: ">📘 Study Help</button>
-            <button class="chip" data-tool="chat" data-prefix="Give me business ideas for ">💼 Business Ideas</button>
+        <div id="attachPreview" class="attach-preview"></div>
+
+        <div id="adBanner" class="ad-banner" style="display:none;">
+            <span class="ad-banner-label">Ad</span>
+            <span>Upgrade to Zyntra AI Pro to remove ads →</span>
         </div>
 
-        <button id="installAppBtn" class="install-app-btn" style="display:none;">📥 Get the App</button>
-    </div>
-
-    <div class="hero-right">
-        <div class="orbit orbit1"></div>
-        <div class="orbit orbit2"></div>
-        <div class="orbit orbit3"></div>
-        <div class="star s1"></div>
-        <div class="star s2"></div>
-        <div class="star s3"></div>
-        <div class="star s4"></div>
-        <div class="tool ai-chat" data-tool="chat">💬 AI Chat</div>
-        <div class="tool img" data-tool="image">🖼️ Image Generation</div>
-        <div class="tool study" data-tool="study">📚 Study Helper</div>
-        <div class="tool voice" data-tool="voice">🎤 Voice Assistant</div>
-        <div class="tool business" data-tool="business">💼 Business Tools</div>
-        <div class="ai-core">
-            <div class="core-star">Z</div>
-        </div>
-    </div>
-</section>
-
-<section class="tools-section" id="tools">
-    <h2>Explore <span>Powerful</span> Tools</h2>
-    <p class="tools-subtitle">Everything you need to boost productivity and creativity</p>
-
-    <div class="cards-grid">
-
-        <div class="card" data-tool="chat">
-            <div class="card-icon c-purple">💬</div>
-            <h2>AI Chat</h2>
-            <p>Chat with advanced AI for any question or real-time assistance.</p>
-            <span class="card-link link-purple">Try Now →</span>
+        <div class="chat-input-bar">
+            <div class="chat-input-inner">
+                <input type="file" id="chatFileInput" accept="image/*" style="display:none">
+                <button id="attachBtn" class="attach-btn" title="Attach image">＋</button>
+                <input id="userInput" type="text" placeholder="Type your message...">
+                <button id="sendMessage" class="send-btn" title="Send">➤</button>
+            </div>
+            <p class="input-disclaimer">Zyntra AI can make mistakes. Consider checking important information.</p>
         </div>
 
-        <div class="card" data-tool="image">
-            <div class="card-icon c-green">🖼️</div>
-            <h2>Image Generator</h2>
-            <p>Create stunning images from simple text prompts.</p>
-            <span class="card-link link-green">Try Now →</span>
-        </div>
-
-        <div class="card" data-tool="study">
-            <div class="card-icon c-orange">📚</div>
-            <h2>Study Helper</h2>
-            <p>Learn faster with AI summaries, explanations and solutions.</p>
-            <span class="card-link link-orange">Try Now →</span>
-        </div>
-
-        <div class="card" data-tool="voice">
-            <div class="card-icon c-blue">🎤</div>
-            <h2>Voice Assistant</h2>
-            <p>Talk to AI and get answers using voice commands.</p>
-            <span class="card-link link-blue">Try Now →</span>
-        </div>
-
-        <div class="card" data-tool="business">
-            <div class="card-icon c-indigo">💼</div>
-            <h2>Business Tools</h2>
-            <p>AI tools to grow your business and boost productivity.</p>
-            <span class="card-link link-indigo">Try Now →</span>
-        </div>
-
-        <div class="card" data-tool="code">
-            <div class="card-icon c-pink">💻</div>
-            <h2>Code with Zyntra</h2>
-            <p>Get help writing, debugging, and explaining code in any language.</p>
-            <span class="card-link link-pink">Try Now →</span>
-        </div>
-
-    </div>
-</section>
-
-<section class="stats-bar">
-    <div class="stat">
-        <span class="stat-icon">👥</span>
-        <div><p class="stat-num" id="statUsers">50K+</p><p class="stat-label">Active Users</p></div>
-    </div>
-    <div class="stat">
-        <span class="stat-icon">💬</span>
-        <div><p class="stat-num" id="statConversations">1M+</p><p class="stat-label">AI Conversations</p></div>
-    </div>
-    <div class="stat">
-        <span class="stat-icon">🖼️</span>
-        <div><p class="stat-num" id="statImages">250K+</p><p class="stat-label">Images Generated</p></div>
-    </div>
-    <div class="stat">
-        <span class="stat-icon">⚡</span>
-        <div><p class="stat-num" id="statUptime">99.9%</p><p class="stat-label">Uptime</p></div>
-    </div>
-</section>
+    </main>
+</div>
 
 <!-- ================= ABOUT MODAL ================= -->
 <div class="modal-overlay" id="aboutModal">
@@ -400,18 +372,6 @@
     </div>
 </div>
 
-<!-- ================= CHAT HISTORY MODAL ================= -->
-<div class="modal-overlay" id="historyModal">
-    <div class="modal-box">
-        <button class="modal-close" id="historyModalClose">✕</button>
-        <span class="tag">CHAT HISTORY</span>
-        <h1>Your <span>Conversations</span></h1>
-        <div class="history-list" id="historyBox"></div>
-        <button id="clearHistoryBtn" class="mic-btn">🗑 Clear History</button>
-        <button id="watchAdBtn" style="width:100%; margin-top:10px; padding:14px; border:1px dashed #3a3f66; border-radius:14px; background:#171d3d; color:#c9a8ff; font-weight:700; font-size:14px; cursor:pointer;">🎬 Watch Ad for +5 Messages</button>
-    </div>
-</div>
-
 <!-- ================= PRICING MODAL ================= -->
 <div class="modal-overlay" id="pricingModal">
     <div class="modal-box">
@@ -476,7 +436,7 @@
         <p>Zyntra AI is not directed at children under 13, and we do not knowingly collect personal information from children under 13.</p>
 
         <p><strong>Your choices</strong></p>
-        <p>You can clear your chat history at any time from the Chat History popup, and you can sign out at any time from the Sign In button. Clearing your browser data will remove all locally stored information.</p>
+        <p>You can clear your chat history at any time from the sidebar, and you can sign out at any time from your profile. Clearing your browser data will remove all locally stored information.</p>
 
         <p><strong>Contact</strong></p>
         <p>If you have questions about this policy, contact Ghanchi Moin using the Contact form on this site.</p>
@@ -485,153 +445,7 @@
     </div>
 </div>
 
-<footer>
-  <div class="footer-top">
-    <div class="footer-brand">
-      <div class="logo"><img src="favicon.png" alt="Zyntra AI" class="logo-mark"> Zyntra <span>AI</span></div>
-      <p>Your Personal AI Assistant</p>
-    </div>
-
-    <div class="footer-col">
-      <h4>Product</h4>
-      <a href="#tools">Tools</a>
-      <a href="#" id="pricingBtnFooter">Pricing</a>
-      <a href="#">Updates</a>
-    </div>
-
-    <div class="footer-col">
-      <h4>Company</h4>
-      <a href="#" id="aboutBtnFooter">About Us</a>
-      <a href="#">Blog</a>
-      <a href="#" id="contactBtnFooter">Contact Us</a>
-    </div>
-
-    <div class="footer-col">
-      <h4>Support</h4>
-      <a href="#" id="contactBtnFooter2">Help Center</a>
-      <a href="#" id="contactBtnFooter3">Contact Us</a>
-      <a href="#privacy" id="privacyBtn">Privacy Policy</a>
-    </div>
-
-    <div class="footer-newsletter">
-      <h4>Stay updated with Zyntra AI</h4>
-      <p>Get the latest updates and features.</p>
-      <div class="newsletter-form">
-        <input type="email" placeholder="Enter your email">
-        <button>Subscribe</button>
-      </div>
-      <div class="socials">
-        <a href="#">𝕏</a>
-        <a href="#">◎</a>
-        <a href="#">⌥</a>
-        <a href="#">📷</a>
-      </div>
-    </div>
-  </div>
-
-  <div class="footer-bottom">
-    © 2024 Zyntra AI. All rights reserved.<br>
-    Zyntra AI uses generative AI to create text, images, and voice responses. AI-generated content may be inaccurate — please verify important information.
-  </div>
-</footer>
-
-<!-- ================= AI CHAT MODAL (unchanged structure) ================= -->
-
-<div id="chatModal" class="chat-modal">
-
-    <div class="chat-window">
-
-        <div class="chat-header">
-
-            <h2>✨ Zyntra AI</h2>
-
-            <button id="closeChat">✕</button>
-
-        </div>
-
-        <p class="ai-disclosure">⚡ AI-generated responses. Please verify important information.</p>
-
-        <div id="chatMessages" class="chat-messages">
-
-            <div class="mobile-quick-cards" id="mobileQuickCards">
-                <button class="mqc-card" data-tool="image">
-                    <span class="mqc-icon c-green">🖼️</span>
-                    <span class="mqc-title">Create Image</span>
-                    <span class="mqc-sub">Generate images from your ideas</span>
-                </button>
-                <button class="mqc-card" data-tool="study">
-                    <span class="mqc-icon c-orange">📚</span>
-                    <span class="mqc-title">Study Helper</span>
-                    <span class="mqc-sub">Learn anything faster and better</span>
-                </button>
-                <button class="mqc-card" data-tool="code">
-                    <span class="mqc-icon c-pink">💻</span>
-                    <span class="mqc-title">Code with Zyntra</span>
-                    <span class="mqc-sub">Write, debug, and explain code</span>
-                </button>
-                <button class="mqc-card" data-tool="business">
-                    <span class="mqc-icon c-indigo">💼</span>
-                    <span class="mqc-title">Business Tools</span>
-                    <span class="mqc-sub">Grow your business faster</span>
-                </button>
-            </div>
-
-            <div class="ai-message">
-                Hello! 👋 I'm Zyntra AI. How can I help you today?
-            </div>
-
-        </div>
-
-        <div id="attachPreview" class="attach-preview"></div>
-
-        <div id="adBanner" class="ad-banner" style="display:none;">
-            <span class="ad-banner-label">Ad</span>
-            <span>Upgrade to Zyntra AI Pro to remove ads →</span>
-        </div>
-
-        <div class="chat-input">
-
-            <input type="file" id="chatFileInput" accept="image/*" style="display:none">
-            <button id="attachBtn" class="attach-btn" title="Attach image">📎</button>
-
-            <input
-                id="userInput"
-                type="text"
-                placeholder="Ask anything..."
-            >
-
-            <button id="sendMessage">
-                Send
-            </button>
-
-        </div>
-
-    </div>
-
-</div>
-
-<button id="floatingChatBtn" class="floating-chat-btn">💬</button>
-
-<nav id="mobileTabBar" class="mobile-tab-bar">
-    <button class="mobile-tab" id="mtabChat">
-        <span class="mobile-tab-icon">💬</span>
-        <span>Chat</span>
-    </button>
-    <button class="mobile-tab" id="mtabTools">
-        <span class="mobile-tab-icon">🧰</span>
-        <span>Tools</span>
-    </button>
-    <button class="mobile-tab" id="mtabHistory">
-        <span class="mobile-tab-icon">🕘</span>
-        <span>History</span>
-    </button>
-    <button class="mobile-tab" id="mtabProfile">
-        <span class="mobile-tab-icon">👤</span>
-        <span>Profile</span>
-    </button>
-</nav>
-
-    <script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-auth-compat.js"></script>
 <script>
     firebase.initializeApp({
