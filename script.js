@@ -126,18 +126,39 @@ function formatAIText(text){
     const lines = safe.split(/\n+/).filter(l => l.trim() !== "");
     let html = "";
     let inList = false;
+    let listType = null; // "ul" or "ol"
+
+    function closeList(){
+        if(inList){
+            html += listType === "ol" ? "</ol>" : "</ul>";
+            inList = false;
+            listType = null;
+        }
+    }
 
     lines.forEach(line => {
         const trimmed = line.trim();
-        if(/^[-*•]\s+/.test(trimmed)){
-            if(!inList){ html += "<ul>"; inList = true; }
+        const headerMatch = trimmed.match(/^#{1,6}\s+(.*)$/);
+        const numberedMatch = trimmed.match(/^(\d+)[.)]\s+(.*)$/);
+        const bulletMatch = /^[-*•]\s+/.test(trimmed);
+
+        if(headerMatch){
+            closeList();
+            html += "<h4>" + headerMatch[1] + "</h4>";
+        } else if(numberedMatch){
+            if(inList && listType !== "ol") closeList();
+            if(!inList){ html += "<ol>"; inList = true; listType = "ol"; }
+            html += "<li>" + numberedMatch[2] + "</li>";
+        } else if(bulletMatch){
+            if(inList && listType !== "ul") closeList();
+            if(!inList){ html += "<ul>"; inList = true; listType = "ul"; }
             html += "<li>" + trimmed.replace(/^[-*•]\s+/, "") + "</li>";
         } else {
-            if(inList){ html += "</ul>"; inList = false; }
+            closeList();
             html += "<p>" + trimmed + "</p>";
         }
     });
-    if(inList) html += "</ul>";
+    closeList();
     if(!html) html = "<p>" + safe + "</p>";
 
     blocks.forEach(block => {
@@ -1128,11 +1149,17 @@ function openSession(session){
 
 // ---------- New chat ----------
 
-document.getElementById("newChatBtn")?.addEventListener("click", () => {
+function resetChatView(){
+    // Any messages already sent were saved to chat history live as they
+    // happened (see logMessageToHistory), so this just clears the view.
     chatHistory = [];
     currentSessionId = null;
     chatMessages.innerHTML = "";
     document.getElementById("chatGreeting").style.display = "";
+}
+
+document.getElementById("newChatBtn")?.addEventListener("click", () => {
+    resetChatView();
     closeSidebarMobile();
     userInput.focus();
 });
@@ -1325,44 +1352,36 @@ function setActiveNav(tool){
     if(el) el.classList.add("active");
 }
 
+const TOOL_PLACEHOLDERS = {
+    chat: "Type your message...",
+    study: "Ask me to explain, summarize, or solve...",
+    business: "Ask a business or growth question...",
+    code: "Ask me to write, debug, or explain code..."
+};
+
+// Which chat-mode tool is currently open (chat / study / business / code)
+let activeChatTool = "chat";
+
 function openTool(tool, prefix){
-    switch(tool){
-        case "chat":
-            document.getElementById("chatGreeting").style.display = chatHistory.length ? "none" : "";
-            userInput.placeholder = "Type your message...";
-            if(prefix){ userInput.value = prefix; }
-            userInput.focus();
-            closeSidebarMobile();
-            break;
-        case "study":
-            document.getElementById("chatGreeting").style.display = chatHistory.length ? "none" : "";
-            userInput.placeholder = "Ask me to explain, summarize, or solve...";
-            if(prefix){ userInput.value = prefix; }
-            userInput.focus();
-            closeSidebarMobile();
-            break;
-        case "business":
-            document.getElementById("chatGreeting").style.display = chatHistory.length ? "none" : "";
-            userInput.placeholder = "Ask a business or growth question...";
-            if(prefix){ userInput.value = prefix; }
-            userInput.focus();
-            closeSidebarMobile();
-            break;
-        case "code":
-            document.getElementById("chatGreeting").style.display = chatHistory.length ? "none" : "";
-            userInput.placeholder = "Ask me to write, debug, or explain code...";
-            if(prefix){ userInput.value = prefix; }
-            userInput.focus();
-            closeSidebarMobile();
-            break;
-        case "image":
-            openModal("imageModal");
-            closeSidebarMobile();
-            break;
-        case "voice":
-            openModal("voiceModal");
-            closeSidebarMobile();
-            break;
+    if(TOOL_PLACEHOLDERS[tool]){
+        // Switching to a different chat mode starts a clean chat.
+        // The previous conversation is already saved in history (it was
+        // logged message-by-message as it happened), so this is safe.
+        if(tool !== activeChatTool && chatHistory.length > 0){
+            resetChatView();
+        }
+        activeChatTool = tool;
+        userInput.placeholder = TOOL_PLACEHOLDERS[tool];
+        document.getElementById("chatGreeting").style.display = chatHistory.length ? "none" : "";
+        if(prefix){ userInput.value = prefix; }
+        userInput.focus();
+        closeSidebarMobile();
+    } else if(tool === "image"){
+        openModal("imageModal");
+        closeSidebarMobile();
+    } else if(tool === "voice"){
+        openModal("voiceModal");
+        closeSidebarMobile();
     }
     setActiveNav(tool);
 }
