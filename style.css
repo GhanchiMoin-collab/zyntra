@@ -31,10 +31,16 @@ body.light-mode ::-webkit-scrollbar-track{
 background:#eef0fb;
 }
 
+html{
+height:100%;
+}
+
 body{
 background:#070b18;
 color:white;
 overflow:hidden;
+height:100vh;
+height:100svh;
 height:100dvh;
 transition:background .3s,color .3s;
 }
@@ -107,6 +113,8 @@ color:#bf6cff;
 
 .app-shell{
 display:flex;
+height:100vh;
+height:100svh;
 height:100dvh;
 overflow:hidden;
 position:relative;
