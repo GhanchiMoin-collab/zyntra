@@ -1315,7 +1315,7 @@ function openSession(session){
         chatMessages.appendChild(div);
     });
     closeSidebarMobile();
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    chatArea.scrollTop = chatArea.scrollHeight;
 }
 
 // ---------- New chat ----------
@@ -1369,6 +1369,7 @@ document.getElementById("sidebarOverlay")?.addEventListener("click", closeSideba
 // ==========================
 
 const chatMessages = document.getElementById("chatMessages");
+const chatArea = document.getElementById("chatArea");
 const userInput = document.getElementById("userInput");
 let chatHistory = [];
 let attachedImage = null;
@@ -1443,7 +1444,7 @@ async function sendChatMessage(prefill){
     userDiv.appendChild(userTime);
     chatMessages.appendChild(userDiv);
     userInput.value = "";
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    chatArea.scrollTop = chatArea.scrollHeight;
 
     let historyContent;
     if(attachedImage){
@@ -1478,14 +1479,14 @@ async function sendChatMessage(prefill){
     loadingDiv.className = "ai-message";
     loadingDiv.textContent = "Typing...";
     chatMessages.appendChild(loadingDiv);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    chatArea.scrollTop = chatArea.scrollHeight;
 
     try{
         const reply = await callChatAPI(chatHistory);
         chatHistory.push({ role: "assistant", content: reply });
         logMessageToHistory("assistant", reply);
         loadingDiv.textContent = "";
-        typeOutText(loadingDiv, reply, chatMessages, () => {
+        typeOutText(loadingDiv, reply, chatArea, () => {
             loadingDiv.classList.add("done");
             addMessageActionBar(loadingDiv, reply);
             const aiTime = document.createElement("span");
@@ -1496,7 +1497,7 @@ async function sendChatMessage(prefill){
     }catch(err){
         loadingDiv.textContent = "Sorry, something went wrong. Please try again.";
     }
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    chatArea.scrollTop = chatArea.scrollHeight;
 }
 
 document.getElementById("sendMessage").addEventListener("click", () => sendChatMessage());
