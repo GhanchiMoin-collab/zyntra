@@ -536,6 +536,18 @@ function isRunningInApp(){
     return isStandalone || isTwaReferrer;
 }
 
+let adBannerLoaded = false;
+
+function loadAdBanner(){
+    if(adBannerLoaded) return;
+    try{
+        (window.adsbygoogle = window.adsbygoogle || []).push({});
+        adBannerLoaded = true;
+    }catch(err){
+        // AdSense script blocked (ad blocker) or not yet approved — fail silently
+    }
+}
+
 function renderPlanUI(){
     const badge = document.getElementById("proBadge");
     const getProBtn = document.getElementById("getProBtn");
@@ -560,7 +572,7 @@ function renderPlanUI(){
         getProBtn.disabled = true;
         getProBtn.style.opacity = "0.5";
         getProBtn.style.cursor = "default";
-        if(adBanner) adBanner.style.display = "flex";
+        if(adBanner){ adBanner.style.display = "block"; loadAdBanner(); }
         if(twaNotice) twaNotice.style.display = "block";
         if(topUpgradeBtn) topUpgradeBtn.style.display = "";
         if(sidebarUpgradeCard) sidebarUpgradeCard.style.display = "";
@@ -570,16 +582,12 @@ function renderPlanUI(){
         getProBtn.disabled = false;
         getProBtn.style.opacity = "1";
         getProBtn.style.cursor = "pointer";
-        if(adBanner) adBanner.style.display = "flex";
+        if(adBanner){ adBanner.style.display = "block"; loadAdBanner(); }
         if(twaNotice) twaNotice.style.display = "none";
         if(topUpgradeBtn) topUpgradeBtn.style.display = "";
         if(sidebarUpgradeCard) sidebarUpgradeCard.style.display = "";
     }
 }
-
-document.getElementById("adBanner")?.addEventListener("click", () => {
-    openModal("pricingModal");
-});
 
 ["topUpgradeBtn", "sidebarUpgradeBtn"].forEach(id => {
     document.getElementById(id)?.addEventListener("click", e => {
