@@ -894,35 +894,12 @@ align-items:center;
 justify-content:center;
 }
 
-.ad-banner{
-display:flex;
-align-items:center;
-gap:10px;
+.ad-banner-slot{
 max-width:820px;
 width:calc(100% - 48px);
 margin:0 auto 10px;
-padding:10px 14px;
-background:#171d3d;
-border:1px dashed #3a3f66;
+overflow:hidden;
 border-radius:12px;
-font-size:12.5px;
-color:#9aa0c0;
-cursor:pointer;
-}
-
-.ad-banner-label{
-background:#3a3f66;
-color:white;
-font-size:10px;
-font-weight:700;
-padding:2px 6px;
-border-radius:5px;
-flex-shrink:0;
-}
-
-.ad-banner:hover{
-border-color:#8b5cf6;
-color:#c9a8ff;
 }
 
 .chat-input-bar{
@@ -1809,7 +1786,7 @@ padding:0 14px;
 }
 
 .attach-preview,
-.ad-banner{
+.ad-banner-slot{
 padding-left:14px;
 padding-right:14px;
 }
