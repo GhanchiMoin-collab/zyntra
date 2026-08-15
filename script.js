@@ -336,6 +336,21 @@ function addReportButton(container, contentToReport){
     container.appendChild(btn);
 }
 
+function stripForSpeech(text){
+    return text
+        .replace(/```[\s\S]*?```/g, " ")
+        .replace(/\*\*(.*?)\*\*/g, "$1")
+        .replace(/\*(.*?)\*/g, "$1")
+        .replace(/`([^`]*)`/g, "$1")
+        .replace(/^#{1,6}\s*/gm, "")
+        .replace(/^[-*•]\s+/gm, "")
+        .replace(/\|/g, " ")
+        // Strip emoji and symbol pictographs so the voice doesn't try to read them aloud
+        .replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
 const MSG_ICONS = {
     copy: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>',
     check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>',
@@ -1458,12 +1473,10 @@ async function sendChatMessage(prefill){
 
     if(chatHistory.length === 0){
         const profile = getProfile();
-        if(profile.instructions || profile.nickname){
-            let note = "";
-            if(profile.nickname) note += `Call the user "${profile.nickname}". `;
-            if(profile.instructions) note += `User's custom instructions: ${profile.instructions}`;
-            chatHistory.push({ role: "system", content: note });
-        }
+        let note = "Always reply in the same language the user writes in (for example, reply in Hindi if they write in Hindi, in Spanish if they write in Spanish, and so on). Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process or thought process, and do not add unnecessary meta-commentary about the question itself. Just give the direct, natural answer.";
+        if(profile.nickname) note += ` Call the user "${profile.nickname}".`;
+        if(profile.instructions) note += ` User's custom instructions: ${profile.instructions}`;
+        chatHistory.push({ role: "system", content: note });
     }
 
     chatHistory.push({ role: "user", content: historyContent });
@@ -1710,6 +1723,11 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
         return;
     }
 
+    const wantsRealistic = document.getElementById("imageRealisticToggle")?.checked;
+    if(wantsRealistic){
+        finalPrompt += ", photorealistic, ultra realistic, highly detailed, sharp focus, natural lighting, shot on DSLR, 8k";
+    }
+
     function attemptGenerate(retryCount){
         const img = new Image();
         img.className = "generated-img";
@@ -1763,7 +1781,7 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
             }
         };
         const seed = Math.floor(Math.random() * 1000000);
-        img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(finalPrompt) + "?seed=" + seed;
+        img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(finalPrompt) + "?model=flux&enhance=true&seed=" + seed;
     }
 
     const waitMs = isPro() ? 2000 : 10000;
@@ -1820,10 +1838,14 @@ document.getElementById("posterGenBtn")?.addEventListener("click", () => {
     const waitLabel = isPro() ? "Designing poster" : "Designing poster (upgrade to Pro for faster generation)";
     showCreatingAnimation(result, waitLabel);
 
-    const promptText = (theme || "abstract poster background") + ", poster background art, no text, no watermark, high detail";
+    const wantsRealistic = document.getElementById("posterRealisticToggle")?.checked;
+    const realismSuffix = wantsRealistic
+        ? ", photorealistic, ultra realistic, highly detailed, sharp focus, natural lighting, shot on DSLR, 8k"
+        : "";
+    const promptText = (theme || "abstract poster background") + ", poster background art, no text, no watermark, high detail" + realismSuffix;
     const seed = Math.floor(Math.random() * 1000000);
     const bgUrl = "https://image.pollinations.ai/prompt/" + encodeURIComponent(promptText)
-        + "?width=" + size.w + "&height=" + size.h + "&seed=" + seed;
+        + "?width=" + size.w + "&height=" + size.h + "&model=flux&enhance=true&seed=" + seed;
 
     function drawPoster(){
         fetch(bgUrl)
@@ -1939,7 +1961,7 @@ if(!SpeechRecognitionAPI){
     });
 } else {
     const recognition = new SpeechRecognitionAPI();
-    recognition.lang = "en-US";
+    recognition.lang = navigator.language || "en-US";
 
     voiceMicBtn.addEventListener("click", () => {
         voiceMicBtn.textContent = "🎙 Listening...";
@@ -1950,6 +1972,12 @@ if(!SpeechRecognitionAPI){
         const said = e.results[0][0].transcript;
         voiceMicBtn.textContent = "🎤 Tap to speak";
         addVoiceMsg(said, "user");
+        if(voiceHistory.length === 0){
+            voiceHistory.push({
+                role: "system",
+                content: "Always reply in the same language the user speaks in (for example, reply in Hindi if they speak Hindi). Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process, and do not add unnecessary meta-commentary. Keep replies fairly brief since they will be read aloud."
+            });
+        }
         voiceHistory.push({ role: "user", content: said });
         addVoiceMsg("Thinking...", "ai-loading");
         try{
@@ -1964,7 +1992,8 @@ if(!SpeechRecognitionAPI){
                 aiDiv.classList.add("done");
                 addMessageActionBar(aiDiv, clean);
             });
-            const utter = new SpeechSynthesisUtterance(clean);
+            const utter = new SpeechSynthesisUtterance(stripForSpeech(reply));
+            utter.lang = recognition.lang;
             speechSynthesis.speak(utter);
         }catch(err){
             voiceBox.removeChild(voiceBox.lastChild);
