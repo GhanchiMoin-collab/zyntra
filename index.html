@@ -217,6 +217,10 @@
             <input type="text" id="imageInput" placeholder="Describe the image you want...">
             <button id="imageGenBtn">Generate</button>
         </div>
+        <label class="style-toggle">
+            <input type="checkbox" id="imageRealisticToggle" checked>
+            <span>📷 Realistic photo style</span>
+        </label>
         <div id="imageResult" class="img-result"></div>
     </div>
 </div>
@@ -238,6 +242,10 @@
                 <option value="square">Square (1:1) — Social post</option>
                 <option value="landscape">Landscape (4:3) — Banner</option>
             </select>
+            <label class="style-toggle">
+                <input type="checkbox" id="posterRealisticToggle" checked>
+                <span>📷 Realistic photo style</span>
+            </label>
             <button id="posterGenBtn">Generate Poster</button>
         </div>
         <div id="posterResult" class="img-result"></div>
