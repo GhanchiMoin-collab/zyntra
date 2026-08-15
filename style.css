@@ -1412,6 +1412,23 @@ font-family:inherit;
 outline:none;
 }
 
+.style-toggle{
+display:flex;
+align-items:center;
+gap:8px;
+margin:2px 0 14px;
+font-size:13.5px;
+color:#c9c9d9;
+cursor:pointer;
+}
+
+.style-toggle input{
+width:16px;
+height:16px;
+accent-color:#7c5cff;
+cursor:pointer;
+}
+
 .history-list{
 display:flex;
 flex-direction:column;
