@@ -1550,14 +1550,6 @@ userInput.addEventListener("keydown", e => {
     if(e.key === "Enter") sendChatMessage();
 });
 
-// ---------- Greeting suggestion cards ----------
-
-document.querySelectorAll(".suggestion-card").forEach(card => {
-    card.addEventListener("click", () => {
-        sendChatMessage(card.dataset.message);
-    });
-});
-
 // ---------- Extra input bar icons ----------
 
 const PROMPT_IDEAS = [
