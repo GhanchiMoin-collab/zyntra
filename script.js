@@ -358,6 +358,14 @@ const MSG_ICONS = {
     share: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>'
 };
 
+function buildMsgCheck(){
+    const check = document.createElement("span");
+    check.className = "msg-check";
+    check.textContent = "✓✓";
+    check.title = "Sent";
+    return check;
+}
+
 function addMessageActionBar(container, text){
     const bar = document.createElement("div");
     bar.className = "msg-actions";
@@ -1320,14 +1328,29 @@ function openSession(session){
     document.getElementById("chatGreeting").style.display = "none";
     chatMessages.innerHTML = "";
     session.messages.forEach(m => {
-        const div = document.createElement("div");
-        div.className = m.role === "user" ? "user-message" : "ai-message done";
         if(m.role === "user"){
-            div.textContent = m.content;
+            const div = document.createElement("div");
+            div.className = "user-message";
+            const p = document.createElement("p");
+            p.style.margin = "0";
+            p.textContent = m.content;
+            div.appendChild(p);
+            div.appendChild(buildMsgCheck());
+            chatMessages.appendChild(div);
         } else {
-            div.innerHTML = formatAIText(m.content);
+            const div = document.createElement("div");
+            div.className = "ai-message done";
+            const avatar = document.createElement("img");
+            avatar.src = "favicon.png";
+            avatar.alt = "";
+            avatar.className = "ai-message-avatar";
+            const content = document.createElement("div");
+            content.className = "ai-message-content";
+            content.innerHTML = formatAIText(m.content);
+            div.appendChild(avatar);
+            div.appendChild(content);
+            chatMessages.appendChild(div);
         }
-        chatMessages.appendChild(div);
     });
     closeSidebarMobile();
     chatArea.scrollTop = chatArea.scrollHeight;
@@ -1455,7 +1478,8 @@ async function sendChatMessage(prefill){
     }
     const userTime = document.createElement("span");
     userTime.className = "msg-time";
-    userTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    userTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " ";
+    userTime.appendChild(buildMsgCheck());
     userDiv.appendChild(userTime);
     chatMessages.appendChild(userDiv);
     userInput.value = "";
@@ -1490,7 +1514,15 @@ async function sendChatMessage(prefill){
 
     const loadingDiv = document.createElement("div");
     loadingDiv.className = "ai-message";
-    loadingDiv.textContent = "Typing...";
+    const aiAvatar = document.createElement("img");
+    aiAvatar.src = "favicon.png";
+    aiAvatar.alt = "";
+    aiAvatar.className = "ai-message-avatar";
+    const aiContent = document.createElement("div");
+    aiContent.className = "ai-message-content";
+    aiContent.textContent = "Typing...";
+    loadingDiv.appendChild(aiAvatar);
+    loadingDiv.appendChild(aiContent);
     chatMessages.appendChild(loadingDiv);
     chatArea.scrollTop = chatArea.scrollHeight;
 
@@ -1498,17 +1530,17 @@ async function sendChatMessage(prefill){
         const reply = await callChatAPI(chatHistory);
         chatHistory.push({ role: "assistant", content: reply });
         logMessageToHistory("assistant", reply);
-        loadingDiv.textContent = "";
-        typeOutText(loadingDiv, reply, chatArea, () => {
+        aiContent.textContent = "";
+        typeOutText(aiContent, reply, chatArea, () => {
             loadingDiv.classList.add("done");
-            addMessageActionBar(loadingDiv, reply);
+            addMessageActionBar(aiContent, reply);
             const aiTime = document.createElement("span");
             aiTime.className = "msg-time";
             aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-            loadingDiv.appendChild(aiTime);
+            aiContent.appendChild(aiTime);
         });
     }catch(err){
-        loadingDiv.textContent = "Sorry, something went wrong. Please try again.";
+        aiContent.textContent = "Sorry, something went wrong. Please try again.";
     }
     chatArea.scrollTop = chatArea.scrollHeight;
 }
@@ -1516,6 +1548,37 @@ async function sendChatMessage(prefill){
 document.getElementById("sendMessage").addEventListener("click", () => sendChatMessage());
 userInput.addEventListener("keydown", e => {
     if(e.key === "Enter") sendChatMessage();
+});
+
+// ---------- Greeting suggestion cards ----------
+
+document.querySelectorAll(".suggestion-card").forEach(card => {
+    card.addEventListener("click", () => {
+        sendChatMessage(card.dataset.message);
+    });
+});
+
+// ---------- Extra input bar icons ----------
+
+const PROMPT_IDEAS = [
+    "Explain quantum computing in simple terms",
+    "Write a Python function to sort a list",
+    "Give me 5 tips to be more productive",
+    "Write a short essay about climate change",
+    "Help me plan a healthy weekly meal plan",
+    "Give me business ideas for a small budget",
+    "Explain how blockchain works, simply",
+    "Write a friendly email asking for a deadline extension"
+];
+
+document.getElementById("promptIdeaBtn")?.addEventListener("click", () => {
+    const idea = PROMPT_IDEAS[Math.floor(Math.random() * PROMPT_IDEAS.length)];
+    userInput.value = idea;
+    userInput.focus();
+});
+
+document.getElementById("webSearchBtn")?.addEventListener("click", () => {
+    showToast("🌐 Web search is coming soon!");
 });
 
 // ==========================
