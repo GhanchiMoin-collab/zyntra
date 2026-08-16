@@ -619,7 +619,55 @@ background:linear-gradient(90deg,#9d7bff,#ff72c8);
 .chat-greeting > p{
 color:#9aa0c0;
 font-size:15px;
-margin-bottom:0;
+margin-bottom:28px;
+}
+
+.suggestion-grid{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:14px;
+text-align:left;
+margin-bottom:22px;
+}
+
+.suggestion-card{
+display:flex;
+flex-direction:column;
+gap:6px;
+padding:18px;
+background:#0e1330;
+border:1px solid #232a4d;
+border-radius:16px;
+cursor:pointer;
+transition:.2s;
+color:white;
+font-family:inherit;
+}
+
+.suggestion-card:hover{
+border-color:#4c3d8f;
+transform:translateY(-3px);
+box-shadow:0 12px 28px rgba(124,92,255,.18);
+}
+
+.sc-icon{
+font-size:18px;
+}
+
+.sc-title{
+font-size:14.5px;
+font-weight:700;
+}
+
+.sc-sub{
+font-size:12.5px;
+color:#9aa0c0;
+line-height:1.4;
+}
+
+.default-greeting-bubble{
+text-align:left;
+margin:0;
 }
 
 .chat-messages{
@@ -643,6 +691,25 @@ line-height:1.6;
 
 .ai-message{
 background:#1d2340;
+display:flex;
+align-items:flex-start;
+gap:12px;
+}
+
+.ai-message-avatar{
+width:28px;
+height:28px;
+border-radius:8px;
+flex-shrink:0;
+margin-top:2px;
+object-fit:contain;
+background:#12172d;
+padding:3px;
+}
+
+.ai-message-content{
+flex:1;
+min-width:0;
 }
 
 .ai-message h4{
@@ -850,6 +917,20 @@ display:block;
 font-size:10.5px;
 color:#7a80a5;
 margin-top:6px;
+}
+
+.msg-check{
+display:inline;
+margin-left:2px;
+color:#7a80a5;
+font-size:10.5px;
+}
+
+.user-message > .msg-check{
+display:block;
+margin-top:6px;
+margin-left:0;
+text-align:right;
 }
 
 .sent-image{
