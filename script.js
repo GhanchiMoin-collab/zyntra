@@ -559,9 +559,16 @@ function isRunningInApp(){
     return isStandalone || isTwaReferrer;
 }
 
+// Set this to true once you have a REAL ad slot ID from an approved AdSense
+// account and have replaced YOUR_AD_SLOT_ID in index.html with it. Until
+// then, the ad slot stays hidden — an invalid placeholder slot can cause
+// Google's ad script to behave unpredictably on the page.
+const AD_SLOT_READY = false;
+
 let adBannerLoaded = false;
 
 function loadAdBanner(){
+    if(!AD_SLOT_READY) return;
     if(adBannerLoaded) return;
     try{
         (window.adsbygoogle = window.adsbygoogle || []).push({});
@@ -595,7 +602,7 @@ function renderPlanUI(){
         getProBtn.disabled = true;
         getProBtn.style.opacity = "0.5";
         getProBtn.style.cursor = "default";
-        if(adBanner){ adBanner.style.display = "block"; loadAdBanner(); }
+        if(adBanner){ adBanner.style.display = AD_SLOT_READY ? "block" : "none"; loadAdBanner(); }
         if(twaNotice) twaNotice.style.display = "block";
         if(topUpgradeBtn) topUpgradeBtn.style.display = "";
         if(sidebarUpgradeCard) sidebarUpgradeCard.style.display = "";
@@ -605,7 +612,7 @@ function renderPlanUI(){
         getProBtn.disabled = false;
         getProBtn.style.opacity = "1";
         getProBtn.style.cursor = "pointer";
-        if(adBanner){ adBanner.style.display = "block"; loadAdBanner(); }
+        if(adBanner){ adBanner.style.display = AD_SLOT_READY ? "block" : "none"; loadAdBanner(); }
         if(twaNotice) twaNotice.style.display = "none";
         if(topUpgradeBtn) topUpgradeBtn.style.display = "";
         if(sidebarUpgradeCard) sidebarUpgradeCard.style.display = "";
@@ -2063,4 +2070,4 @@ if(!SpeechRecognitionAPI){
 
 // ---------- Initial render ----------
 
-renderSidebarHistory();
+renderSidebarHistory();s
