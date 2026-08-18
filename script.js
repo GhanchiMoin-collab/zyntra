@@ -351,12 +351,65 @@ function stripForSpeech(text){
         .trim();
 }
 
+// Detects the likely spoken language from the text's script/characters so
+// the voice assistant can speak many languages, not just the browser's
+// default. Falls back to the browser/system language for Latin-script text
+// (English, Spanish, French, etc. can't be told apart by characters alone).
+function detectSpeechLang(text){
+    if(/[\u0900-\u097F]/.test(text)) return "hi-IN";   // Devanagari (Hindi, Marathi...)
+    if(/[\u0600-\u06FF]/.test(text)) return "ar-SA";   // Arabic
+    if(/[\u4E00-\u9FFF]/.test(text)) return "zh-CN";   // Chinese
+    if(/[\u3040-\u30FF]/.test(text)) return "ja-JP";   // Japanese (Hiragana/Katakana)
+    if(/[\uAC00-\uD7AF]/.test(text)) return "ko-KR";   // Korean (Hangul)
+    if(/[\u0400-\u04FF]/.test(text)) return "ru-RU";   // Cyrillic
+    if(/[\u0E00-\u0E7F]/.test(text)) return "th-TH";   // Thai
+    if(/[\u0980-\u09FF]/.test(text)) return "bn-IN";   // Bengali
+    if(/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";   // Gujarati
+    if(/[\u0B80-\u0BFF]/.test(text)) return "ta-IN";   // Tamil
+    if(/[\u0C00-\u0C7F]/.test(text)) return "te-IN";   // Telugu
+    if(/[\u0590-\u05FF]/.test(text)) return "he-IL";   // Hebrew
+    return navigator.language || "en-US";
+}
+
+// Picks the closest available system voice for a language, since setting
+// .lang alone doesn't always pick a good voice if the browser has several.
+function pickVoiceForLang(lang){
+    const voices = speechSynthesis.getVoices();
+    if(!voices || !voices.length) return null;
+    const prefix = lang.split("-")[0];
+    return voices.find(v => v.lang === lang)
+        || voices.find(v => v.lang && v.lang.startsWith(prefix))
+        || null;
+}
+
+function speakText(text, lang){
+    speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = lang;
+    const voice = pickVoiceForLang(lang);
+    if(voice) utter.voice = voice;
+    speechSynthesis.speak(utter);
+}
+
 const MSG_ICONS = {
     copy: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>',
     check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>',
     feedback: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"></path><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"></path></svg>',
-    share: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>'
+    share: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>',
+    speaker: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>'
 };
+
+function addSpeakRepeatButton(container, text, lang){
+    const btn = document.createElement("button");
+    btn.className = "msg-action-btn";
+    btn.title = "Repeat aloud";
+    btn.innerHTML = MSG_ICONS.speaker;
+    btn.addEventListener("click", () => {
+        speakText(text, lang);
+    });
+    container.appendChild(btn);
+    return btn;
+}
 
 function buildMsgCheck(){
     const check = document.createElement("span");
@@ -1532,7 +1585,7 @@ async function sendChatMessage(prefill){
 
     if(chatHistory.length === 0){
         const profile = getProfile();
-        let note = "Always reply in the same language the user writes in (for example, reply in Hindi if they write in Hindi, in Spanish if they write in Spanish, and so on). Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process or thought process, and do not add unnecessary meta-commentary about the question itself. Just give the direct, natural answer.";
+        let note = "Always reply in the same language the user writes in (for example, reply in Hindi if they write in Hindi, in Spanish if they write in Spanish, and so on — support any language naturally). Pay attention to the emotional tone of what the user writes (happy, sad, frustrated, excited, worried, etc.) and respond with matching empathy and tone — be warm and supportive if they seem upset or stressed, and match their energy if they're happy or excited. Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process or thought process, and do not add unnecessary meta-commentary about the question itself. Just give the direct, natural answer.";
         if(profile.nickname) note += ` Call the user "${profile.nickname}".`;
         if(profile.instructions) note += ` User's custom instructions: ${profile.instructions}`;
         chatHistory.push({ role: "system", content: note });
@@ -2092,7 +2145,7 @@ if(!SpeechRecognitionAPI){
         if(voiceHistory.length === 0){
             voiceHistory.push({
                 role: "system",
-                content: "Always reply in the same language the user speaks in (for example, reply in Hindi if they speak Hindi). Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process, and do not add unnecessary meta-commentary. Keep replies fairly brief since they will be read aloud."
+                content: "Always reply in the same language the user speaks in (for example, reply in Hindi if they speak Hindi, in Spanish if they speak Spanish, and so on — support any language naturally). Pay attention to the emotional tone of what the user says (happy, sad, frustrated, excited, worried, etc.) and respond with matching empathy and tone — be warm and supportive if they seem upset or stressed, and match their energy if they're happy or excited. Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process, and do not add unnecessary meta-commentary. Keep replies fairly brief since they will be read aloud."
             });
         }
         voiceHistory.push({ role: "user", content: said });
@@ -2102,16 +2155,17 @@ if(!SpeechRecognitionAPI){
             voiceHistory.push({ role: "assistant", content: reply });
             voiceBox.removeChild(voiceBox.lastChild);
             const clean = reply.replace(/\*\*/g, "");
+            const spoken = stripForSpeech(reply);
+            const lang = detectSpeechLang(spoken);
             const aiDiv = document.createElement("p");
             aiDiv.className = "chat-msg ai";
             voiceBox.appendChild(aiDiv);
             typeOutText(aiDiv, clean, voiceBox, () => {
                 aiDiv.classList.add("done");
                 addMessageActionBar(aiDiv, clean);
+                addSpeakRepeatButton(aiDiv, spoken, lang);
             });
-            const utter = new SpeechSynthesisUtterance(stripForSpeech(reply));
-            utter.lang = recognition.lang;
-            speechSynthesis.speak(utter);
+            speakText(spoken, lang);
         }catch(err){
             voiceBox.removeChild(voiceBox.lastChild);
             addVoiceMsg("Sorry, I couldn't process that.", "ai");
