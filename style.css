@@ -550,6 +550,12 @@ justify-content:center;
 flex-shrink:0;
 }
 
+#deleteChatBtn:hover{
+background:#3a1520;
+border-color:#e14b6a;
+color:#ff8fa8;
+}
+
 .topbar-avatar{
 width:38px;
 height:38px;
@@ -1895,4 +1901,4 @@ padding:0 14px 14px;
 .modal-box h1{ font-size:21px; }
 .pricing-plan .price{ font-size:19px; }
 .chat-greeting h1{ font-size:21px; }
-}
+}s
