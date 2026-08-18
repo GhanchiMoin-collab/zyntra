@@ -809,6 +809,7 @@ function renderAuthNav(){
     }
     renderPlanUI();
     checkProExpiry();
+    updateDeleteChatBtnVisibility();
 }
 
 function handleProfileEntry(){
@@ -1095,11 +1096,13 @@ firebase.auth().getRedirectResult()
         }
     });
 
+// currentSessionId must be declared before renderAuthNav() runs, since
+// renderAuthNav -> updateDeleteChatBtnVisibility reads it.
+let currentSessionId = null;
+
 renderAuthNav();
 
 // ---------- Chat history (session based sidebar list) ----------
-
-let currentSessionId = null;
 
 function timeAgo(ts){
     const diff = Math.floor((Date.now() - ts) / 1000);
@@ -1150,6 +1153,7 @@ function logMessageToHistory(role, content){
     if(session) session.messages.push({ role, content });
     saveSessions(sessions);
     renderSidebarHistory();
+    updateDeleteChatBtnVisibility();
 
     if(isNewSession && role === "user"){
         generateSessionTitle(currentSessionId, content);
@@ -1213,6 +1217,18 @@ function renderPinnedChats(){
     });
 }
 
+function deleteChatSession(id){
+    const updated = getSessions().filter(s => s.id !== id);
+    saveSessions(updated);
+    if(currentSessionId === id){
+        currentSessionId = null;
+        resetChatView();
+    }
+    renderSidebarHistory();
+    renderPinnedChats();
+    updateDeleteChatBtnVisibility();
+}
+
 function buildSidebarHistoryRow(session){
     const row = document.createElement("div");
     row.className = "sidebar-history-row" + (session.pinned ? " pinned" : "");
@@ -1246,13 +1262,7 @@ function buildSidebarHistoryRow(session){
         confirmAction(
             "Delete This Chat?",
             "Are you sure you want to delete this conversation? This can't be undone.",
-            () => {
-                const updated = getSessions().filter(s => s.id !== session.id);
-                saveSessions(updated);
-                if(currentSessionId === session.id) currentSessionId = null;
-                renderSidebarHistory();
-                renderPinnedChats();
-            }
+            () => deleteChatSession(session.id)
         );
     });
 
@@ -1361,6 +1371,7 @@ function openSession(session){
     });
     closeSidebarMobile();
     chatArea.scrollTop = chatArea.scrollHeight;
+    updateDeleteChatBtnVisibility();
 }
 
 // ---------- New chat ----------
@@ -1372,7 +1383,24 @@ function resetChatView(){
     currentSessionId = null;
     chatMessages.innerHTML = "";
     document.getElementById("chatGreeting").style.display = "";
+    updateDeleteChatBtnVisibility();
 }
+
+function updateDeleteChatBtnVisibility(){
+    const btn = document.getElementById("deleteChatBtn");
+    if(!btn) return;
+    btn.style.display = (currentSessionId && isLoggedIn()) ? "flex" : "none";
+}
+
+document.getElementById("deleteChatBtn")?.addEventListener("click", () => {
+    if(!currentSessionId) return;
+    const idToDelete = currentSessionId;
+    confirmAction(
+        "Delete This Chat?",
+        "Are you sure you want to delete this conversation? This can't be undone.",
+        () => deleteChatSession(idToDelete)
+    );
+});
 
 document.getElementById("newChatBtn")?.addEventListener("click", () => {
     resetChatView();
@@ -1597,6 +1625,32 @@ const TOOL_PLACEHOLDERS = {
     code: "Ask me to write, debug, or explain code..."
 };
 
+const TOOL_GREETINGS = {
+    chat: {
+        heading: 'Hey, I\'m <span>Zyntra AI</span>',
+        subtitle: "Your personal AI assistant. Ask me anything!"
+    },
+    study: {
+        heading: 'Let\'s <span>Study</span>!',
+        subtitle: "Ask me to explain a topic, summarize notes, or solve a problem."
+    },
+    code: {
+        heading: 'Let\'s Do <span>Coding</span>!',
+        subtitle: "Ask me to write, debug, or explain any code."
+    },
+    business: {
+        heading: 'Let\'s Grow Your <span>Business</span>!',
+        subtitle: "Ask me for ideas, strategy, or growth tips."
+    }
+};
+
+function applyToolGreeting(tool){
+    const greeting = TOOL_GREETINGS[tool];
+    if(!greeting) return;
+    document.getElementById("greetingHeading").innerHTML = greeting.heading;
+    document.getElementById("greetingSubtitle").textContent = greeting.subtitle;
+}
+
 // Which chat-mode tool is currently open (chat / study / business / code)
 let activeChatTool = "chat";
 
@@ -1609,6 +1663,7 @@ function openTool(tool, prefix){
             resetChatView();
         }
         activeChatTool = tool;
+        applyToolGreeting(tool);
         userInput.placeholder = TOOL_PLACEHOLDERS[tool];
         document.getElementById("chatGreeting").style.display = chatHistory.length ? "none" : "";
         if(prefix){ userInput.value = prefix; }
@@ -2070,4 +2125,4 @@ if(!SpeechRecognitionAPI){
 
 // ---------- Initial render ----------
 
-renderSidebarHistory();s
+renderSidebarHistory();
