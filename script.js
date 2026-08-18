@@ -526,17 +526,24 @@ function openModal(id){
 }
 function closeModal(id){
     document.getElementById(id).classList.remove("show");
+    // If this was the voice assistant (or anything else), stop any speech
+    // that might still be playing — closing a modal should silence it.
+    if(typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
 }
 
 document.querySelectorAll(".modal-overlay").forEach(overlay => {
     overlay.addEventListener("click", e => {
-        if(e.target === overlay) overlay.classList.remove("show");
+        if(e.target === overlay){
+            overlay.classList.remove("show");
+            if(typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
+        }
     });
 });
 
 document.addEventListener("keydown", e => {
     if(e.key === "Escape"){
         document.querySelectorAll(".modal-overlay.show").forEach(m => m.classList.remove("show"));
+        if(typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
         closeSidebarMobile();
     }
 });
@@ -1585,7 +1592,7 @@ async function sendChatMessage(prefill){
 
     if(chatHistory.length === 0){
         const profile = getProfile();
-        let note = "Always reply in the same language the user writes in (for example, reply in Hindi if they write in Hindi, in Spanish if they write in Spanish, and so on — support any language naturally). Pay attention to the emotional tone of what the user writes (happy, sad, frustrated, excited, worried, etc.) and respond with matching empathy and tone — be warm and supportive if they seem upset or stressed, and match their energy if they're happy or excited. Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process or thought process, and do not add unnecessary meta-commentary about the question itself. Just give the direct, natural answer.";
+        let note = "Always reply in the same language the user writes in (for example, reply in Hindi if they write in Hindi, in Spanish if they write in Spanish, and so on — support any language naturally). If the user explicitly asks you to reply or speak in a specific language (for example \"talk in Gujarati\" or \"reply in French\"), you MUST switch to writing your entire response in that requested language from that point on, using its native script, not English. Pay attention to the emotional tone of what the user writes (happy, sad, frustrated, excited, worried, etc.) and respond with matching empathy and tone — be warm and supportive if they seem upset or stressed, and match their energy if they're happy or excited. Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process or thought process, and do not add unnecessary meta-commentary about the question itself. Just give the direct, natural answer.";
         if(profile.nickname) note += ` Call the user "${profile.nickname}".`;
         if(profile.instructions) note += ` User's custom instructions: ${profile.instructions}`;
         chatHistory.push({ role: "system", content: note });
@@ -2145,7 +2152,7 @@ if(!SpeechRecognitionAPI){
         if(voiceHistory.length === 0){
             voiceHistory.push({
                 role: "system",
-                content: "Always reply in the same language the user speaks in (for example, reply in Hindi if they speak Hindi, in Spanish if they speak Spanish, and so on — support any language naturally). Pay attention to the emotional tone of what the user says (happy, sad, frustrated, excited, worried, etc.) and respond with matching empathy and tone — be warm and supportive if they seem upset or stressed, and match their energy if they're happy or excited. Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process, and do not add unnecessary meta-commentary. Keep replies fairly brief since they will be read aloud."
+                content: "Always reply in the same language the user speaks in (for example, reply in Hindi if they speak Hindi, in Spanish if they speak Spanish, and so on — support any language naturally). If the user explicitly asks you to reply or speak in a specific language (for example \"talk in Gujarati\" or \"reply in French\"), you MUST switch to writing your entire response in that requested language from that point on, using its native script, not English. Pay attention to the emotional tone of what the user says (happy, sad, frustrated, excited, worried, etc.) and respond with matching empathy and tone — be warm and supportive if they seem upset or stressed, and match their energy if they're happy or excited. Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process, and do not add unnecessary meta-commentary. Keep replies fairly brief since they will be read aloud."
             });
         }
         voiceHistory.push({ role: "user", content: said });
@@ -2157,13 +2164,13 @@ if(!SpeechRecognitionAPI){
             const clean = reply.replace(/\*\*/g, "");
             const spoken = stripForSpeech(reply);
             const lang = detectSpeechLang(spoken);
-            const aiDiv = document.createElement("p");
+            const aiDiv = document.createElement("div");
             aiDiv.className = "chat-msg ai";
             voiceBox.appendChild(aiDiv);
             typeOutText(aiDiv, clean, voiceBox, () => {
                 aiDiv.classList.add("done");
-                addMessageActionBar(aiDiv, clean);
-                addSpeakRepeatButton(aiDiv, spoken, lang);
+                const bar = addMessageActionBar(aiDiv, clean);
+                addSpeakRepeatButton(bar, spoken, lang);
             });
             speakText(spoken, lang);
         }catch(err){
