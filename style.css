@@ -291,6 +291,12 @@ transition:.15s;
 background:#12172d;
 }
 
+.shr-icon{
+font-size:13px;
+flex-shrink:0;
+line-height:1;
+}
+
 .sidebar-history-row .shr-title{
 flex:1;
 min-width:0;
@@ -1901,4 +1907,4 @@ padding:0 14px 14px;
 .modal-box h1{ font-size:21px; }
 .pricing-plan .price{ font-size:19px; }
 .chat-greeting h1{ font-size:21px; }
-}s
+}
