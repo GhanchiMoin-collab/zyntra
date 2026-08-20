@@ -5,7 +5,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    const { messages } = req.body;
+    const { messages, forceSearch } = req.body;
 
     // If any message contains an image, we need a vision-capable model.
     const hasImage = messages.some(
@@ -18,15 +18,14 @@ export default async function handler(req, res) {
     // groq/compound automatically searches the web when a question needs current info.
     const model = hasImage ? 'qwen/qwen3.6-27b' : 'groq/compound';
 
+    // Only meaningful for the compound (text) model — vision requests can't search.
+    const wantsForcedSearch = !!forceSearch && !hasImage;
+
     async function callGroq(model){
-      const body = {
-        model,
-        temperature: 0.7,
-        max_tokens: 2048,
-        messages: [
-          {
-            role: "system",
-            content: `
+      const systemMessages = [
+        {
+          role: "system",
+          content: `
 You are Zyntra AI, a premium AI assistant.
 Write exactly like ChatGPT.
 Rules:
@@ -46,7 +45,22 @@ Rules:
 - You understand and can respond fluently in any language the user writes in — Hindi, Spanish, Arabic, French, Chinese, and every other language. Always reply in the same language the user used, unless they ask you to switch.
 - If the user sends an image, look at it carefully and help solve, explain, or answer whatever they're asking about it.
 `
-          },
+        }
+      ];
+
+      if(wantsForcedSearch){
+        systemMessages.push({
+          role: "system",
+          content: "The user has explicitly turned on web search for this message. Use the web_search tool (and visit_website if useful) to find current, accurate information before answering, even if you think you already know the answer — prefer freshly retrieved facts over memory. Weave the findings into a natural answer."
+        });
+      }
+
+      const body = {
+        model,
+        temperature: 0.7,
+        max_tokens: 2048,
+        messages: [
+          ...systemMessages,
           ...messages
         ]
       };
@@ -54,6 +68,14 @@ Rules:
       // qwen3.6-27b (the vision model) shows its raw <think> reasoning unless told to hide it.
       if(hasImage){
         body.reasoning_format = "hidden";
+      }
+
+      // Restrict compound to search-related tools when the user explicitly asked for it,
+      // so it prioritizes searching over, say, running code.
+      if(wantsForcedSearch && model === 'groq/compound'){
+        body.compound_custom = {
+          tools: { enabled_tools: ["web_search", "visit_website"] }
+        };
       }
 
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -79,8 +101,40 @@ Rules:
     if (!result.ok) {
       return res.status(result.status).json({ error: result.data.error?.message || 'Groq API error' });
     }
-    return res.status(200).json(result.data);
+
+    // Pull real search result URLs out of Groq's executed_tools, if any were run,
+    // so the frontend can show the user what was actually searched.
+    const zyntra_sources = extractSources(result.data?.choices?.[0]?.message);
+
+    return res.status(200).json({ ...result.data, zyntra_sources });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
+}
+
+function extractSources(message){
+  if (!message || !Array.isArray(message.executed_tools)) return [];
+
+  const sources = [];
+  message.executed_tools.forEach(tool => {
+    const results = tool.search_results || tool.results || [];
+    if (Array.isArray(results)) {
+      results.forEach(r => {
+        if (r && r.url) {
+          sources.push({ title: r.title || r.url, url: r.url });
+        }
+      });
+    }
+    // visit_website tool exposes a single visited URL rather than a results array
+    if (tool.url) {
+      sources.push({ title: tool.title || tool.url, url: tool.url });
+    }
+  });
+
+  const seen = new Set();
+  return sources.filter(s => {
+    if (seen.has(s.url)) return false;
+    seen.add(s.url);
+    return true;
+  }).slice(0, 6);
 }
