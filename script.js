@@ -336,6 +336,33 @@ function addReportButton(container, contentToReport){
     container.appendChild(btn);
 }
 
+// ---------- Web search sources (rendered under AI messages when a real search happened) ----------
+
+function buildSourcesRow(sources){
+    const wrap = document.createElement("div");
+    wrap.className = "message-sources";
+
+    const label = document.createElement("span");
+    label.className = "message-sources-label";
+    label.textContent = "🌐 Sources";
+    wrap.appendChild(label);
+
+    sources.forEach(src => {
+        const a = document.createElement("a");
+        a.className = "source-chip";
+        a.href = src.url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        let host = src.url;
+        try{ host = new URL(src.url).hostname.replace(/^www\./, ""); }catch(err){}
+        a.textContent = (src.title && src.title.length < 42) ? src.title : host;
+        a.title = src.url;
+        wrap.appendChild(a);
+    });
+
+    return wrap;
+}
+
 function stripForSpeech(text){
     return text
         .replace(/```[\s\S]*?```/g, " ")
@@ -508,15 +535,22 @@ document.addEventListener("click", () => {
     document.querySelectorAll(".msg-feedback-menu.show").forEach(m => m.classList.remove("show"));
 });
 
-async function callChatAPI(messages){
+async function callChatAPI(messages, options){
+    const opts = options || {};
+    const payload = { messages };
+    if(opts.forceSearch) payload.forceSearch = true;
+
     const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages })
+        body: JSON.stringify(payload)
     });
     const data = await res.json();
     if(!res.ok) throw new Error(data.error || "Request failed");
-    return data.choices[0].message.content;
+    return {
+        content: data.choices[0].message.content,
+        sources: Array.isArray(data.zyntra_sources) ? data.zyntra_sources : []
+    };
 }
 
 // ---------- Generic modal open/close ----------
@@ -1223,7 +1257,7 @@ function logMessageToHistory(role, content){
 
 async function generateSessionTitle(sessionId, firstMessage){
     try{
-        const title = await callChatAPI([
+        const { content: title } = await callChatAPI([
             {
                 role: "user",
                 content: 'Summarize the topic of this message in 3-5 words. No punctuation, no quotes, no markdown, just the topic itself:\n\n"' + firstMessage + '"'
@@ -1771,19 +1805,22 @@ async function sendChatMessage(prefill){
     aiAvatar.className = "ai-message-avatar";
     const aiContent = document.createElement("div");
     aiContent.className = "ai-message-content";
-    aiContent.textContent = "Typing...";
+    aiContent.textContent = webSearchEnabled ? "Searching the web..." : "Typing...";
     loadingDiv.appendChild(aiAvatar);
     loadingDiv.appendChild(aiContent);
     chatMessages.appendChild(loadingDiv);
     chatArea.scrollTop = chatArea.scrollHeight;
 
     try{
-        const reply = await callChatAPI(chatHistory);
+        const { content: reply, sources } = await callChatAPI(chatHistory, { forceSearch: webSearchEnabled });
         chatHistory.push({ role: "assistant", content: reply });
         logMessageToHistory("assistant", reply);
         aiContent.textContent = "";
         typeOutText(aiContent, reply, chatArea, () => {
             loadingDiv.classList.add("done");
+            if(sources && sources.length){
+                aiContent.appendChild(buildSourcesRow(sources));
+            }
             addMessageActionBar(aiContent, reply);
             const aiTime = document.createElement("span");
             aiTime.className = "msg-time";
@@ -1820,9 +1857,30 @@ document.getElementById("promptIdeaBtn")?.addEventListener("click", () => {
     userInput.focus();
 });
 
+// ---------- Web search toggle ----------
+// groq/compound (the model this app already uses) can search the web on its
+// own when it decides a question needs current info. This button lets the
+// user explicitly force it to search for their next message(s) instead of
+// leaving it entirely up to the model's judgement.
+
+let webSearchEnabled = false;
+
+function setWebSearchButtonState(){
+    const btn = document.getElementById("webSearchBtn");
+    if(!btn) return;
+    btn.classList.toggle("active", webSearchEnabled);
+    btn.title = webSearchEnabled
+        ? "Web search: ON — click to turn off"
+        : "Web search — click to force a live search on your next message";
+}
+
 document.getElementById("webSearchBtn")?.addEventListener("click", () => {
-    showToast("🌐 Web search is coming soon!");
+    webSearchEnabled = !webSearchEnabled;
+    setWebSearchButtonState();
+    showToast(webSearchEnabled ? "🌐 Web search turned on" : "🌐 Web search turned off");
 });
+
+setWebSearchButtonState();
 
 // ==========================
 // Tool routing (sidebar nav, dropdown-less)
@@ -2031,7 +2089,7 @@ function showCreatingAnimation(container, label){
 }
 
 async function describeUploadedImage(dataUrl){
-    const reply = await callChatAPI([
+    const { content: reply } = await callChatAPI([
         {
             role: "user",
             content: [
@@ -2329,7 +2387,7 @@ if(!SpeechRecognitionAPI){
         logVoiceMessageToHistory("user", said);
         addVoiceMsg("Thinking...", "ai-loading");
         try{
-            const reply = await callChatAPI(voiceHistory);
+            const { content: reply } = await callChatAPI(voiceHistory);
             voiceHistory.push({ role: "assistant", content: reply });
             logVoiceMessageToHistory("assistant", reply);
             voiceBox.removeChild(voiceBox.lastChild);
