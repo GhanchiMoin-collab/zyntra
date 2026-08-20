@@ -1203,6 +1203,7 @@ function logMessageToHistory(role, content){
         const cleanTitle = stripMarkdownForTitle(content);
         sessions.unshift({
             id: currentSessionId,
+            type: activeChatTool || "chat",
             title: cleanTitle.length > 40 ? cleanTitle.slice(0, 40) + "…" : cleanTitle,
             time: Date.now(),
             messages: []
@@ -1243,6 +1244,55 @@ async function generateSessionTitle(sessionId, firstMessage){
     }
 }
 
+// ---------- History logging for non-chat tools (image / poster / voice) ----------
+
+function logNonChatSession(type, title, extra){
+    if(!isLoggedIn()) return;
+    const sessions = getSessions();
+    const cleanTitle = title.length > 40 ? title.slice(0, 40) + "…" : title;
+    const session = Object.assign({
+        id: Date.now(),
+        type: type,
+        title: cleanTitle,
+        time: Date.now()
+    }, extra);
+    sessions.unshift(session);
+    saveSessions(sessions);
+    renderSidebarHistory();
+}
+
+function logImageToHistory(prompt, imageUrl){
+    logNonChatSession("image", prompt, { imageUrl: imageUrl, prompt: prompt });
+}
+
+function logPosterToHistory(title, posterDataUrl){
+    logNonChatSession("poster", title, { posterDataUrl: posterDataUrl });
+}
+
+let currentVoiceSessionId = null;
+
+function logVoiceMessageToHistory(role, content){
+    if(!isLoggedIn()) return;
+    const sessions = getSessions();
+
+    if(!currentVoiceSessionId){
+        currentVoiceSessionId = Date.now();
+        const cleanTitle = stripMarkdownForTitle(content);
+        sessions.unshift({
+            id: currentVoiceSessionId,
+            type: "voice",
+            title: cleanTitle.length > 40 ? cleanTitle.slice(0, 40) + "…" : cleanTitle,
+            time: Date.now(),
+            messages: []
+        });
+    }
+
+    const session = sessions.find(s => s.id === currentVoiceSessionId);
+    if(session) session.messages.push({ role, content });
+    saveSessions(sessions);
+    renderSidebarHistory();
+}
+
 function renderPinnedChats(){
     const box = document.getElementById("pinnedChatsBox");
     if(!box) return;
@@ -1260,7 +1310,7 @@ function renderPinnedChats(){
 
         const title = document.createElement("span");
         title.className = "history-row-title";
-        title.textContent = session.title;
+        title.textContent = (SESSION_TYPE_ICONS[session.type] || SESSION_TYPE_ICONS.chat) + " " + session.title;
 
         const time = document.createElement("span");
         time.className = "history-row-time";
@@ -1289,10 +1339,24 @@ function deleteChatSession(id){
     updateDeleteChatBtnVisibility();
 }
 
+const SESSION_TYPE_ICONS = {
+    chat: "💬",
+    study: "📘",
+    code: "💻",
+    business: "💼",
+    image: "🖼️",
+    poster: "🪧",
+    voice: "🎤"
+};
+
 function buildSidebarHistoryRow(session){
     const row = document.createElement("div");
     row.className = "sidebar-history-row" + (session.pinned ? " pinned" : "");
     row.title = session.title;
+
+    const icon = document.createElement("span");
+    icon.className = "shr-icon";
+    icon.textContent = SESSION_TYPE_ICONS[session.type] || SESSION_TYPE_ICONS.chat;
 
     const title = document.createElement("span");
     title.className = "shr-title";
@@ -1326,6 +1390,7 @@ function buildSidebarHistoryRow(session){
         );
     });
 
+    row.appendChild(icon);
     row.appendChild(title);
     row.appendChild(pinBtn);
     row.appendChild(menuBtn);
@@ -1400,6 +1465,24 @@ document.getElementById("sidebarClearHistoryBtn")?.addEventListener("click", () 
 });
 
 function openSession(session){
+    const type = session.type || "chat";
+    if(type === "image"){
+        openImageSession(session);
+    } else if(type === "poster"){
+        openPosterSession(session);
+    } else if(type === "voice"){
+        openVoiceSession(session);
+    } else {
+        openChatSession(session);
+    }
+    closeSidebarMobile();
+}
+
+function openChatSession(session){
+    activeChatTool = session.type || "chat";
+    setActiveNav(activeChatTool);
+    if(TOOL_PLACEHOLDERS[activeChatTool]) userInput.placeholder = TOOL_PLACEHOLDERS[activeChatTool];
+
     chatHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
     currentSessionId = session.id;
     document.getElementById("chatGreeting").style.display = "none";
@@ -1429,9 +1512,82 @@ function openSession(session){
             chatMessages.appendChild(div);
         }
     });
-    closeSidebarMobile();
     chatArea.scrollTop = chatArea.scrollHeight;
     updateDeleteChatBtnVisibility();
+}
+
+function openImageSession(session){
+    openModal("imageModal");
+    const input = document.getElementById("imageInput");
+    const result = document.getElementById("imageResult");
+    if(input) input.value = session.prompt || "";
+    if(!result) return;
+    result.innerHTML = "";
+    const img = document.createElement("img");
+    img.className = "generated-img";
+    img.alt = session.title || "Generated image";
+    img.src = session.imageUrl;
+    result.appendChild(img);
+
+    const actionsRow = document.createElement("div");
+    actionsRow.style.display = "flex";
+    actionsRow.style.gap = "8px";
+    actionsRow.style.marginTop = "8px";
+    result.appendChild(actionsRow);
+
+    const downloadBtn = document.createElement("button");
+    downloadBtn.className = "copy-btn";
+    downloadBtn.textContent = "⬇ Download";
+    downloadBtn.addEventListener("click", () => {
+        const a = document.createElement("a");
+        a.href = session.imageUrl;
+        a.download = "zyntra-ai-image.png";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    });
+    actionsRow.appendChild(downloadBtn);
+}
+
+function openPosterSession(session){
+    openModal("posterModal");
+    const result = document.getElementById("posterResult");
+    if(!result) return;
+    result.innerHTML = "";
+    const img = document.createElement("img");
+    img.className = "generated-img";
+    img.alt = session.title || "Generated poster";
+    img.src = session.posterDataUrl;
+    result.appendChild(img);
+
+    const actionsRow = document.createElement("div");
+    actionsRow.style.display = "flex";
+    actionsRow.style.gap = "8px";
+    actionsRow.style.marginTop = "8px";
+    result.appendChild(actionsRow);
+
+    const downloadBtn = document.createElement("button");
+    downloadBtn.className = "copy-btn";
+    downloadBtn.textContent = "⬇ Download Poster";
+    downloadBtn.addEventListener("click", () => {
+        const a = document.createElement("a");
+        a.href = session.posterDataUrl;
+        a.download = "zyntra-ai-poster.png";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    });
+    actionsRow.appendChild(downloadBtn);
+}
+
+function openVoiceSession(session){
+    openModal("voiceModal");
+    voiceHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
+    currentVoiceSessionId = session.id;
+    voiceBox.innerHTML = "";
+    session.messages.forEach(m => {
+        addVoiceMsg(m.content, m.role === "user" ? "user" : "ai");
+    });
 }
 
 // ---------- New chat ----------
@@ -1817,6 +1973,16 @@ document.getElementById("removeBgBtn")?.addEventListener("click", async () => {
         const resultBlob = await removeBackground(sourceBlob);
         const url = URL.createObjectURL(resultBlob);
 
+        // For history storage we need a URL that survives page reloads —
+        // blob: URLs are only valid for this page session, so convert to a
+        // data URL for anything we save.
+        const persistentUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(resultBlob);
+        });
+
         const img = new Image();
         img.className = "generated-img";
         img.alt = "Background removed";
@@ -1844,6 +2010,7 @@ document.getElementById("removeBgBtn")?.addEventListener("click", async () => {
             });
             actionsRow.appendChild(downloadBtn);
             bumpStat("images");
+            logImageToHistory("Background removed from photo", persistentUrl);
         };
         img.src = url;
     }catch(err){
@@ -1913,6 +2080,7 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
             result.innerHTML = "";
             result.appendChild(img);
             bumpStat("images");
+            logImageToHistory(val || finalPrompt, img.src);
 
             const actionsRow = document.createElement("div");
             actionsRow.style.display = "flex";
@@ -2071,9 +2239,11 @@ document.getElementById("posterGenBtn")?.addEventListener("click", () => {
                     const previewImg = document.createElement("img");
                     previewImg.className = "generated-img";
                     previewImg.alt = title || "Generated poster";
-                    previewImg.src = canvas.toDataURL("image/png");
+                    const posterDataUrl = canvas.toDataURL("image/png");
+                    previewImg.src = posterDataUrl;
                     result.appendChild(previewImg);
                     bumpStat("images");
+                    logPosterToHistory(title || theme, posterDataUrl);
 
                     const actionsRow = document.createElement("div");
                     actionsRow.style.display = "flex";
@@ -2156,10 +2326,12 @@ if(!SpeechRecognitionAPI){
             });
         }
         voiceHistory.push({ role: "user", content: said });
+        logVoiceMessageToHistory("user", said);
         addVoiceMsg("Thinking...", "ai-loading");
         try{
             const reply = await callChatAPI(voiceHistory);
             voiceHistory.push({ role: "assistant", content: reply });
+            logVoiceMessageToHistory("assistant", reply);
             voiceBox.removeChild(voiceBox.lastChild);
             const clean = reply.replace(/\*\*/g, "");
             const spoken = stripForSpeech(reply);
