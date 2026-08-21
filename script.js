@@ -113,8 +113,79 @@ document.addEventListener("click", (e) => {
     }
 });
 
+function extractImageBlocks(text){
+    const images = [];
+    let index = 0;
+    const withPlaceholders = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (match, alt, url) => {
+        const id = "imgblock-" + Date.now() + "-" + (index++);
+        images.push({ id, alt: alt || "Generated image", url });
+        return "\n%%" + id + "%%\n";
+    });
+    return { withPlaceholders, images };
+}
+
+function escapeAttr(str){
+    return escapeForDisplay(str).replace(/"/g, "&quot;");
+}
+
+function buildImageBlockHTML(image){
+    return `
+        <div class="ai-image-block">
+            <img class="generated-img" src="${image.url}" alt="${escapeAttr(image.alt)}">
+            <div class="ai-image-actions">
+                <button class="copy-btn ai-image-download" data-url="${image.url}">⬇ Download</button>
+            </div>
+        </div>
+    `;
+}
+
+document.addEventListener("click", (e) => {
+    const downloadBtn = e.target.closest(".ai-image-download");
+    if(downloadBtn){
+        const url = downloadBtn.dataset.url;
+        const original = downloadBtn.textContent;
+        downloadBtn.textContent = "Downloading...";
+        fetch(url)
+            .then(res => res.blob())
+            .then(blob => {
+                const objectUrl = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = objectUrl;
+                a.download = "zyntra-ai-image.png";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(objectUrl);
+                downloadBtn.textContent = original;
+            })
+            .catch(() => {
+                window.open(url, "_blank");
+                downloadBtn.textContent = original;
+            });
+    }
+});
+
+// Turns markdown links [text](url) and bare https:// URLs into real,
+// clickable <a> tags. Runs on already HTML-escaped text, so it's safe to
+// insert raw <a> markup without re-escaping it.
+function linkifyText(escapedText){
+    let out = escapedText.replace(
+        /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+        (m, label, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="ai-link">${label}</a>`
+    );
+    // Bare URLs — only ones not already sitting inside an href="" we just
+    // added (those are preceded by a quote or ">", neither of which this
+    // pattern's required leading context [\s(] matches).
+    out = out.replace(
+        /(^|[\s(])(https?:\/\/[^\s<]+[^\s<.,;:'")\]])/g,
+        (m, pre, url) => `${pre}<a href="${url}" target="_blank" rel="noopener noreferrer" class="ai-link">${url}</a>`
+    );
+    return out;
+}
+
 function formatAIText(text){
-    const { withPlaceholders, blocks } = extractCodeBlocks(text);
+    const { withPlaceholders: withCodePlaceholders, blocks } = extractCodeBlocks(text);
+    const { withPlaceholders, images } = extractImageBlocks(withCodePlaceholders);
 
     let safe = withPlaceholders
         .replace(/&/g,"&amp;")
@@ -122,6 +193,7 @@ function formatAIText(text){
         .replace(/>/g,"&gt;");
 
     safe = safe.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    safe = linkifyText(safe);
 
     const lines = safe.split(/\n+/).filter(l => l.trim() !== "");
     let html = "";
@@ -204,6 +276,12 @@ function formatAIText(text){
         const placeholder = "%%" + block.id + "%%";
         html = html.replace("<p>" + placeholder + "</p>", buildFileCardHTML(block));
         html = html.replace(placeholder, buildFileCardHTML(block));
+    });
+
+    images.forEach(image => {
+        const placeholder = "%%" + image.id + "%%";
+        html = html.replace("<p>" + placeholder + "</p>", buildImageBlockHTML(image));
+        html = html.replace(placeholder, buildImageBlockHTML(image));
     });
 
     return html;
@@ -1567,7 +1645,7 @@ document.getElementById("sidebarClearHistoryBtn")?.addEventListener("click", () 
 
 function openSession(session){
     const type = session.type || "chat";
-    if(type === "image"){
+    if(type === "image" && session.imageUrl){
         openImageSession(session);
     } else if(type === "poster"){
         openPosterSession(session);
@@ -1803,9 +1881,87 @@ function renderAttachPreview(){
     preview.appendChild(thumb);
 }
 
+async function sendImageChatMessage(msg){
+    if(!msg) return;
+
+    document.getElementById("chatGreeting").style.display = "none";
+
+    const userDiv = document.createElement("div");
+    userDiv.className = "user-message";
+    const p = document.createElement("p");
+    p.textContent = msg;
+    p.style.margin = "0";
+    userDiv.appendChild(p);
+    const userTime = document.createElement("span");
+    userTime.className = "msg-time";
+    userTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " ";
+    userTime.appendChild(buildMsgCheck());
+    userDiv.appendChild(userTime);
+    chatMessages.appendChild(userDiv);
+    userInput.value = "";
+    chatArea.scrollTop = chatArea.scrollHeight;
+
+    logMessageToHistory("user", msg);
+    bumpStat("conversations");
+
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "ai-message";
+    const aiAvatar = document.createElement("img");
+    aiAvatar.src = "favicon.png";
+    aiAvatar.alt = "";
+    aiAvatar.className = "ai-message-avatar";
+    const aiContent = document.createElement("div");
+    aiContent.className = "ai-message-content";
+    const waitLabel = isPro() ? "Creating image" : "Creating image (upgrade to Pro for faster generation)";
+    aiContent.innerHTML = `<div class="creating-box"><p class="creating-label">${waitLabel}</p><div class="creating-dots"></div></div>`;
+    loadingDiv.appendChild(aiAvatar);
+    loadingDiv.appendChild(aiContent);
+    chatMessages.appendChild(loadingDiv);
+    chatArea.scrollTop = chatArea.scrollHeight;
+
+    function finishWithImage(imageUrl){
+        bumpStat("images");
+        aiContent.innerHTML = "";
+        aiContent.innerHTML = buildImageBlockHTML({ alt: msg, url: imageUrl });
+        loadingDiv.classList.add("done");
+        addReportButton(aiContent.querySelector(".ai-image-actions"), "Generated image for prompt: \"" + msg + "\"");
+        const aiTime = document.createElement("span");
+        aiTime.className = "msg-time";
+        aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        aiContent.appendChild(aiTime);
+        chatArea.scrollTop = chatArea.scrollHeight;
+
+        // Saved as a markdown image so reopening this chat later renders it
+        // again automatically via formatAIText's image-block support.
+        logMessageToHistory("assistant", `![${msg.replace(/[[\]]/g, "")}](${imageUrl})`);
+    }
+
+    function attemptGenerate(retryCount){
+        const img = new Image();
+        img.onload = () => finishWithImage(img.src);
+        img.onerror = () => {
+            if(retryCount < 2){
+                setTimeout(() => attemptGenerate(retryCount + 1), 800);
+            } else {
+                aiContent.innerHTML = '<p>Could not generate the image right now. Please try again in a moment.</p>';
+                loadingDiv.classList.add("done");
+            }
+        };
+        const seed = Math.floor(Math.random() * 1000000);
+        img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(msg) + "?model=flux&enhance=true&seed=" + seed;
+    }
+
+    const waitMs = isPro() ? 2000 : 10000;
+    setTimeout(() => attemptGenerate(0), waitMs);
+}
+
 async function sendChatMessage(prefill){
     const msg = (prefill !== undefined ? prefill : userInput.value.trim());
     if(!msg && !attachedImage) return;
+
+    if(activeChatTool === "image"){
+        return sendImageChatMessage(msg);
+    }
 
     if(!isPro() && isLockedOut()){
         showChatLockedModal();
@@ -1973,7 +2129,8 @@ const TOOL_PLACEHOLDERS = {
     chat: "Type your message...",
     study: "Ask me to explain, summarize, or solve...",
     business: "Ask a business or growth question...",
-    code: "Ask me to write, debug, or explain code..."
+    code: "Ask me to write, debug, or explain code...",
+    image: "Describe the image you want to create..."
 };
 
 const TOOL_GREETINGS = {
@@ -1992,6 +2149,10 @@ const TOOL_GREETINGS = {
     business: {
         heading: 'Let\'s Grow Your <span>Business</span>!',
         subtitle: "Ask me for ideas, strategy, or growth tips."
+    },
+    image: {
+        heading: 'Let\'s Create an <span>Image</span>!',
+        subtitle: "Describe what you want to see, and I'll bring it to life."
     }
 };
 
@@ -2019,9 +2180,6 @@ function openTool(tool, prefix){
         document.getElementById("chatGreeting").style.display = chatHistory.length ? "none" : "";
         if(prefix){ userInput.value = prefix; }
         userInput.focus();
-        closeSidebarMobile();
-    } else if(tool === "image"){
-        openModal("imageModal");
         closeSidebarMobile();
     } else if(tool === "poster"){
         openModal("posterModal");
