@@ -1,3 +1,10 @@
+// Vercel's default serverless timeout (10s on Hobby) isn't enough for a
+// real web search — Groq has to search, read pages, then write the answer,
+// which can take 15-40+ seconds. This raises the ceiling for this function.
+export const config = {
+  maxDuration: 60
+};
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -16,10 +23,12 @@ export default async function handler(req, res) {
     // openai/gpt-oss-20b is the recommended text-only replacement.
     // qwen/qwen3.6-27b is Groq's current multimodal (text + image) model.
     // groq/compound automatically searches the web when a question needs current info.
-    const model = hasImage ? 'qwen/qwen3.6-27b' : 'groq/compound';
-
+    // groq/compound-mini does the same but with a single tool call — much
+    // faster and less likely to run into the function timeout, so we use it
+    // when the user explicitly forced a search via the 🌐 button.
     // Only meaningful for the compound (text) model — vision requests can't search.
     const wantsForcedSearch = !!forceSearch && !hasImage;
+    const model = hasImage ? 'qwen/qwen3.6-27b' : (wantsForcedSearch ? 'groq/compound-mini' : 'groq/compound');
 
     async function callGroq(model){
       const systemMessages = [
@@ -72,20 +81,37 @@ Rules:
 
       // Restrict compound to search-related tools when the user explicitly asked for it,
       // so it prioritizes searching over, say, running code.
-      if(wantsForcedSearch && model === 'groq/compound'){
+      if(wantsForcedSearch && model.startsWith('groq/compound')){
         body.compound_custom = {
           tools: { enabled_tools: ["web_search", "visit_website"] }
         };
       }
 
-      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body)
-      });
+      // Guard against the whole request hanging past Vercel's function
+      // timeout — abort a bit early so we can return a clean error instead
+      // of the platform killing the function with a raw 504.
+      const controller = new AbortController();
+      const abortTimer = setTimeout(() => controller.abort(), 55000);
+
+      let response;
+      try{
+        response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal
+        });
+      }catch(fetchErr){
+        clearTimeout(abortTimer);
+        if(fetchErr.name === 'AbortError'){
+          return { ok: false, status: 504, data: { error: { message: "The web search took too long to respond. Please try again, or ask a more specific question." } } };
+        }
+        throw fetchErr;
+      }
+      clearTimeout(abortTimer);
       const data = await response.json();
       return { ok: response.ok, status: response.status, data };
     }
@@ -94,7 +120,9 @@ Rules:
 
     // If the compound model fails for any reason (tier restrictions, outage, etc.),
     // fall back to the standard reliable text model instead of breaking the whole feature.
-    if(!result.ok && model === 'groq/compound'){
+    // Skip the retry on a timeout (status 504) — a second attempt would likely just
+    // time out again, so we'd rather return the friendly message immediately.
+    if(!result.ok && model.startsWith('groq/compound') && result.status !== 504){
       result = await callGroq('openai/gpt-oss-20b');
     }
 
