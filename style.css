@@ -1002,6 +1002,34 @@ margin-bottom:6px;
 color:#d9baff;
 }
 
+.ai-link{
+color:#c9a8ff;
+text-decoration:underline;
+text-decoration-color:rgba(201,168,255,.4);
+text-underline-offset:2px;
+font-weight:600;
+transition:.15s;
+}
+
+.ai-link:hover{
+color:#e2d1ff;
+text-decoration-color:#e2d1ff;
+}
+
+.ai-image-block{
+margin:10px 0;
+}
+
+.ai-image-block .generated-img{
+display:block;
+}
+
+.ai-image-actions{
+display:flex;
+gap:8px;
+margin-top:8px;
+}
+
 .user-message{
 margin-left:auto;
 background:var(--accent-grad);
