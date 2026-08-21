@@ -338,14 +338,60 @@ function addReportButton(container, contentToReport){
 
 // ---------- Web search sources (rendered under AI messages when a real search happened) ----------
 
+function faviconUrl(pageUrl){
+    try{
+        const host = new URL(pageUrl).hostname;
+        return "https://www.google.com/s2/favicons?domain=" + host + "&sz=64";
+    }catch(err){
+        return "";
+    }
+}
+
+function hostFromUrl(pageUrl){
+    try{
+        return new URL(pageUrl).hostname.replace(/^www\./, "");
+    }catch(err){
+        return pageUrl;
+    }
+}
+
 function buildSourcesRow(sources){
     const wrap = document.createElement("div");
     wrap.className = "message-sources";
 
+    // ---- Collapsed pill: overlapping favicons + "Searched N sites" ----
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "sources-toggle";
+
+    const faviconStack = document.createElement("span");
+    faviconStack.className = "sources-favicons";
+    sources.slice(0, 4).forEach(src => {
+        const icon = document.createElement("img");
+        icon.src = faviconUrl(src.url);
+        icon.alt = "";
+        icon.loading = "lazy";
+        faviconStack.appendChild(icon);
+    });
+    toggle.appendChild(faviconStack);
+
     const label = document.createElement("span");
-    label.className = "message-sources-label";
-    label.textContent = "🌐 Sources";
-    wrap.appendChild(label);
+    label.className = "sources-toggle-label";
+    label.textContent = "Searched " + sources.length + (sources.length === 1 ? " site" : " sites");
+    toggle.appendChild(label);
+
+    const chevron = document.createElement("span");
+    chevron.className = "sources-chevron";
+    chevron.textContent = "▾";
+    toggle.appendChild(chevron);
+
+    toggle.addEventListener("click", () => {
+        wrap.classList.toggle("open");
+    });
+
+    // ---- Expanded list: one row per source with favicon + title ----
+    const list = document.createElement("div");
+    list.className = "sources-list";
 
     sources.forEach(src => {
         const a = document.createElement("a");
@@ -353,13 +399,34 @@ function buildSourcesRow(sources){
         a.href = src.url;
         a.target = "_blank";
         a.rel = "noopener noreferrer";
-        let host = src.url;
-        try{ host = new URL(src.url).hostname.replace(/^www\./, ""); }catch(err){}
-        a.textContent = (src.title && src.title.length < 42) ? src.title : host;
         a.title = src.url;
-        wrap.appendChild(a);
+
+        const icon = document.createElement("img");
+        icon.className = "source-chip-favicon";
+        icon.src = faviconUrl(src.url);
+        icon.alt = "";
+        icon.loading = "lazy";
+        a.appendChild(icon);
+
+        const textWrap = document.createElement("span");
+        textWrap.className = "source-chip-text";
+
+        const title = document.createElement("span");
+        title.className = "source-chip-title";
+        title.textContent = (src.title && src.title.length < 70) ? src.title : hostFromUrl(src.url);
+        textWrap.appendChild(title);
+
+        const host = document.createElement("span");
+        host.className = "source-chip-host";
+        host.textContent = hostFromUrl(src.url);
+        textWrap.appendChild(host);
+
+        a.appendChild(textWrap);
+        list.appendChild(a);
     });
 
+    wrap.appendChild(toggle);
+    wrap.appendChild(list);
     return wrap;
 }
 
@@ -1805,7 +1872,14 @@ async function sendChatMessage(prefill){
     aiAvatar.className = "ai-message-avatar";
     const aiContent = document.createElement("div");
     aiContent.className = "ai-message-content";
-    aiContent.textContent = webSearchEnabled ? "Searching the web..." : "Typing...";
+    if(webSearchEnabled){
+        aiContent.innerHTML = '<span class="searching-indicator">'
+            + '<span class="searching-dot"></span><span class="searching-dot"></span><span class="searching-dot"></span>'
+            + '<span class="searching-label">🌐 Searching the web…</span>'
+            + '</span>';
+    } else {
+        aiContent.textContent = "Typing...";
+    }
     loadingDiv.appendChild(aiAvatar);
     loadingDiv.appendChild(aiContent);
     chatMessages.appendChild(loadingDiv);
@@ -1828,7 +1902,10 @@ async function sendChatMessage(prefill){
             aiContent.appendChild(aiTime);
         });
     }catch(err){
-        aiContent.textContent = "Sorry, something went wrong. Please try again.";
+        const msg = (err && err.message) ? err.message : "";
+        aiContent.textContent = /took too long|timed out|timeout/i.test(msg)
+            ? "🌐 That search took too long to finish. Try again, or ask a more specific question."
+            : "Sorry, something went wrong. Please try again.";
     }
     chatArea.scrollTop = chatArea.scrollHeight;
 }
