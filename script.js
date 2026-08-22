@@ -61,6 +61,7 @@ function buildFileCardHTML(block){
                     <p class="file-card-sub">Code · ${block.label}</p>
                 </div>
                 <span class="file-card-chevron">▾</span>
+                ${isPreviewableCode(block) ? `<button class="filecard-play-btn" data-code="${encoded}" title="Run preview">▶</button>` : ""}
                 <button class="filecard-download-btn" data-filename="${block.filename}" data-code="${encoded}">Download</button>
             </div>
             <div class="file-card-preview">
@@ -74,7 +75,69 @@ function buildFileCardHTML(block){
     `;
 }
 
+function isPreviewableCode(block){
+    return block.filename === "index.html" || block.label === "HTML";
+}
+
+function ensureCodePreviewModal(){
+    let modal = document.getElementById("codePreviewModal");
+    if(modal) return modal;
+
+    modal = document.createElement("div");
+    modal.id = "codePreviewModal";
+    modal.className = "modal-overlay code-preview-overlay";
+    modal.innerHTML = `
+        <div class="modal-box code-preview-box">
+            <div class="code-preview-header">
+                <span class="tag" style="margin:0;">LIVE PREVIEW</span>
+                <div class="code-preview-header-actions">
+                    <button type="button" class="code-preview-newtab" title="Open in new tab">↗</button>
+                    <button type="button" class="code-preview-close" title="Close">✕</button>
+                </div>
+            </div>
+            <div class="code-preview-frame-wrap">
+                <iframe class="code-preview-iframe" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"></iframe>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.querySelector(".code-preview-close").addEventListener("click", () => closeModal("codePreviewModal"));
+    modal.addEventListener("click", (e) => {
+        if(e.target === modal) closeModal("codePreviewModal");
+    });
+
+    return modal;
+}
+
+function openCodePreview(code){
+    const modal = ensureCodePreviewModal();
+    const iframe = modal.querySelector(".code-preview-iframe");
+    iframe.srcdoc = code;
+
+    const newTabBtn = modal.querySelector(".code-preview-newtab");
+    newTabBtn.onclick = () => {
+        const blob = new Blob([code], { type: "text/html" });
+        const url = URL.createObjectURL(blob);
+        window.open(url, "_blank");
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    };
+
+    openModal("codePreviewModal");
+}
+
 document.addEventListener("click", (e) => {
+    const playBtn = e.target.closest(".filecard-play-btn");
+    if(playBtn){
+        try{
+            const code = decodeURIComponent(escape(atob(playBtn.dataset.code)));
+            openCodePreview(code);
+        }catch(err){
+            alert("Could not open the preview.");
+        }
+        return;
+    }
+
     const downloadBtn = e.target.closest(".filecard-download-btn");
     if(downloadBtn){
         try{
@@ -690,7 +753,16 @@ async function callChatAPI(messages, options){
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
     });
-    const data = await res.json();
+
+    let data;
+    try{
+        data = await res.json();
+    }catch(parseErr){
+        throw new Error(res.status === 504
+            ? "The request took too long and timed out. Please try again."
+            : "Unexpected response from the server (status " + res.status + "). Please try again.");
+    }
+
     if(!res.ok) throw new Error(data.error || "Request failed");
     return {
         content: data.choices[0].message.content,
@@ -1881,6 +1953,31 @@ function renderAttachPreview(){
     preview.appendChild(thumb);
 }
 
+// Distinguishes an actual image-generation request ("a fox in a spacesuit")
+// from a casual reply while in Image mode ("bro nice drawing", "thanks!",
+// "can you make it bigger" as a question, etc.) — casual messages fall
+// through to a normal conversational reply instead of generating another
+// image from text that was never meant to be a prompt.
+function looksLikeImagePrompt(msg){
+    const text = (msg || "").trim();
+    if(!text) return false;
+
+    const words = text.split(/\s+/);
+
+    // Short reactions, compliments, greetings, and thanks aren't prompts.
+    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|love it|not bad|damn|omg|nice one|nice work|good job|well done|bhai|yaar)\b/i;
+    if(conversationalStart.test(text) && words.length <= 6){
+        return false;
+    }
+
+    // Direct questions are almost never image prompts.
+    if(/^(can you|could you|do you|are you|what is|what's|who are you|how do|how does|why|is this|is that)\b/i.test(text) && text.endsWith("?")){
+        return false;
+    }
+
+    return true;
+}
+
 async function sendImageChatMessage(msg){
     if(!msg) return;
 
@@ -1959,7 +2056,7 @@ async function sendChatMessage(prefill){
     const msg = (prefill !== undefined ? prefill : userInput.value.trim());
     if(!msg && !attachedImage) return;
 
-    if(activeChatTool === "image"){
+    if(activeChatTool === "image" && looksLikeImagePrompt(msg)){
         return sendImageChatMessage(msg);
     }
 
@@ -2059,9 +2156,9 @@ async function sendChatMessage(prefill){
         });
     }catch(err){
         const msg = (err && err.message) ? err.message : "";
-        aiContent.textContent = /took too long|timed out|timeout/i.test(msg)
+        aiContent.textContent = /took too long|timed out|timeout|took too long to respond/i.test(msg)
             ? "🌐 That search took too long to finish. Try again, or ask a more specific question."
-            : "Sorry, something went wrong. Please try again.";
+            : (msg || "Sorry, something went wrong. Please try again.");
     }
     chatArea.scrollTop = chatArea.scrollHeight;
 }
