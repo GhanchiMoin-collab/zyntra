@@ -1963,7 +1963,7 @@ function looksLikeImagePrompt(msg){
 
     const words = text.split(/\s+/);
 
-    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|love it|not bad|damn|omg|nice one|nice work|good job|well done|bhai|yaar|what|why|how|who|when|where|let|lets|let's)\b/i;
+    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|love it|not bad|damn|omg|nice one|nice work|good job|well done|bhai|yaar|what|why|how|who|when|where|let|lets|let's|please|pls|plz|stop|wait|no|nah|don't|dont|cancel|undo|enough|never ?mind)\b/i;
     if(conversationalStart.test(text) && words.length <= 8){
         return false;
     }
@@ -1973,6 +1973,15 @@ function looksLikeImagePrompt(msg){
     }
 
     return true;
+}
+
+// Statements that only express a wish to create *something*, without ever
+// saying what — "i want to make image", "let's create something", "make a
+// picture" — should prompt the AI to ask what to create, not generate a
+// random image from that vague phrase. Checked before anything else.
+function isVagueImageIntent(msg){
+    const text = (msg || "").trim().toLowerCase().replace(/[.!]+$/, "");
+    return /^(i want to (make|create|draw|generate)( an?)? (image|picture|photo)s?|i want (an?|to make) (image|picture|photo)|let'?s (make|create|draw|generate)( an?)? (image|picture|photo|something)|make (an?|the) (image|picture|photo)|create (an?|the) (image|picture|photo)|generate (an?|the) (image|picture|photo)|can (you|u) make (an?|me an?) (image|picture|photo))$/i.test(text);
 }
 
 function parseImageIntentReply(content){
@@ -1985,19 +1994,24 @@ function parseImageIntentReply(content){
 }
 
 // Asks the AI itself whether this message is a request to generate a new
-// image, or something else (a reply, question, complaint, greeting, etc.
-// about an image already shown). Far more reliable than pattern-matching —
-// regex alone was letting things like "what u make it look so ugly" and
-// "let do something" through as new image prompts.
+// image, or something else (a reply, question, complaint, greeting, command,
+// or vague statement of intent). Far more reliable than pattern-matching
+// alone — the few-shot examples below directly cover cases regex missed:
+// "please stop", complaints like "you made it look ugly", and vague intent
+// like "i want to make image" with no actual subject.
 async function classifyImageIntent(msg){
     const text = (msg || "").trim();
     const wordCount = text.split(/\s+/).length;
+
+    if(isVagueImageIntent(text)){
+        return false;
+    }
 
     // Skip the round trip entirely for messages that are unambiguous —
     // a reasonably long message that doesn't open with a casual/reactive
     // word is virtually always a real image description. This also cuts
     // total API call volume, which helps avoid rate limits.
-    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|not bad|damn|omg|what|why|how|who|when|where|let|lets|let's|can|could|do|are|is)\b/i;
+    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|not bad|damn|omg|what|why|how|who|when|where|let|lets|let's|can|could|do|are|is|please|pls|plz|stop|wait|no|nah|don't|dont|cancel|undo|enough)\b/i;
     if(wordCount >= 7 && !conversationalStart.test(text)){
         return true;
     }
@@ -2006,7 +2020,24 @@ async function classifyImageIntent(msg){
         const { content } = await callChatAPI([
             {
                 role: "user",
-                content: `Message from a user in an image-generation chat: "${msg}"\n\nDoes this message ask to generate, draw, create, or make a NEW picture/image (i.e. it describes a scene, subject, object, or art style to create)? Or is it something else — a casual reply, greeting, question, complaint, or comment about an image already shown?\n\nAnswer with exactly one word, nothing else: IMAGE or CHAT.`
+                content: `You are classifying a message sent inside an AI image-generation chat. Reply with exactly one word: IMAGE or CHAT.
+
+IMAGE = the message describes an actual picture to create — a subject, scene, object, or style (e.g. "a dragon flying over mountains", "make the sky purple", "add a hat to the girl").
+
+CHAT = anything else: greetings, thanks, questions, complaints about a result, commands directed at the assistant (stop, wait, please, don't, cancel, undo, no), or vague statements of intent with no real subject (e.g. "i want to make an image", "make an image", "let's create something").
+
+Examples:
+"a cat astronaut in space" -> IMAGE
+"make the sky purple" -> IMAGE
+"please stop" -> CHAT
+"what u make it look so ugly" -> CHAT
+"i want to make image" -> CHAT
+"thanks!" -> CHAT
+"can you make it bigger?" -> CHAT
+
+Message: "${msg}"
+
+Answer with exactly one word: IMAGE or CHAT.`
             }
         ], { lite: true });
         const parsed = parseImageIntentReply(content);
@@ -2111,7 +2142,9 @@ async function runImageModeConversationalReply(msg, loadingDiv, aiContent){
     // replying in, without needing the actual image data.
     const contextNote = {
         role: "system",
-        content: "You are chatting inside Zyntra AI's Image Generator. The user just sent a message that is a reply/question/comment rather than a new image request (e.g. reacting to an image you just generated for them). Reply naturally and briefly, like a friendly assistant — don't try to describe or generate an image for this message."
+        content: isVagueImageIntent(msg)
+            ? "You are chatting inside Zyntra AI's Image Generator. The user just said they want an image but didn't describe what it should look like (e.g. \"i want to make image\", \"make an image\"). Warmly ask them what they'd like to see — suggest they describe the subject, scene, or style. Keep it short."
+            : "You are chatting inside Zyntra AI's Image Generator. The user just sent a message that is a reply/question/comment rather than a new image request (e.g. reacting to an image you just generated for them). Reply naturally and briefly, like a friendly assistant — don't try to describe or generate an image for this message."
     };
 
     try{
