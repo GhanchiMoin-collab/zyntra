@@ -747,6 +747,7 @@ async function callChatAPI(messages, options){
     const opts = options || {};
     const payload = { messages };
     if(opts.forceSearch) payload.forceSearch = true;
+    if(opts.lite) payload.lite = true;
 
     const res = await fetch("/api/chat", {
         method: "POST",
@@ -1995,12 +1996,25 @@ async function classifyImageIntent(msg){
                 role: "user",
                 content: `Message from a user in an image-generation chat: "${msg}"\n\nDoes this message ask to generate, draw, create, or make a NEW picture/image (i.e. it describes a scene, subject, object, or art style to create)? Or is it something else — a casual reply, greeting, question, complaint, or comment about an image already shown?\n\nAnswer with exactly one word, nothing else: IMAGE or CHAT.`
             }
-        ]);
+        ], { lite: true });
         const parsed = parseImageIntentReply(content);
         return parsed === null ? looksLikeImagePrompt(msg) : parsed;
     }catch(err){
         return looksLikeImagePrompt(msg);
     }
+}
+
+// A single, warm, human fallback message used anywhere a reply genuinely
+// fails — instead of a cold "something went wrong", or a swallowed error.
+function friendlyErrorMessage(err){
+    const msg = (err && err.message) ? err.message.trim() : "";
+    if(/took too long|timed out|timeout/i.test(msg)){
+        return "🌐 That took too long to finish. Please try again, or ask a more specific question.";
+    }
+    if(msg && msg.toLowerCase() !== "request failed"){
+        return msg;
+    }
+    return "Hmm, I'm having a little trouble understanding that — could you try rephrasing, or send it again?";
 }
 
 function appendUserBubble(msg){
@@ -2101,7 +2115,7 @@ async function runImageModeConversationalReply(msg, loadingDiv, aiContent){
             aiContent.appendChild(aiTime);
         });
     }catch(err){
-        aiContent.textContent = "Sorry, something went wrong. Please try again.";
+        aiContent.textContent = friendlyErrorMessage(err);
         loadingDiv.classList.add("done");
     }
     chatArea.scrollTop = chatArea.scrollHeight;
@@ -2228,10 +2242,7 @@ async function sendChatMessage(prefill){
             aiContent.appendChild(aiTime);
         });
     }catch(err){
-        const msg = (err && err.message) ? err.message : "";
-        aiContent.textContent = /took too long|timed out|timeout|took too long to respond/i.test(msg)
-            ? "🌐 That search took too long to finish. Try again, or ask a more specific question."
-            : (msg || "Sorry, something went wrong. Please try again.");
+        aiContent.textContent = friendlyErrorMessage(err);
     }
     chatArea.scrollTop = chatArea.scrollHeight;
 }
@@ -2348,7 +2359,7 @@ function openTool(tool, prefix){
         applyToolGreeting(tool);
         userInput.placeholder = TOOL_PLACEHOLDERS[tool];
         document.getElementById("chatGreeting").style.display = chatHistory.length ? "none" : "";
-        if(prefix){ userInput.value = prefix; }
+        userInput.value = prefix || "";
         userInput.focus();
         closeSidebarMobile();
     } else if(tool === "poster"){
