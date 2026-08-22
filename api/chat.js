@@ -1,6 +1,8 @@
 // Vercel's default serverless timeout (10s on Hobby) isn't enough for a
 // real web search — Groq has to search, read pages, then write the answer,
 // which can take 15-40+ seconds. This raises the ceiling for this function.
+// (Also mirrored in vercel.json, which is the more reliable place to set
+// this for classic /api serverless functions.)
 export const config = {
   maxDuration: 60
 };
@@ -11,8 +13,26 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
   try {
-    const { messages, forceSearch } = req.body;
+    const { messages, forceSearch, lite } = req.body || {};
+
+    if (!Array.isArray(messages)) {
+      return res.status(400).json({ error: 'Missing messages array' });
+    }
+
+    // "lite" calls (e.g. quick internal classification) always use the
+    // fast, reliable plain-text model directly — no compound, no tools, no
+    // search — so they're fast and don't add a second point of failure to
+    // whatever heavier call happens next.
+    if (lite) {
+      const result = await callGroqLite(messages);
+      if (!result.ok) {
+        const message = result.data?.error?.message || 'The AI service returned an error. Please try again.';
+        return res.status(result.status || 500).json({ error: message });
+      }
+      return res.status(200).json(result.data);
+    }
 
     // If any message contains an image, we need a vision-capable model.
     const hasImage = messages.some(
@@ -26,11 +46,13 @@ export default async function handler(req, res) {
     // groq/compound-mini does the same but with a single tool call — much
     // faster and less likely to run into the function timeout, so we use it
     // when the user explicitly forced a search via the 🌐 button.
-    // Only meaningful for the compound (text) model — vision requests can't search.
     const wantsForcedSearch = !!forceSearch && !hasImage;
-    const model = hasImage ? 'qwen/qwen3.6-27b' : (wantsForcedSearch ? 'groq/compound-mini' : 'groq/compound');
+    const primaryModel = hasImage ? 'qwen/qwen3.6-27b' : (wantsForcedSearch ? 'groq/compound-mini' : 'groq/compound');
 
-    async function callGroq(model){
+    // callGroq NEVER throws — every failure path (network error, timeout,
+    // bad JSON, non-2xx response) resolves to { ok:false, status, data }
+    // so the caller can always safely decide whether to fall back.
+    async function callGroq(model, budgetMs){
       const systemMessages = [
         {
           role: "system",
@@ -87,11 +109,8 @@ Rules:
         };
       }
 
-      // Guard against the whole request hanging past Vercel's function
-      // timeout — abort a bit early so we can return a clean error instead
-      // of the platform killing the function with a raw 504.
       const controller = new AbortController();
-      const abortTimer = setTimeout(() => controller.abort(), 55000);
+      const abortTimer = setTimeout(() => controller.abort(), budgetMs);
 
       let response;
       try{
@@ -106,28 +125,41 @@ Rules:
         });
       }catch(fetchErr){
         clearTimeout(abortTimer);
-        if(fetchErr.name === 'AbortError'){
+        if(fetchErr && fetchErr.name === 'AbortError'){
           return { ok: false, status: 504, data: { error: { message: "The web search took too long to respond. Please try again, or ask a more specific question." } } };
         }
-        throw fetchErr;
+        console.error('Groq fetch error:', fetchErr);
+        return { ok: false, status: 502, data: { error: { message: "Couldn't reach the AI service. Please try again." } } };
       }
       clearTimeout(abortTimer);
-      const data = await response.json();
+
+      let data;
+      try{
+        data = await response.json();
+      }catch(parseErr){
+        console.error('Groq response was not valid JSON:', parseErr);
+        return { ok: false, status: 502, data: { error: { message: "Received an unexpected response from the AI service. Please try again." } } };
+      }
+
       return { ok: response.ok, status: response.status, data };
     }
 
-    let result = await callGroq(model);
+    // Budget the two attempts so their combined worst case stays safely
+    // under Vercel's 60s function ceiling: up to 38s for the primary model,
+    // leaving real room for a fast fallback call if needed.
+    let result = await callGroq(primaryModel, 38000);
 
-    // If the compound model fails for any reason (tier restrictions, outage, etc.),
-    // fall back to the standard reliable text model instead of breaking the whole feature.
-    // Skip the retry on a timeout (status 504) — a second attempt would likely just
-    // time out again, so we'd rather return the friendly message immediately.
-    if(!result.ok && model.startsWith('groq/compound') && result.status !== 504){
-      result = await callGroq('openai/gpt-oss-20b');
+    // If the primary model fails for any reason (tier restrictions, outage,
+    // a genuine timeout, etc.), fall back to the standard reliable text
+    // model instead of breaking the whole feature.
+    if(!result.ok && primaryModel.startsWith('groq/compound')){
+      console.error('Primary model failed, falling back:', primaryModel, result.status, result.data?.error?.message);
+      result = await callGroq('openai/gpt-oss-20b', 15000);
     }
 
     if (!result.ok) {
-      return res.status(result.status).json({ error: result.data.error?.message || 'Groq API error' });
+      const message = result.data?.error?.message || 'The AI service returned an error. Please try again.';
+      return res.status(result.status || 500).json({ error: message });
     }
 
     // Pull real search result URLs out of Groq's executed_tools, if any were run,
@@ -136,8 +168,50 @@ Rules:
 
     return res.status(200).json({ ...result.data, zyntra_sources });
   } catch (error) {
-    return res.status(500).json({ error: error.message });
+    console.error('Unhandled /api/chat error:', error);
+    return res.status(500).json({ error: error?.message || 'Something went wrong on our end. Please try again.' });
   }
+}
+
+async function callGroqLite(messages){
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), 12000);
+
+  let response;
+  try{
+    response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-oss-20b',
+        temperature: 0,
+        max_tokens: 12,
+        messages
+      }),
+      signal: controller.signal
+    });
+  }catch(fetchErr){
+    clearTimeout(abortTimer);
+    if(fetchErr && fetchErr.name === 'AbortError'){
+      return { ok: false, status: 504, data: { error: { message: "That took too long. Please try again." } } };
+    }
+    console.error('Groq lite fetch error:', fetchErr);
+    return { ok: false, status: 502, data: { error: { message: "Couldn't reach the AI service. Please try again." } } };
+  }
+  clearTimeout(abortTimer);
+
+  let data;
+  try{
+    data = await response.json();
+  }catch(parseErr){
+    console.error('Groq lite response was not valid JSON:', parseErr);
+    return { ok: false, status: 502, data: { error: { message: "Received an unexpected response. Please try again." } } };
+  }
+
+  return { ok: response.ok, status: response.status, data };
 }
 
 function extractSources(message){
