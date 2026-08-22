@@ -1990,6 +1990,18 @@ function parseImageIntentReply(content){
 // regex alone was letting things like "what u make it look so ugly" and
 // "let do something" through as new image prompts.
 async function classifyImageIntent(msg){
+    const text = (msg || "").trim();
+    const wordCount = text.split(/\s+/).length;
+
+    // Skip the round trip entirely for messages that are unambiguous —
+    // a reasonably long message that doesn't open with a casual/reactive
+    // word is virtually always a real image description. This also cuts
+    // total API call volume, which helps avoid rate limits.
+    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|not bad|damn|omg|what|why|how|who|when|where|let|lets|let's|can|could|do|are|is)\b/i;
+    if(wordCount >= 7 && !conversationalStart.test(text)){
+        return true;
+    }
+
     try{
         const { content } = await callChatAPI([
             {
