@@ -1953,24 +1953,20 @@ function renderAttachPreview(){
     preview.appendChild(thumb);
 }
 
-// Distinguishes an actual image-generation request ("a fox in a spacesuit")
-// from a casual reply while in Image mode ("bro nice drawing", "thanks!",
-// "can you make it bigger" as a question, etc.) — casual messages fall
-// through to a normal conversational reply instead of generating another
-// image from text that was never meant to be a prompt.
+// Fallback-only heuristic, used solely if the AI classification call itself
+// fails (e.g. a network error) — kept intentionally conservative since the
+// AI classifier below is what actually carries this most of the time.
 function looksLikeImagePrompt(msg){
     const text = (msg || "").trim();
     if(!text) return false;
 
     const words = text.split(/\s+/);
 
-    // Short reactions, compliments, greetings, and thanks aren't prompts.
-    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|love it|not bad|damn|omg|nice one|nice work|good job|well done|bhai|yaar)\b/i;
-    if(conversationalStart.test(text) && words.length <= 6){
+    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|love it|not bad|damn|omg|nice one|nice work|good job|well done|bhai|yaar|what|why|how|who|when|where|let|lets|let's)\b/i;
+    if(conversationalStart.test(text) && words.length <= 8){
         return false;
     }
 
-    // Direct questions are almost never image prompts.
     if(/^(can you|could you|do you|are you|what is|what's|who are you|how do|how does|why|is this|is that)\b/i.test(text) && text.endsWith("?")){
         return false;
     }
@@ -1978,9 +1974,36 @@ function looksLikeImagePrompt(msg){
     return true;
 }
 
-async function sendImageChatMessage(msg){
-    if(!msg) return;
+function parseImageIntentReply(content){
+    const clean = (content || "").trim().toLowerCase();
+    if(clean.startsWith("image")) return true;
+    if(clean.startsWith("chat")) return false;
+    if(/\bimage\b/.test(clean) && !/\bchat\b/.test(clean)) return true;
+    if(/\bchat\b/.test(clean) && !/\bimage\b/.test(clean)) return false;
+    return null; // genuinely ambiguous — let the caller fall back to the heuristic
+}
 
+// Asks the AI itself whether this message is a request to generate a new
+// image, or something else (a reply, question, complaint, greeting, etc.
+// about an image already shown). Far more reliable than pattern-matching —
+// regex alone was letting things like "what u make it look so ugly" and
+// "let do something" through as new image prompts.
+async function classifyImageIntent(msg){
+    try{
+        const { content } = await callChatAPI([
+            {
+                role: "user",
+                content: `Message from a user in an image-generation chat: "${msg}"\n\nDoes this message ask to generate, draw, create, or make a NEW picture/image (i.e. it describes a scene, subject, object, or art style to create)? Or is it something else — a casual reply, greeting, question, complaint, or comment about an image already shown?\n\nAnswer with exactly one word, nothing else: IMAGE or CHAT.`
+            }
+        ]);
+        const parsed = parseImageIntentReply(content);
+        return parsed === null ? looksLikeImagePrompt(msg) : parsed;
+    }catch(err){
+        return looksLikeImagePrompt(msg);
+    }
+}
+
+function appendUserBubble(msg){
     document.getElementById("chatGreeting").style.display = "none";
 
     const userDiv = document.createElement("div");
@@ -1997,10 +2020,9 @@ async function sendImageChatMessage(msg){
     chatMessages.appendChild(userDiv);
     userInput.value = "";
     chatArea.scrollTop = chatArea.scrollHeight;
+}
 
-    logMessageToHistory("user", msg);
-    bumpStat("conversations");
-
+function appendLoadingAiBubble(initialHTML){
     const loadingDiv = document.createElement("div");
     loadingDiv.className = "ai-message";
     const aiAvatar = document.createElement("img");
@@ -2009,16 +2031,20 @@ async function sendImageChatMessage(msg){
     aiAvatar.className = "ai-message-avatar";
     const aiContent = document.createElement("div");
     aiContent.className = "ai-message-content";
-    const waitLabel = isPro() ? "Creating image" : "Creating image (upgrade to Pro for faster generation)";
-    aiContent.innerHTML = `<div class="creating-box"><p class="creating-label">${waitLabel}</p><div class="creating-dots"></div></div>`;
+    aiContent.innerHTML = initialHTML;
     loadingDiv.appendChild(aiAvatar);
     loadingDiv.appendChild(aiContent);
     chatMessages.appendChild(loadingDiv);
     chatArea.scrollTop = chatArea.scrollHeight;
+    return { loadingDiv, aiContent };
+}
+
+function runImageGeneration(msg, loadingDiv, aiContent){
+    const waitLabel = isPro() ? "Creating image" : "Creating image (upgrade to Pro for faster generation)";
+    aiContent.innerHTML = `<div class="creating-box"><p class="creating-label">${waitLabel}</p><div class="creating-dots"></div></div>`;
 
     function finishWithImage(imageUrl){
         bumpStat("images");
-        aiContent.innerHTML = "";
         aiContent.innerHTML = buildImageBlockHTML({ alt: msg, url: imageUrl });
         loadingDiv.classList.add("done");
         addReportButton(aiContent.querySelector(".ai-image-actions"), "Generated image for prompt: \"" + msg + "\"");
@@ -2052,12 +2078,59 @@ async function sendImageChatMessage(msg){
     setTimeout(() => attemptGenerate(0), waitMs);
 }
 
+async function runImageModeConversationalReply(msg, loadingDiv, aiContent){
+    aiContent.textContent = webSearchEnabled ? "🌐 Searching the web…" : "Typing...";
+
+    // A lightweight system note so the reply understands the context it's
+    // replying in, without needing the actual image data.
+    const contextNote = {
+        role: "system",
+        content: "You are chatting inside Zyntra AI's Image Generator. The user just sent a message that is a reply/question/comment rather than a new image request (e.g. reacting to an image you just generated for them). Reply naturally and briefly, like a friendly assistant — don't try to describe or generate an image for this message."
+    };
+
+    try{
+        const { content: reply } = await callChatAPI([contextNote, { role: "user", content: msg }], { forceSearch: webSearchEnabled });
+        logMessageToHistory("assistant", reply);
+        aiContent.textContent = "";
+        typeOutText(aiContent, reply, chatArea, () => {
+            loadingDiv.classList.add("done");
+            addMessageActionBar(aiContent, reply);
+            const aiTime = document.createElement("span");
+            aiTime.className = "msg-time";
+            aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            aiContent.appendChild(aiTime);
+        });
+    }catch(err){
+        aiContent.textContent = "Sorry, something went wrong. Please try again.";
+        loadingDiv.classList.add("done");
+    }
+    chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+async function sendImageOrChatMessage(msg){
+    if(!msg) return;
+
+    appendUserBubble(msg);
+    logMessageToHistory("user", msg);
+    bumpStat("conversations");
+
+    const { loadingDiv, aiContent } = appendLoadingAiBubble("Thinking...");
+
+    const isImageRequest = await classifyImageIntent(msg);
+
+    if(isImageRequest){
+        runImageGeneration(msg, loadingDiv, aiContent);
+    } else {
+        runImageModeConversationalReply(msg, loadingDiv, aiContent);
+    }
+}
+
 async function sendChatMessage(prefill){
     const msg = (prefill !== undefined ? prefill : userInput.value.trim());
     if(!msg && !attachedImage) return;
 
-    if(activeChatTool === "image" && looksLikeImagePrompt(msg)){
-        return sendImageChatMessage(msg);
+    if(activeChatTool === "image" && msg){
+        return sendImageOrChatMessage(msg);
     }
 
     if(!isPro() && isLockedOut()){
