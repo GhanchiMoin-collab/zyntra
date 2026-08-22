@@ -2397,13 +2397,15 @@ function openTool(tool, prefix){
         // Switching to a different chat mode starts a clean chat.
         // The previous conversation is already saved in history (it was
         // logged message-by-message as it happened), so this is safe.
-        if(tool !== activeChatTool && chatHistory.length > 0){
+        // Checked against the actual displayed messages (not chatHistory)
+        // since Image-mode conversations don't populate chatHistory at all.
+        if(tool !== activeChatTool && chatMessages.children.length > 0){
             resetChatView();
         }
         activeChatTool = tool;
         applyToolGreeting(tool);
         userInput.placeholder = TOOL_PLACEHOLDERS[tool];
-        document.getElementById("chatGreeting").style.display = chatHistory.length ? "none" : "";
+        document.getElementById("chatGreeting").style.display = chatMessages.children.length ? "none" : "";
         userInput.value = prefix || "";
         userInput.focus();
         closeSidebarMobile();
