@@ -28,8 +28,7 @@ export default async function handler(req, res) {
     if (lite) {
       const result = await callGroqLite(messages);
       if (!result.ok) {
-        const message = result.data?.error?.message || 'The AI service returned an error. Please try again.';
-        return res.status(result.status || 500).json({ error: message });
+        return res.status(result.status || 500).json({ error: userFacingError(result) });
       }
       return res.status(200).json(result.data);
     }
@@ -109,39 +108,59 @@ Rules:
         };
       }
 
-      const controller = new AbortController();
-      const abortTimer = setTimeout(() => controller.abort(), budgetMs);
+      // The actual network call + JSON parsing, isolated so it can be
+      // retried once below without duplicating this logic.
+      async function attempt(timeBudget){
+        const controller = new AbortController();
+        const abortTimer = setTimeout(() => controller.abort(), timeBudget);
 
-      let response;
-      try{
-        response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(body),
-          signal: controller.signal
-        });
-      }catch(fetchErr){
-        clearTimeout(abortTimer);
-        if(fetchErr && fetchErr.name === 'AbortError'){
-          return { ok: false, status: 504, data: { error: { message: "The web search took too long to respond. Please try again, or ask a more specific question." } } };
+        let response;
+        try{
+          response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal
+          });
+        }catch(fetchErr){
+          clearTimeout(abortTimer);
+          if(fetchErr && fetchErr.name === 'AbortError'){
+            return { ok: false, status: 504, data: { error: { message: "The web search took too long to respond. Please try again, or ask a more specific question." } } };
+          }
+          console.error('Groq fetch error:', fetchErr);
+          return { ok: false, status: 502, data: { error: { message: "Couldn't reach the AI service. Please try again." } } };
         }
-        console.error('Groq fetch error:', fetchErr);
-        return { ok: false, status: 502, data: { error: { message: "Couldn't reach the AI service. Please try again." } } };
-      }
-      clearTimeout(abortTimer);
+        clearTimeout(abortTimer);
 
-      let data;
-      try{
-        data = await response.json();
-      }catch(parseErr){
-        console.error('Groq response was not valid JSON:', parseErr);
-        return { ok: false, status: 502, data: { error: { message: "Received an unexpected response from the AI service. Please try again." } } };
+        let data;
+        try{
+          data = await response.json();
+        }catch(parseErr){
+          console.error('Groq response was not valid JSON:', parseErr);
+          return { ok: false, status: 502, data: { error: { message: "Received an unexpected response from the AI service. Please try again." } } };
+        }
+
+        return { ok: response.ok, status: response.status, data };
       }
 
-      return { ok: response.ok, status: response.status, data };
+      let result = await attempt(budgetMs);
+
+      // Groq's rate-limit errors include the exact wait time (e.g. "Please
+      // try again in 7.2s") — parse and honor it with one automatic retry
+      // instead of failing the user's message outright over a brief spike.
+      if(!result.ok && result.status === 429){
+        const waitMs = parseRetryAfterMs(result.data?.error?.message);
+        if(waitMs !== null && waitMs < budgetMs - 2000){
+          console.error(`Rate limited on ${model}, retrying in ${waitMs}ms`);
+          await sleep(waitMs);
+          result = await attempt(Math.max(budgetMs - waitMs, 6000));
+        }
+      }
+
+      return result;
     }
 
     // Budget the two attempts so their combined worst case stays safely
@@ -158,8 +177,7 @@ Rules:
     }
 
     if (!result.ok) {
-      const message = result.data?.error?.message || 'The AI service returned an error. Please try again.';
-      return res.status(result.status || 500).json({ error: message });
+      return res.status(result.status || 500).json({ error: userFacingError(result) });
     }
 
     // Pull real search result URLs out of Groq's executed_tools, if any were run,
@@ -174,44 +192,84 @@ Rules:
 }
 
 async function callGroqLite(messages){
-  const controller = new AbortController();
-  const abortTimer = setTimeout(() => controller.abort(), 12000);
+  async function attempt(timeBudget){
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => controller.abort(), timeBudget);
 
-  let response;
-  try{
-    response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-oss-20b',
-        temperature: 0,
-        max_tokens: 12,
-        messages
-      }),
-      signal: controller.signal
-    });
-  }catch(fetchErr){
-    clearTimeout(abortTimer);
-    if(fetchErr && fetchErr.name === 'AbortError'){
-      return { ok: false, status: 504, data: { error: { message: "That took too long. Please try again." } } };
+    let response;
+    try{
+      response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'openai/gpt-oss-20b',
+          temperature: 0,
+          max_tokens: 12,
+          messages
+        }),
+        signal: controller.signal
+      });
+    }catch(fetchErr){
+      clearTimeout(abortTimer);
+      if(fetchErr && fetchErr.name === 'AbortError'){
+        return { ok: false, status: 504, data: { error: { message: "That took too long. Please try again." } } };
+      }
+      console.error('Groq lite fetch error:', fetchErr);
+      return { ok: false, status: 502, data: { error: { message: "Couldn't reach the AI service. Please try again." } } };
     }
-    console.error('Groq lite fetch error:', fetchErr);
-    return { ok: false, status: 502, data: { error: { message: "Couldn't reach the AI service. Please try again." } } };
-  }
-  clearTimeout(abortTimer);
+    clearTimeout(abortTimer);
 
-  let data;
-  try{
-    data = await response.json();
-  }catch(parseErr){
-    console.error('Groq lite response was not valid JSON:', parseErr);
-    return { ok: false, status: 502, data: { error: { message: "Received an unexpected response. Please try again." } } };
+    let data;
+    try{
+      data = await response.json();
+    }catch(parseErr){
+      console.error('Groq lite response was not valid JSON:', parseErr);
+      return { ok: false, status: 502, data: { error: { message: "Received an unexpected response. Please try again." } } };
+    }
+
+    return { ok: response.ok, status: response.status, data };
   }
 
-  return { ok: response.ok, status: response.status, data };
+  const budgetMs = 12000;
+  let result = await attempt(budgetMs);
+
+  if(!result.ok && result.status === 429){
+    const waitMs = parseRetryAfterMs(result.data?.error?.message);
+    if(waitMs !== null && waitMs < budgetMs - 2000){
+      console.error(`Rate limited on lite call, retrying in ${waitMs}ms`);
+      await sleep(waitMs);
+      result = await attempt(Math.max(budgetMs - waitMs, 4000));
+    }
+  }
+
+  return result;
+}
+
+function parseRetryAfterMs(message){
+  const match = /try again in\s*([\d.]+)\s*s/i.exec(message || "");
+  if(!match) return null;
+  const sec = parseFloat(match[1]);
+  if(isNaN(sec)) return null;
+  return Math.min(Math.ceil(sec * 1000) + 300, 12000);
+}
+
+function sleep(ms){
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Groq's raw error text (org IDs, token quotas, billing links, etc.) is an
+// internal implementation detail — never show it to the end user. This maps
+// known cases to something clean while the real message still gets logged.
+function userFacingError(result){
+  const rawMessage = result.data?.error?.message || '';
+  if(result.status === 429){
+    console.error('Rate limited after retry:', rawMessage);
+    return "Zyntra AI is handling a lot of requests right now — please wait a few seconds and try again.";
+  }
+  return rawMessage || 'The AI service returned an error. Please try again.';
 }
 
 function extractSources(message){
