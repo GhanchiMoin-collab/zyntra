@@ -1449,6 +1449,68 @@ const SESSION_TYPE_ICONS = {
     voice: "🎤"
 };
 
+// ---------- Search chats modal ----------
+
+function renderSearchChatsList(query){
+    const list = document.getElementById("searchChatsList");
+    if(!list) return;
+    list.innerHTML = "";
+
+    if(!isLoggedIn()){
+        list.innerHTML = '<p class="search-chats-empty">Sign in to save and search your conversations.</p>';
+        return;
+    }
+
+    const q = (query || "").trim().toLowerCase();
+    const sessions = getSessions().filter(s => !q || s.title.toLowerCase().includes(q));
+
+    if(sessions.length === 0){
+        list.innerHTML = q
+            ? '<p class="search-chats-empty">No chats match your search.</p>'
+            : '<p class="search-chats-empty">No conversations yet. Start chatting!</p>';
+        return;
+    }
+
+    sessions.forEach(session => {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "search-chats-row";
+
+        const icon = document.createElement("span");
+        icon.className = "search-chats-row-icon";
+        icon.textContent = SESSION_TYPE_ICONS[session.type] || SESSION_TYPE_ICONS.chat;
+
+        const title = document.createElement("span");
+        title.className = "search-chats-row-title";
+        title.textContent = session.title;
+
+        row.appendChild(icon);
+        row.appendChild(title);
+        row.addEventListener("click", () => {
+            closeModal("searchChatsModal");
+            openSession(session);
+        });
+        list.appendChild(row);
+    });
+}
+
+function openSearchChatsModal(){
+    openModal("searchChatsModal");
+    closeSidebarMobile();
+    const input = document.getElementById("searchChatsInput");
+    if(input){
+        input.value = "";
+        renderSearchChatsList("");
+        setTimeout(() => input.focus(), 50);
+    }
+}
+
+document.getElementById("searchChatsBtn")?.addEventListener("click", openSearchChatsModal);
+document.getElementById("searchChatsClose")?.addEventListener("click", () => closeModal("searchChatsModal"));
+document.getElementById("searchChatsInput")?.addEventListener("input", (e) => {
+    renderSearchChatsList(e.target.value);
+});
+
 function buildSidebarHistoryRow(session){
     const row = document.createElement("div");
     row.className = "sidebar-history-row" + (session.pinned ? " pinned" : "");
