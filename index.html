@@ -135,7 +135,7 @@
             <div class="topbar-right">
                 <button class="theme-toggle" id="deleteChatBtn" title="Delete this chat" style="display:none;">🗑</button>
                 <button class="theme-toggle" id="themeToggle">🌙</button>
-                <button class="topbar-avatar" id="topbarProfileBtn">👤</button>
+                <button class="topbar-avatar" id="topbarSettingsBtn" title="Settings">⚙️</button>
             </div>
         </header>
 
@@ -339,15 +339,15 @@
     </div>
 </div>
 
-<!-- ================= PROFILE MODAL ================= -->
+<!-- ================= SETTINGS MODAL ================= -->
 <div class="modal-overlay" id="profileModal">
     <div class="modal-box">
         <button class="modal-close" id="profileModalClose">✕</button>
-        <span class="tag">PROFILE</span>
-        <h1>Your <span>Profile</span></h1>
+        <span class="tag">SETTINGS</span>
+        <h1><span>Settings</span></h1>
 
         <div id="profileGuestView">
-            <p>Sign in to set up your profile, save custom instructions, and sync your chat history.</p>
+            <p>Sign in to personalize Zyntra AI, set a voice, and sync your chat history.</p>
             <button id="profileSigninBtn" class="mic-btn">Sign In</button>
         </div>
 
@@ -357,6 +357,7 @@
                 <p id="profileEmailDisplay" style="color:#9aa0c0; font-size:14px; margin:0;"></p>
             </div>
 
+            <h3 class="settings-section-title">Personalization</h3>
             <div class="modal-input-row modal-input-col">
                 <label class="profile-label">Full name</label>
                 <input type="text" id="profileFullName" placeholder="Your full name">
@@ -382,7 +383,16 @@
             </div>
 
             <div style="border-top:1px solid #232a4d; margin-top:24px; padding-top:20px;">
-                <h3 style="font-size:15px; margin-bottom:12px;">📌 Pinned Chats</h3>
+                <h3 class="settings-section-title">🔊 Voice</h3>
+                <p class="settings-section-hint">Choose the voice Zyntra AI speaks with in Voice Assistant and read-aloud replies.</p>
+                <div class="modal-input-row" style="margin-top:12px;">
+                    <select id="voiceSelect" style="flex:1;"></select>
+                    <button id="voiceTestBtn" type="button" style="flex:0 0 auto; padding:13px 18px;">▶ Test</button>
+                </div>
+            </div>
+
+            <div style="border-top:1px solid #232a4d; margin-top:24px; padding-top:20px;">
+                <h3 class="settings-section-title">📌 Pinned Chats</h3>
                 <div class="history-list" id="pinnedChatsBox" style="max-height:220px;"></div>
             </div>
 
