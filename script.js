@@ -1612,7 +1612,7 @@ function confirmAction(title, text, onConfirm){
 document.getElementById("confirmActionClose")?.addEventListener("click", () => closeModal("confirmActionModal"));
 document.getElementById("confirmActionCancel")?.addEventListener("click", () => closeModal("confirmActionModal"));
 
-document.getElementById("sidebarClearHistoryBtn")?.addEventListener("click", () => {
+document.getElementById("searchChatsClearBtn")?.addEventListener("click", () => {
     if(!isLoggedIn()) return;
     confirmAction(
         "Clear All History?",
@@ -1622,6 +1622,7 @@ document.getElementById("sidebarClearHistoryBtn")?.addEventListener("click", () 
             currentSessionId = null;
             renderSidebarHistory();
             renderPinnedChats();
+            renderSearchChatsList(document.getElementById("searchChatsInput")?.value || "");
         }
     );
 });
