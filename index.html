@@ -101,10 +101,14 @@
         <div class="sidebar-footer">
             <button id="installAppBtn" class="sidebar-install-btn" style="display:none;">📥 Get the App</button>
 
-            <div class="upgrade-card" id="sidebarUpgradeCard">
-                <p class="upgrade-title">👑 Upgrade to Pro</p>
-                <p class="upgrade-sub">Get unlimited AI chats, faster responses &amp; more.</p>
-                <button id="sidebarUpgradeBtn">Learn More</button>
+            <div class="ad-slot-card" id="sidebarAdSlot">
+                <p class="ad-slot-label">Sponsored</p>
+                <ins class="adsbygoogle sidebar-adsbygoogle"
+                     style="display:block"
+                     data-ad-client="ca-pub-2270474390846038"
+                     data-ad-slot="YOUR_SIDEBAR_AD_SLOT_ID"
+                     data-ad-format="auto"
+                     data-full-width-responsive="true"></ins>
             </div>
 
             <div class="sidebar-links">
@@ -136,7 +140,6 @@
             </div>
             <div class="topbar-right">
                 <button class="theme-toggle" id="deleteChatBtn" title="Delete this chat" style="display:none;">🗑</button>
-                <button class="upgrade-pill" id="topUpgradeBtn">✨ Upgrade to Pro</button>
                 <button class="theme-toggle" id="themeToggle">🌙</button>
                 <button class="topbar-avatar" id="topbarProfileBtn">👤</button>
             </div>
@@ -155,7 +158,7 @@
 
         <div id="attachPreview" class="attach-preview"></div>
 
-        <div id="adBanner" class="ad-banner-slot" style="display:none;">
+        <div id="adBanner" class="ad-banner-slot">
             <!--
                 TODO once your site is approved: create a Display ad unit in
                 AdSense, then replace YOUR_AD_SLOT_ID below with its real
@@ -273,7 +276,7 @@
         <button class="modal-close" id="signinModalClose">✕</button>
         <span class="tag">SIGN IN</span>
         <h1 id="signinTitle">Welcome <span>Back</span></h1>
-        <p class="ai-disclosure" id="signinContext" style="display:none; color:#c9a8ff;">🔒 Sign in to unlock Zyntra AI Pro.</p>
+        <p class="ai-disclosure" id="signinContext" style="display:none; color:#c9a8ff;">🔒 Sign in to save your chat history across devices.</p>
 
         <button id="googleSigninBtn" style="width:100%; padding:13px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:white; font-weight:600; cursor:pointer; margin-bottom:16px; display:flex; align-items:center; justify-content:center; gap:10px;">
             <span style="font-size:16px;">G</span> Continue with Google
@@ -305,21 +308,11 @@
         <button class="modal-close" id="signoutModalClose">✕</button>
         <span class="tag">SIGN OUT</span>
         <h1>Sign <span>Out?</span></h1>
-        <p>Are you sure you want to sign out? You'll go back to guest mode, and Pro features will lock again until you sign back in.</p>
+        <p>Are you sure you want to sign out? You'll go back to guest mode and your synced chat history will lock again until you sign back in.</p>
         <div class="modal-input-row" style="margin-top:20px;">
             <button id="signoutCancel" style="flex:1; padding:13px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:white; font-weight:600; cursor:pointer;">Cancel</button>
             <button id="signoutConfirm" style="flex:1; padding:13px; border:none; border-radius:12px; background:linear-gradient(135deg,#e14b6a,#ff5db5); color:white; font-weight:700; cursor:pointer;">Confirm</button>
         </div>
-    </div>
-</div>
-
-<!-- ================= PRO EXPIRED MODAL ================= -->
-<div class="modal-overlay" id="proExpiredModal">
-    <div class="modal-box" style="max-width:420px; text-align:center;">
-        <span class="tag">ZYNTRA PRO</span>
-        <h1>You're <span>Out of Pro</span></h1>
-        <p>Your Zyntra AI Pro subscription has ended. Buy it again to get unlimited chat, faster generation, and priority support back.</p>
-        <button id="proExpiredOkBtn" style="width:100%; margin-top:10px; padding:13px; border:none; border-radius:12px; background:linear-gradient(135deg,#7c5cff,#ff5db5); color:white; font-weight:700; cursor:pointer;">Okay</button>
     </div>
 </div>
 
@@ -332,10 +325,9 @@
             <div class="lock-icon">🔒</div>
         </div>
         <h1>Chat's <span>Taking a Break</span></h1>
-        <p>You've used all your free messages. Your chat unlocks automatically in:</p>
+        <p>You've used all your free messages. Watch a quick ad to keep chatting right away, or wait for it to reset automatically in:</p>
         <p class="lock-countdown" id="lockCountdown">02:00:00</p>
-        <button id="lockUpgradeBtn" style="width:100%; padding:14px; border:none; border-radius:14px; background:linear-gradient(135deg,#7c5cff,#ff5db5); color:white; font-weight:700; cursor:pointer;">⚡ Upgrade to Pro for Unlimited Chat</button>
-        <button id="lockWatchAdBtn" style="width:100%; margin-top:10px; padding:14px; border:1px dashed #3a3f66; border-radius:14px; background:#171d3d; color:#c9a8ff; font-weight:700; font-size:14px; cursor:pointer;">🎬 Watch Ad to Unlock Now</button>
+        <button id="lockWatchAdBtn" style="width:100%; padding:14px; border:none; border-radius:14px; background:linear-gradient(135deg,#7c5cff,#ff5db5); color:white; font-weight:700; cursor:pointer;">🎬 Watch Ad to Unlock Now</button>
     </div>
 </div>
 
@@ -361,7 +353,7 @@
         <h1>Your <span>Profile</span></h1>
 
         <div id="profileGuestView">
-            <p>Sign in to set up your profile, save custom instructions, and unlock Pro features.</p>
+            <p>Sign in to set up your profile, save custom instructions, and sync your chat history.</p>
             <button id="profileSigninBtn" class="mic-btn">Sign In</button>
         </div>
 
@@ -402,30 +394,6 @@
 
             <div style="border-top:1px solid #232a4d; margin-top:20px; padding-top:20px;">
                 <button id="profileSignoutBtn" style="width:100%; padding:12px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:#ff8fa8; font-weight:600; cursor:pointer;">🚪 Sign Out</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- ================= PRICING MODAL ================= -->
-<div class="modal-overlay" id="pricingModal">
-    <div class="modal-box">
-        <button class="modal-close" id="pricingModalClose">✕</button>
-        <span class="tag">PRICING</span>
-        <h1>Simple <span>Pricing</span></h1>
-        <div class="pricing-grid">
-            <div class="pricing-plan">
-                <h3>Free</h3>
-                <p class="price">$0<span>/mo</span></p>
-                <p>20 AI chats per day. Includes a small banner ad. Image generation takes ~10s.</p>
-                <button id="freeplanBtn" disabled style="width:100%; margin-top:14px; padding:13px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:#9aa0c0; font-weight:600; cursor:default;">Current Plan</button>
-            </div>
-            <div class="pricing-plan featured">
-                <h3>Pro <span id="proBadge" style="display:none; font-size:11px; color:#5fe0a0;">✓ Active</span></h3>
-                <p class="price">$9<span>/mo</span></p>
-                <p>Unlimited chats, no ads, and image generation in ~2s instead of 10s.</p>
-                <button id="getProBtn" style="width:100%; margin-top:14px; padding:13px; border:none; border-radius:12px; background:linear-gradient(135deg,#7c5cff,#ff5db5); color:white; font-weight:700; cursor:pointer;">Get Pro</button>
-                <p id="twaBuyNotice" style="display:none; margin-top:12px; font-size:12.5px; color:#9aa0c0;">To purchase Pro, please visit <strong style="color:#c9a8ff;">zyntra-ai-psi.vercel.app</strong> in your phone's browser.</p>
             </div>
         </div>
     </div>
