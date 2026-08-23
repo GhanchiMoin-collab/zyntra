@@ -1536,6 +1536,11 @@ gap:12px;
 padding:22px 24px;
 border-bottom:1px solid var(--glass-border);
 flex-shrink:0;
+transition:border-color .2s;
+}
+
+.search-chats-header:focus-within{
+border-bottom-color:rgba(180,120,255,.45);
 }
 
 .search-chats-input{
@@ -1547,6 +1552,10 @@ outline:none;
 color:var(--text-1);
 font-size:18px;
 font-family:inherit;
+}
+
+.search-chats-input:focus-visible{
+outline:none;
 }
 
 .search-chats-input::placeholder{
