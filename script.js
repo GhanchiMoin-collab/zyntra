@@ -408,16 +408,6 @@ function showChatLockedModal(){
     lockCountdownInterval = setInterval(tick, 1000);
 }
 
-document.getElementById("lockUpgradeBtn")?.addEventListener("click", () => {
-    closeModal("chatLockedModal");
-    if(!isLoggedIn()){
-        document.getElementById("signinContext").style.display = "none";
-        openModal("signinModal");
-    } else {
-        openModal("pricingModal");
-    }
-});
-
 document.getElementById("lockWatchAdBtn")?.addEventListener("click", () => {
     const btn = document.getElementById("lockWatchAdBtn");
     const original = btn.textContent;
@@ -434,7 +424,7 @@ document.getElementById("lockWatchAdBtn")?.addEventListener("click", () => {
 
 function typeOutText(el, fullText, scrollContainer, onDone){
     const words = fullText.split(" ");
-    const speed = isPro() ? 8 : 25;
+    const speed = 8;
     let i = 0;
 
     function step(){
@@ -817,53 +807,11 @@ if(window.location.hash === "#privacy"){
     openModal("privacyModal");
 }
 
-// ---------- Pricing / Stripe checkout ----------
-
-const PRO_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 1 month
-
-function getProRecord(email){
-    const accounts = JSON.parse(localStorage.getItem("zyntra-pro-accounts") || "{}");
-    return accounts[email] || null;
-}
-
-function saveProRecord(email, record){
-    const accounts = JSON.parse(localStorage.getItem("zyntra-pro-accounts") || "{}");
-    accounts[email] = record;
-    localStorage.setItem("zyntra-pro-accounts", JSON.stringify(accounts));
-}
-
-function markCurrentUserPro(){
-    const email = localStorage.getItem("zyntra-user");
-    if(!email) return;
-    saveProRecord(email, { purchasedAt: Date.now(), notified: false });
-}
-
-function isPro(){
-    const email = localStorage.getItem("zyntra-user");
-    if(!email) return false;
-    const record = getProRecord(email);
-    if(!record) return false;
-    return (Date.now() - record.purchasedAt) < PRO_DURATION_MS;
-}
-
-function checkProExpiry(){
-    const email = localStorage.getItem("zyntra-user");
-    if(!email) return;
-    const record = getProRecord(email);
-    if(!record) return;
-    const expired = (Date.now() - record.purchasedAt) >= PRO_DURATION_MS;
-    if(expired && !record.notified){
-        record.notified = true;
-        saveProRecord(email, record);
-        openModal("proExpiredModal");
-    }
-}
-
-document.getElementById("proExpiredOkBtn")?.addEventListener("click", () => {
-    closeModal("proExpiredModal");
-    renderPlanUI();
-    openModal("pricingModal");
-});
+// ---------- Ads (replaces the old Pro/payment system) ----------
+// Zyntra AI no longer has a paid tier — everyone gets full-speed chat and
+// image generation. The free message limit still applies (see
+// FREE_MESSAGE_LIMIT/isLockedOut above); it's cleared by watching an ad
+// instead of upgrading. Ads are shown to every user, all the time.
 
 function isRunningInApp(){
     const isStandalone = window.matchMedia("(display-mode: standalone)").matches;
@@ -871,123 +819,36 @@ function isRunningInApp(){
     return isStandalone || isTwaReferrer;
 }
 
-// Set this to true once you have a REAL ad slot ID from an approved AdSense
-// account and have replaced YOUR_AD_SLOT_ID in index.html with it. Until
-// then, the ad slot stays hidden — an invalid placeholder slot can cause
-// Google's ad script to behave unpredictably on the page.
+// Set this to true once you have REAL ad slot IDs from an approved AdSense
+// account and have replaced YOUR_AD_SLOT_ID / YOUR_SIDEBAR_AD_SLOT_ID in
+// index.html with them. Until then, ad slots render nothing — an invalid
+// placeholder slot can cause Google's ad script to behave unpredictably.
 const AD_SLOT_READY = false;
 
-let adBannerLoaded = false;
+let adsLoaded = false;
 
-function loadAdBanner(){
+function loadAds(){
     if(!AD_SLOT_READY) return;
-    if(adBannerLoaded) return;
+    if(adsLoaded) return;
     try{
-        (window.adsbygoogle = window.adsbygoogle || []).push({});
-        adBannerLoaded = true;
+        document.querySelectorAll("ins.adsbygoogle").forEach(() => {
+            (window.adsbygoogle = window.adsbygoogle || []).push({});
+        });
+        adsLoaded = true;
     }catch(err){
         // AdSense script blocked (ad blocker) or not yet approved — fail silently
     }
 }
 
-function renderPlanUI(){
-    const badge = document.getElementById("proBadge");
-    const getProBtn = document.getElementById("getProBtn");
+function renderAdSlots(){
     const adBanner = document.getElementById("adBanner");
-    const twaNotice = document.getElementById("twaBuyNotice");
-    const topUpgradeBtn = document.getElementById("topUpgradeBtn");
-    const sidebarUpgradeCard = document.getElementById("sidebarUpgradeCard");
-
-    if(isPro()){
-        badge.style.display = "inline";
-        getProBtn.textContent = "You're on Pro ✓";
-        getProBtn.disabled = true;
-        getProBtn.style.opacity = "0.7";
-        getProBtn.style.cursor = "default";
-        if(adBanner) adBanner.style.display = "none";
-        if(twaNotice) twaNotice.style.display = "none";
-        if(topUpgradeBtn) topUpgradeBtn.style.display = "none";
-        if(sidebarUpgradeCard) sidebarUpgradeCard.style.display = "none";
-    } else if(isRunningInApp()){
-        badge.style.display = "none";
-        getProBtn.textContent = "Purchase Unavailable Here";
-        getProBtn.disabled = true;
-        getProBtn.style.opacity = "0.5";
-        getProBtn.style.cursor = "default";
-        if(adBanner){ adBanner.style.display = AD_SLOT_READY ? "block" : "none"; loadAdBanner(); }
-        if(twaNotice) twaNotice.style.display = "block";
-        if(topUpgradeBtn) topUpgradeBtn.style.display = "";
-        if(sidebarUpgradeCard) sidebarUpgradeCard.style.display = "";
-    } else {
-        badge.style.display = "none";
-        getProBtn.textContent = isLoggedIn() ? "Get Pro" : "Sign In to Upgrade";
-        getProBtn.disabled = false;
-        getProBtn.style.opacity = "1";
-        getProBtn.style.cursor = "pointer";
-        if(adBanner){ adBanner.style.display = AD_SLOT_READY ? "block" : "none"; loadAdBanner(); }
-        if(twaNotice) twaNotice.style.display = "none";
-        if(topUpgradeBtn) topUpgradeBtn.style.display = "";
-        if(sidebarUpgradeCard) sidebarUpgradeCard.style.display = "";
-    }
+    const sidebarAdSlot = document.getElementById("sidebarAdSlot");
+    if(adBanner) adBanner.style.display = AD_SLOT_READY ? "block" : "none";
+    if(sidebarAdSlot) sidebarAdSlot.style.display = AD_SLOT_READY ? "block" : "none";
+    loadAds();
 }
 
-["topUpgradeBtn", "sidebarUpgradeBtn"].forEach(id => {
-    document.getElementById(id)?.addEventListener("click", e => {
-        e.preventDefault();
-        openModal("pricingModal");
-        closeSidebarMobile();
-    });
-});
-
-document.getElementById("pricingModalClose")?.addEventListener("click", () => closeModal("pricingModal"));
-
-document.getElementById("getProBtn")?.addEventListener("click", async () => {
-    if(isPro()) return;
-
-    if(isRunningInApp()){
-        return;
-    }
-
-    if(!isLoggedIn()){
-        closeModal("pricingModal");
-        document.getElementById("signinContext").style.display = "block";
-        resetSigninModalUI(); openModal("signinModal");
-        return;
-    }
-
-    const btn = document.getElementById("getProBtn");
-    const original = btn.textContent;
-    btn.textContent = "Redirecting to Stripe...";
-    btn.disabled = true;
-
-    try{
-        const res = await fetch("/api/checkout", { method: "POST" });
-        const data = await res.json();
-        if(data.url){
-            window.location.href = data.url;
-        } else {
-            alert("Could not start checkout. Please try again.");
-            btn.textContent = original;
-            btn.disabled = false;
-        }
-    }catch(err){
-        alert("Could not start checkout. Please try again.");
-        btn.textContent = original;
-        btn.disabled = false;
-    }
-});
-
-const urlParams = new URLSearchParams(window.location.search);
-if(urlParams.get("payment") === "success"){
-    markCurrentUserPro();
-    alert("🎉 Payment successful! You're now on Zyntra AI Pro.");
-    window.history.replaceState({}, "", window.location.pathname);
-    openModal("pricingModal");
-} else if(urlParams.get("payment") === "cancelled"){
-    window.history.replaceState({}, "", window.location.pathname);
-}
-
-renderPlanUI();
+renderAdSlots();
 
 document.getElementById("contactBtn")?.addEventListener("click", e => { e.preventDefault(); openModal("contactModal"); closeSidebarMobile(); });
 document.getElementById("contactModalClose")?.addEventListener("click", () => closeModal("contactModal"));
@@ -1012,7 +873,7 @@ document.getElementById("contactSubmit")?.addEventListener("click", async () => 
             body: JSON.stringify({
                 name,
                 email,
-                message: (isPro() ? "[PRIORITY - PRO USER]\n\n" : "") + msg
+                message: msg
             })
         });
 
@@ -1110,7 +971,7 @@ function renderAuthNav(){
         const display = (profile.nickname || profile.fullName || email || "Account").trim();
         const letter = display.charAt(0).toUpperCase();
         nameEl.textContent = display;
-        planEl.textContent = isPro() ? "Pro Plan" : "Free Plan";
+        planEl.textContent = "Signed in";
         avatarEl.textContent = letter;
         topbarAvatar.textContent = letter;
     } else {
@@ -1119,8 +980,7 @@ function renderAuthNav(){
         avatarEl.textContent = "?";
         topbarAvatar.textContent = "👤";
     }
-    renderPlanUI();
-    checkProExpiry();
+    renderAdSlots();
     updateDeleteChatBtnVisibility();
 }
 
@@ -1256,7 +1116,7 @@ function firebaseErrorMessage(code, rawMessage){
     }
 }
 
-function finishSignin(email, cameFromPro){
+function finishSignin(email){
     localStorage.setItem("zyntra-user", email);
     document.getElementById("signinEmail").value = "";
     document.getElementById("signinPass").value = "";
@@ -1266,9 +1126,6 @@ function finishSignin(email, cameFromPro){
     renderAuthNav();
     renderSidebarHistory();
     showToast("✅ You're signed in successfully!");
-    if(cameFromPro){
-        openModal("pricingModal");
-    }
 }
 
 function showToast(message){
@@ -1321,7 +1178,6 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
         return;
     }
 
-    const cameFromPro = document.getElementById("signinContext").style.display !== "none";
     const btn = document.getElementById("signinSubmit");
     const original = btn.textContent;
     btn.textContent = isSignupMode ? "Creating account..." : "Signing in...";
@@ -1330,7 +1186,7 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
     if(!isSignupMode){
         firebase.auth().signInWithEmailAndPassword(email, password)
             .then(userCredential => {
-                finishSignin(userCredential.user.email, cameFromPro);
+                finishSignin(userCredential.user.email);
             })
             .catch(err => {
                 showSigninError(firebaseErrorMessage(err.code, err.message));
@@ -1346,7 +1202,7 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
 
     authAction
         .then(userCredential => {
-            finishSignin(userCredential.user.email, cameFromPro);
+            finishSignin(userCredential.user.email);
         })
         .catch(err => {
             if(err.code === "auth/email-already-in-use"){
@@ -1367,22 +1223,16 @@ function isMobileDevice(){
 
 document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
     clearSigninError();
-    const cameFromPro = document.getElementById("signinContext").style.display !== "none";
     const provider = new firebase.auth.GoogleAuthProvider();
 
     if(isMobileDevice()){
-        if(cameFromPro){
-            sessionStorage.setItem("zyntra-signin-from-pro", "1");
-        } else {
-            sessionStorage.removeItem("zyntra-signin-from-pro");
-        }
         firebase.auth().signInWithRedirect(provider);
         return;
     }
 
     firebase.auth().signInWithPopup(provider)
         .then(result => {
-            finishSignin(result.user.email, cameFromPro);
+            finishSignin(result.user.email);
         })
         .catch(err => {
             const msg = firebaseErrorMessage(err.code, err.message);
@@ -1394,9 +1244,7 @@ document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
 firebase.auth().getRedirectResult()
     .then(result => {
         if(result && result.user){
-            const cameFromPro = sessionStorage.getItem("zyntra-signin-from-pro") === "1";
-            sessionStorage.removeItem("zyntra-signin-from-pro");
-            finishSignin(result.user.email, cameFromPro);
+            finishSignin(result.user.email);
         }
     })
     .catch(err => {
@@ -2097,7 +1945,7 @@ function appendLoadingAiBubble(initialHTML){
 }
 
 function runImageGeneration(msg, loadingDiv, aiContent){
-    const waitLabel = isPro() ? "Creating image" : "Creating image (upgrade to Pro for faster generation)";
+    const waitLabel = "Creating image";
     aiContent.innerHTML = `<div class="creating-box"><p class="creating-label">${waitLabel}</p><div class="creating-dots"></div></div>`;
 
     function finishWithImage(imageUrl){
@@ -2131,7 +1979,7 @@ function runImageGeneration(msg, loadingDiv, aiContent){
         img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(msg) + "?model=flux&enhance=true&seed=" + seed;
     }
 
-    const waitMs = isPro() ? 2000 : 10000;
+    const waitMs = 2000;
     setTimeout(() => attemptGenerate(0), waitMs);
 }
 
@@ -2192,7 +2040,7 @@ async function sendChatMessage(prefill){
         return sendImageOrChatMessage(msg);
     }
 
-    if(!isPro() && isLockedOut()){
+    if(isLockedOut()){
         showChatLockedModal();
         return;
     }
@@ -2243,7 +2091,7 @@ async function sendChatMessage(prefill){
     chatHistory.push({ role: "user", content: historyContent });
     logMessageToHistory("user", msg || "[Image attached]");
     bumpStat("conversations");
-    if(!isPro()) recordFreeMessage();
+    recordFreeMessage();
 
     attachedImage = null;
     document.getElementById("chatFileInput").value = "";
@@ -2569,7 +2417,7 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
     const result = document.getElementById("imageResult");
     if(!val && !imgUploadedFile){ alert("Please describe the image or upload a reference image."); return; }
 
-    const waitLabel = isPro() ? "Creating image" : "Creating image (upgrade to Pro for faster generation)";
+    const waitLabel = "Creating image";
     showCreatingAnimation(result, waitLabel);
 
     let finalPrompt = val;
@@ -2650,7 +2498,7 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
         img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(finalPrompt) + "?model=flux&enhance=true&seed=" + seed;
     }
 
-    const waitMs = isPro() ? 2000 : 10000;
+    const waitMs = 2000;
     setTimeout(() => attemptGenerate(0), waitMs);
 });
 
@@ -2701,7 +2549,7 @@ document.getElementById("posterGenBtn")?.addEventListener("click", () => {
     }
 
     const size = POSTER_SIZES[aspect] || POSTER_SIZES.portrait;
-    const waitLabel = isPro() ? "Designing poster" : "Designing poster (upgrade to Pro for faster generation)";
+    const waitLabel = "Designing poster";
     showCreatingAnimation(result, waitLabel);
 
     const wantsRealistic = document.getElementById("posterRealisticToggle")?.checked;
@@ -2799,7 +2647,7 @@ document.getElementById("posterGenBtn")?.addEventListener("click", () => {
             });
     }
 
-    const waitMs = isPro() ? 2000 : 10000;
+    const waitMs = 2000;
     setTimeout(drawPoster, waitMs);
 });
 
