@@ -86,6 +86,11 @@
         </nav>
 
         <div class="sidebar-history">
+            <button id="searchChatsBtn" class="sidebar-search-btn" type="button">
+                <span class="sidebar-search-icon">💬</span>
+                <span>Search chats</span>
+            </button>
+
             <div id="sidebarPinnedSection" class="sidebar-pinned-section" style="display:none;">
                 <p class="sidebar-label">📌 Pinned</p>
                 <div id="sidebarPinnedList" class="sidebar-history-list"></div>
@@ -411,6 +416,18 @@
             <textarea id="contactMsg" placeholder="Your message" rows="4"></textarea>
             <button id="contactSubmit">Send Message</button>
         </div>
+    </div>
+</div>
+
+<!-- ================= SEARCH CHATS MODAL ================= -->
+<div class="modal-overlay" id="searchChatsModal">
+    <div class="modal-box search-chats-box">
+        <div class="search-chats-header">
+            <input type="text" id="searchChatsInput" class="search-chats-input" placeholder="Search...">
+            <button type="button" class="search-chats-close" id="searchChatsClose">✕</button>
+        </div>
+        <p class="search-chats-label">Recent chats</p>
+        <div id="searchChatsList" class="search-chats-list"></div>
     </div>
 </div>
 
