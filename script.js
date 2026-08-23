@@ -598,7 +598,20 @@ function detectSpeechLang(text){
 
 // Picks the closest available system voice for a language, since setting
 // .lang alone doesn't always pick a good voice if the browser has several.
+// The user's chosen voice from Settings (if any) always wins over
+// automatic per-language matching — mirrors how most voice assistants let
+// you pick a persona voice once, used everywhere afterward.
+function getPreferredVoice(){
+    const uri = localStorage.getItem("zyntra-voice-uri");
+    if(!uri) return null;
+    const voices = speechSynthesis.getVoices();
+    return voices.find(v => v.voiceURI === uri) || null;
+}
+
 function pickVoiceForLang(lang){
+    const preferred = getPreferredVoice();
+    if(preferred) return preferred;
+
     const voices = speechSynthesis.getVoices();
     if(!voices || !voices.length) return null;
     const prefix = lang.split("-")[0];
@@ -615,6 +628,38 @@ function speakText(text, lang){
     if(voice) utter.voice = voice;
     speechSynthesis.speak(utter);
 }
+
+// ---------- Voice settings (in Settings modal) ----------
+
+function renderVoiceOptions(){
+    const select = document.getElementById("voiceSelect");
+    if(!select) return;
+
+    const voices = speechSynthesis.getVoices();
+    if(!voices.length){
+        // Voices often load asynchronously — retry once they're ready.
+        speechSynthesis.onvoiceschanged = () => renderVoiceOptions();
+        select.innerHTML = '<option>Loading voices...</option>';
+        return;
+    }
+
+    const savedUri = localStorage.getItem("zyntra-voice-uri") || "";
+    select.innerHTML = '<option value="">Auto (match message language)</option>'
+        + voices.map(v => `<option value="${v.voiceURI}">${v.name} (${v.lang})</option>`).join("");
+    select.value = savedUri;
+}
+
+document.getElementById("voiceSelect")?.addEventListener("change", (e) => {
+    if(e.target.value){
+        localStorage.setItem("zyntra-voice-uri", e.target.value);
+    } else {
+        localStorage.removeItem("zyntra-voice-uri");
+    }
+});
+
+document.getElementById("voiceTestBtn")?.addEventListener("click", () => {
+    speakText("Hi! This is how I'll sound.", navigator.language || "en-US");
+});
 
 const MSG_ICONS = {
     copy: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>',
@@ -963,7 +1008,6 @@ function renderAuthNav(){
     const nameEl = document.getElementById("sidebarUserName");
     const planEl = document.getElementById("sidebarUserPlan");
     const avatarEl = document.getElementById("sidebarUserAvatar");
-    const topbarAvatar = document.getElementById("topbarProfileBtn");
 
     if(loggedIn){
         const email = localStorage.getItem("zyntra-user");
@@ -973,12 +1017,10 @@ function renderAuthNav(){
         nameEl.textContent = display;
         planEl.textContent = "Signed in";
         avatarEl.textContent = letter;
-        topbarAvatar.textContent = letter;
     } else {
         nameEl.textContent = "Guest";
         planEl.textContent = "Sign in";
         avatarEl.textContent = "?";
-        topbarAvatar.textContent = "👤";
     }
     renderAdSlots();
     updateDeleteChatBtnVisibility();
@@ -996,7 +1038,7 @@ function handleProfileEntry(){
     closeSidebarMobile();
 }
 
-document.getElementById("topbarProfileBtn")?.addEventListener("click", handleProfileEntry);
+document.getElementById("topbarSettingsBtn")?.addEventListener("click", handleProfileEntry);
 document.getElementById("sidebarUser")?.addEventListener("click", handleProfileEntry);
 
 // ---------- Profile modal ----------
@@ -1030,6 +1072,8 @@ function renderProfileModal(){
 
     const letter = (profile.nickname || profile.fullName || email || "?").trim().charAt(0).toUpperCase();
     document.getElementById("profileAvatar").textContent = letter;
+
+    renderVoiceOptions();
 }
 
 document.getElementById("profileModalClose")?.addEventListener("click", () => closeModal("profileModal"));
@@ -1472,9 +1516,9 @@ function renderSearchChatsList(query){
     }
 
     sessions.forEach(session => {
-        const row = document.createElement("button");
-        row.type = "button";
-        row.className = "search-chats-row";
+        const row = document.createElement("div");
+        row.className = "search-chats-row" + (session.pinned ? " pinned" : "");
+        row.title = session.title;
 
         const icon = document.createElement("span");
         icon.className = "search-chats-row-icon";
@@ -1484,8 +1528,44 @@ function renderSearchChatsList(query){
         title.className = "search-chats-row-title";
         title.textContent = session.title;
 
+        const pinBtn = document.createElement("button");
+        pinBtn.type = "button";
+        pinBtn.className = "search-chats-row-action";
+        pinBtn.textContent = "📌";
+        pinBtn.title = session.pinned ? "Unpin" : "Pin";
+        pinBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const all = getSessions();
+            const s = all.find(x => x.id === session.id);
+            if(s){
+                s.pinned = !s.pinned;
+                saveSessions(all);
+                renderSearchChatsList(document.getElementById("searchChatsInput")?.value || "");
+                renderPinnedChats();
+            }
+        });
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "search-chats-row-action";
+        deleteBtn.textContent = "🗑";
+        deleteBtn.title = "Delete this chat";
+        deleteBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            confirmAction(
+                "Delete This Chat?",
+                "Are you sure you want to delete this conversation? This can't be undone.",
+                () => {
+                    deleteChatSession(session.id);
+                    renderSearchChatsList(document.getElementById("searchChatsInput")?.value || "");
+                }
+            );
+        });
+
         row.appendChild(icon);
         row.appendChild(title);
+        row.appendChild(pinBtn);
+        row.appendChild(deleteBtn);
         row.addEventListener("click", () => {
             closeModal("searchChatsModal");
             openSession(session);
