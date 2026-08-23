@@ -39,14 +39,25 @@ export default async function handler(req, res) {
     );
 
     // llama-3.1-8b-instant was deprecated by Groq on June 17, 2026.
-    // openai/gpt-oss-20b is the recommended text-only replacement.
+    // openai/gpt-oss-20b is the recommended text-only replacement — it's
+    // also noticeably faster than compound, since compound spends time on
+    // every message reasoning about whether to use a tool even when it
+    // won't. So it's now the DEFAULT for ordinary chat, and compound is
+    // only used when a message actually looks like it needs current info,
+    // or the user explicitly forced a search with the 🌐 button.
     // qwen/qwen3.6-27b is Groq's current multimodal (text + image) model.
-    // groq/compound automatically searches the web when a question needs current info.
-    // groq/compound-mini does the same but with a single tool call — much
-    // faster and less likely to run into the function timeout, so we use it
-    // when the user explicitly forced a search via the 🌐 button.
+    // groq/compound-mini does a single tool call — faster than full
+    // compound and less likely to hit the function timeout, so it's used
+    // for explicit forced searches specifically.
     const wantsForcedSearch = !!forceSearch && !hasImage;
-    const primaryModel = hasImage ? 'qwen/qwen3.6-27b' : (wantsForcedSearch ? 'groq/compound-mini' : 'groq/compound');
+    const needsCurrentInfo = !hasImage && !wantsForcedSearch && looksLikeNeedsCurrentInfo(messages);
+    const primaryModel = hasImage
+      ? 'qwen/qwen3.6-27b'
+      : wantsForcedSearch
+        ? 'groq/compound-mini'
+        : needsCurrentInfo
+          ? 'groq/compound'
+          : 'openai/gpt-oss-20b';
 
     // callGroq NEVER throws — every failure path (network error, timeout,
     // bad JSON, non-2xx response) resolves to { ok:false, status, data }
@@ -270,6 +281,21 @@ function userFacingError(result){
     return "Zyntra AI is handling a lot of requests right now — please wait a few seconds and try again.";
   }
   return rawMessage || 'The AI service returned an error. Please try again.';
+}
+
+function looksLikeNeedsCurrentInfo(messages){
+  const lastUser = [...messages].reverse().find(m => m.role === 'user');
+  if (!lastUser) return false;
+
+  let text = '';
+  if (typeof lastUser.content === 'string') {
+    text = lastUser.content;
+  } else if (Array.isArray(lastUser.content)) {
+    text = lastUser.content.map(part => part.text || '').join(' ');
+  }
+  text = text.toLowerCase();
+
+  return /\b(latest|current(ly)?|today|right now|this week|this month|this year|recent(ly)?|breaking|news|weather|forecast|stock price|share price|exchange rate|score|who won|who is the (current|new)|election result|live|update[sd]?|price of|cost of|release date|upcoming|schedule|deadline|202[4-9]|203\d)\b/.test(text);
 }
 
 function extractSources(message){
