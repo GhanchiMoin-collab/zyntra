@@ -90,17 +90,6 @@
                 <span class="sidebar-search-icon">💬</span>
                 <span>Search chats</span>
             </button>
-
-            <div id="sidebarPinnedSection" class="sidebar-pinned-section" style="display:none;">
-                <p class="sidebar-label">📌 Pinned</p>
-                <div id="sidebarPinnedList" class="sidebar-history-list"></div>
-            </div>
-
-            <p class="sidebar-label">
-                Today
-                <button id="sidebarClearHistoryBtn" class="sidebar-clear-btn" title="Clear all history">🗑</button>
-            </p>
-            <div id="sidebarHistoryList" class="sidebar-history-list"></div>
         </div>
 
         <div class="sidebar-footer">
@@ -424,6 +413,7 @@
     <div class="modal-box search-chats-box">
         <div class="search-chats-header">
             <input type="text" id="searchChatsInput" class="search-chats-input" placeholder="Search...">
+            <button type="button" class="search-chats-close" id="searchChatsClearBtn" title="Clear all history">🗑</button>
             <button type="button" class="search-chats-close" id="searchChatsClose">✕</button>
         </div>
         <p class="search-chats-label">Recent chats</p>
