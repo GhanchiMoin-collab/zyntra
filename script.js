@@ -632,29 +632,68 @@ function speakText(text, lang){
 // ---------- Voice settings (in Settings modal) ----------
 
 function renderVoiceOptions(){
-    const select = document.getElementById("voiceSelect");
-    if(!select) return;
+    const picker = document.getElementById("voicePicker");
+    const label = document.getElementById("voicePickerLabel");
+    const menu = document.getElementById("voicePickerMenu");
+    if(!picker || !label || !menu) return;
 
     const voices = speechSynthesis.getVoices();
     if(!voices.length){
         // Voices often load asynchronously — retry once they're ready.
         speechSynthesis.onvoiceschanged = () => renderVoiceOptions();
-        select.innerHTML = '<option>Loading voices...</option>';
+        label.textContent = "Loading voices...";
+        menu.innerHTML = "";
         return;
     }
 
     const savedUri = localStorage.getItem("zyntra-voice-uri") || "";
-    select.innerHTML = '<option value="">Auto (match message language)</option>'
-        + voices.map(v => `<option value="${v.voiceURI}">${v.name} (${v.lang})</option>`).join("");
-    select.value = savedUri;
+    const options = [{ uri: "", name: "Auto (match message language)" }]
+        .concat(voices.map(v => ({ uri: v.voiceURI, name: `${v.name} (${v.lang})` })));
+
+    const current = options.find(o => o.uri === savedUri) || options[0];
+    label.textContent = current.name;
+
+    menu.innerHTML = "";
+    options.forEach(opt => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "voice-picker-option" + (opt.uri === savedUri ? " selected" : "");
+
+        const text = document.createElement("span");
+        text.textContent = opt.name;
+        btn.appendChild(text);
+
+        if(opt.uri === savedUri){
+            const check = document.createElement("span");
+            check.className = "voice-picker-option-check";
+            check.textContent = "✓";
+            btn.appendChild(check);
+        }
+
+        btn.addEventListener("click", () => {
+            if(opt.uri){
+                localStorage.setItem("zyntra-voice-uri", opt.uri);
+            } else {
+                localStorage.removeItem("zyntra-voice-uri");
+            }
+            picker.classList.remove("open");
+            renderVoiceOptions();
+        });
+        menu.appendChild(btn);
+    });
 }
 
-document.getElementById("voiceSelect")?.addEventListener("change", (e) => {
-    if(e.target.value){
-        localStorage.setItem("zyntra-voice-uri", e.target.value);
-    } else {
-        localStorage.removeItem("zyntra-voice-uri");
-    }
+document.getElementById("voicePickerTrigger")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const picker = document.getElementById("voicePicker");
+    if(!picker) return;
+    const wasOpen = picker.classList.contains("open");
+    document.querySelectorAll(".voice-picker.open").forEach(p => p.classList.remove("open"));
+    if(!wasOpen) picker.classList.add("open");
+});
+
+document.addEventListener("click", () => {
+    document.querySelectorAll(".voice-picker.open").forEach(p => p.classList.remove("open"));
 });
 
 document.getElementById("voiceTestBtn")?.addEventListener("click", () => {
