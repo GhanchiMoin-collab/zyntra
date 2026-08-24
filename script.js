@@ -96,7 +96,17 @@ function ensureCodePreviewModal(){
                 </div>
             </div>
             <div class="code-preview-frame-wrap">
-                <iframe class="code-preview-iframe" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"></iframe>
+                <div class="code-preview-glow-border">
+                    <div class="code-preview-frame-inner">
+                        <iframe class="code-preview-iframe" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"></iframe>
+                        <div class="code-preview-loading" id="codePreviewLoading">
+                            <div class="code-preview-loading-dots">
+                                <span></span><span></span><span></span>
+                            </div>
+                            <p>Loading preview...</p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     `;
@@ -113,6 +123,16 @@ function ensureCodePreviewModal(){
 function openCodePreview(code){
     const modal = ensureCodePreviewModal();
     const iframe = modal.querySelector(".code-preview-iframe");
+    const loading = modal.querySelector("#codePreviewLoading");
+    const glowBorder = modal.querySelector(".code-preview-glow-border");
+
+    glowBorder.classList.add("loading");
+    loading.classList.add("show");
+
+    iframe.onload = () => {
+        loading.classList.remove("show");
+        glowBorder.classList.remove("loading");
+    };
     iframe.srcdoc = code;
 
     const newTabBtn = modal.querySelector(".code-preview-newtab");
