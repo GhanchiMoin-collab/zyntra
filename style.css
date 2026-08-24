@@ -2015,7 +2015,140 @@ line-height:1.5;
 margin:0;
 }
 
-#voiceSelect,
+.voice-picker{
+position:relative;
+flex:1;
+min-width:0;
+}
+
+.voice-picker-trigger{
+width:100%;
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:10px;
+background:rgba(255,255,255,.04);
+border:1px solid var(--glass-border-strong);
+border-radius:var(--r-md);
+padding:13px 16px;
+color:var(--text-1);
+font-size:14px;
+font-family:inherit;
+cursor:pointer;
+transition:.2s;
+text-align:left;
+}
+
+.voice-picker-trigger span:first-child{
+overflow:hidden;
+text-overflow:ellipsis;
+white-space:nowrap;
+}
+
+.voice-picker-trigger:hover{
+border-color:rgba(180,120,255,.4);
+background:rgba(255,255,255,.06);
+}
+
+.voice-picker.open .voice-picker-trigger{
+border-color:rgba(180,120,255,.55);
+box-shadow:0 0 0 3px rgba(124,92,255,.15);
+}
+
+.voice-picker-chevron{
+color:#c9a8ff;
+font-size:11px;
+flex-shrink:0;
+transition:transform .2s;
+}
+
+.voice-picker.open .voice-picker-chevron{
+transform:rotate(180deg);
+}
+
+.voice-picker-menu{
+display:none;
+position:absolute;
+top:calc(100% + 8px);
+left:0;
+right:0;
+max-height:280px;
+overflow-y:auto;
+background:linear-gradient(180deg,rgba(22,20,32,.98),rgba(14,13,20,.98));
+backdrop-filter:var(--blur-glass);
+-webkit-backdrop-filter:var(--blur-glass);
+border:1px solid rgba(180,120,255,.25);
+border-radius:var(--r-md);
+padding:6px;
+box-shadow:0 20px 50px rgba(0,0,0,.5), 0 0 0 1px rgba(180,120,255,.06);
+z-index:30;
+}
+
+.voice-picker.open .voice-picker-menu{
+display:block;
+}
+
+.voice-picker-option{
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:10px;
+width:100%;
+text-align:left;
+padding:10px 12px;
+border-radius:8px;
+background:none;
+border:none;
+color:var(--text-1);
+font-size:13.5px;
+font-family:inherit;
+cursor:pointer;
+transition:.15s;
+}
+
+.voice-picker-option span:first-child{
+overflow:hidden;
+text-overflow:ellipsis;
+white-space:nowrap;
+}
+
+.voice-picker-option:hover{
+background:var(--accent-grad-soft);
+}
+
+.voice-picker-option.selected{
+background:var(--accent-grad-soft);
+color:#e3d6ff;
+font-weight:700;
+box-shadow:inset 0 0 0 1px rgba(180,92,255,.25);
+}
+
+.voice-picker-option-check{
+color:#c9a8ff;
+font-size:13px;
+flex-shrink:0;
+}
+
+body.light-mode .voice-picker-trigger{
+background:rgba(10,10,25,.04);
+border-color:rgba(10,10,25,.1);
+color:#111117;
+}
+
+body.light-mode .voice-picker-menu{
+background:linear-gradient(180deg,#ffffff,#f7f5fb);
+border-color:rgba(110,63,209,.2);
+}
+
+body.light-mode .voice-picker-option{
+color:#111117;
+}
+
+body.light-mode .voice-picker-option.selected,
+body.light-mode .voice-picker-option:hover{
+background:rgba(110,92,255,.1);
+}
+
 #profileWork,
 #posterAspect{
 background:rgba(255,255,255,.04);
