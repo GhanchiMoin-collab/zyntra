@@ -385,8 +385,14 @@
             <div style="border-top:1px solid #232a4d; margin-top:24px; padding-top:20px;">
                 <h3 class="settings-section-title">🔊 Voice</h3>
                 <p class="settings-section-hint">Choose the voice Zyntra AI speaks with in Voice Assistant and read-aloud replies.</p>
-                <div class="modal-input-row" style="margin-top:12px;">
-                    <select id="voiceSelect" style="flex:1;"></select>
+                <div class="modal-input-row" style="margin-top:12px; align-items:flex-start;">
+                    <div class="voice-picker" id="voicePicker">
+                        <button type="button" class="voice-picker-trigger" id="voicePickerTrigger">
+                            <span id="voicePickerLabel">Auto (match message language)</span>
+                            <span class="voice-picker-chevron">▾</span>
+                        </button>
+                        <div class="voice-picker-menu" id="voicePickerMenu"></div>
+                    </div>
                     <button id="voiceTestBtn" type="button" style="flex:0 0 auto; padding:13px 18px;">▶ Test</button>
                 </div>
             </div>
