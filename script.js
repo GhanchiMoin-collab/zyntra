@@ -660,9 +660,25 @@ function pickVoiceForLang(lang){
 function speakText(text, lang){
     speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = lang;
-    const voice = pickVoiceForLang(lang);
-    if(voice) utter.voice = voice;
+
+    // A chosen voice always wins, for every message in every language —
+    // and its own .lang is used (not the message's detected language),
+    // since pairing a voice with a mismatched lang makes some browsers
+    // silently reject the voice and fall back (or stay silent) instead of
+    // actually speaking. A single voice can't natively pronounce every
+    // language fluently — that's a real OS/browser limitation — but this
+    // way it reliably speaks every message in its own accent rather than
+    // failing outright.
+    const preferred = getPreferredVoice();
+    if(preferred){
+        utter.voice = preferred;
+        utter.lang = preferred.lang;
+    } else {
+        utter.lang = lang;
+        const voice = pickVoiceForLang(lang);
+        if(voice) utter.voice = voice;
+    }
+
     speechSynthesis.speak(utter);
 }
 
@@ -685,7 +701,7 @@ function renderVoiceOptions(){
 
     const savedUri = localStorage.getItem("zyntra-voice-uri") || "";
     const options = [{ uri: "", name: "Auto (match message language)" }]
-        .concat(voices.map(v => ({ uri: v.voiceURI, name: `${v.name} (${v.lang})` })));
+        .concat(voices.map(v => ({ uri: v.voiceURI, name: v.name })));
 
     const current = options.find(o => o.uri === savedUri) || options[0];
     label.textContent = current.name;
