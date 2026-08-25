@@ -15,11 +15,20 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { messages, forceSearch, lite } = req.body || {};
+    const { messages: rawMessages, forceSearch, lite } = req.body || {};
 
-    if (!Array.isArray(messages)) {
+    if (!Array.isArray(rawMessages)) {
       return res.status(400).json({ error: 'Missing messages array' });
     }
+
+    // Long-running chats keep resending their FULL history on every single
+    // message, so a conversation can eventually exceed the token-per-minute
+    // limit even when the newest message is just "yes" — the accumulated
+    // history is the problem, not any one message. Keep any leading system
+    // message(s) (custom instructions etc.) always, and cap the actual
+    // conversation to the most recent turns so older context ages out
+    // instead of the whole request failing.
+    const messages = trimMessages(rawMessages);
 
     // "lite" calls (e.g. quick internal classification) always use the
     // fast, reliable plain-text model directly — no compound, no tools, no
@@ -274,6 +283,22 @@ function sleep(ms){
 // Groq's raw error text (org IDs, token quotas, billing links, etc.) is an
 // internal implementation detail — never show it to the end user. This maps
 // known cases to something clean while the real message still gets logged.
+function trimMessages(messages, maxTurns = 16){
+  // Keep any leading system message(s) — e.g. the custom-instructions note
+  // — untouched, then cap everything after that to the most recent turns.
+  let i = 0;
+  while (i < messages.length && messages[i].role === 'system') {
+    i++;
+  }
+  const leadingSystem = messages.slice(0, i);
+  const conversation = messages.slice(i);
+  const trimmedConversation = conversation.length > maxTurns
+    ? conversation.slice(-maxTurns)
+    : conversation;
+
+  return [...leadingSystem, ...trimmedConversation];
+}
+
 function userFacingError(result){
   const rawMessage = result.data?.error?.message || '';
 
