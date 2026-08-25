@@ -129,9 +129,26 @@ function openCodePreview(code){
     glowBorder.classList.add("loading");
     loading.classList.add("show");
 
+    // A static HTML page loads into the iframe almost instantly, which
+    // would make the loading animation flash by unnoticed. Hold the
+    // loading screen for a real minimum duration so it's actually seen,
+    // then reveal the page once both the load AND the timer are done.
+    const MIN_LOADING_MS = 5000;
+    const startedAt = Date.now();
+    let iframeLoaded = false;
+
+    function revealWhenReady(){
+        if(!iframeLoaded) return;
+        const remaining = MIN_LOADING_MS - (Date.now() - startedAt);
+        setTimeout(() => {
+            loading.classList.remove("show");
+            glowBorder.classList.remove("loading");
+        }, Math.max(remaining, 0));
+    }
+
     iframe.onload = () => {
-        loading.classList.remove("show");
-        glowBorder.classList.remove("loading");
+        iframeLoaded = true;
+        revealWhenReady();
     };
     iframe.srcdoc = code;
 
