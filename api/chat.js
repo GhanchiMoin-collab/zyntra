@@ -276,10 +276,17 @@ function sleep(ms){
 // known cases to something clean while the real message still gets logged.
 function userFacingError(result){
   const rawMessage = result.data?.error?.message || '';
-  if(result.status === 429){
-    console.error('Rate limited after retry:', rawMessage);
+
+  if(/too large|reduce your message size/i.test(rawMessage)){
+    console.error('Groq payload-too-large error:', result.status, rawMessage);
+    return "That message (or this conversation) is too long for me to process in one go. Try shortening it, pasting less at once, or starting a new chat.";
+  }
+
+  if(result.status === 429 || /rate limit|tokens per minute/i.test(rawMessage)){
+    console.error('Rate limited:', result.status, rawMessage);
     return "Zyntra AI is handling a lot of requests right now — please wait a few seconds and try again.";
   }
+
   return rawMessage || 'The AI service returned an error. Please try again.';
 }
 
