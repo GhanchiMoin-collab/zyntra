@@ -710,7 +710,7 @@ function renderVoiceOptions(){
     options.forEach(opt => {
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.className = "voice-picker-option" + (opt.uri === savedUri ? " selected" : "");
+        btn.className = "custom-picker-option" + (opt.uri === savedUri ? " selected" : "");
 
         const text = document.createElement("span");
         text.textContent = opt.name;
@@ -718,7 +718,7 @@ function renderVoiceOptions(){
 
         if(opt.uri === savedUri){
             const check = document.createElement("span");
-            check.className = "voice-picker-option-check";
+            check.className = "custom-picker-option-check";
             check.textContent = "✓";
             btn.appendChild(check);
         }
@@ -741,12 +741,67 @@ document.getElementById("voicePickerTrigger")?.addEventListener("click", (e) => 
     const picker = document.getElementById("voicePicker");
     if(!picker) return;
     const wasOpen = picker.classList.contains("open");
-    document.querySelectorAll(".voice-picker.open").forEach(p => p.classList.remove("open"));
+    document.querySelectorAll(".custom-picker.open").forEach(p => p.classList.remove("open"));
+    if(!wasOpen) picker.classList.add("open");
+});
+
+const WORK_OPTIONS = [
+    { value: "", label: "Select one" },
+    { value: "Engineering", label: "Engineering" },
+    { value: "Design", label: "Design" },
+    { value: "Marketing", label: "Marketing" },
+    { value: "Business", label: "Business" },
+    { value: "Student", label: "Student" },
+    { value: "Other", label: "Other" }
+];
+
+function renderWorkOptions(){
+    const picker = document.getElementById("workPicker");
+    const label = document.getElementById("workPickerLabel");
+    const menu = document.getElementById("workPickerMenu");
+    const hiddenSelect = document.getElementById("profileWork");
+    if(!picker || !label || !menu || !hiddenSelect) return;
+
+    const current = WORK_OPTIONS.find(o => o.value === hiddenSelect.value) || WORK_OPTIONS[0];
+    label.textContent = current.label;
+
+    menu.innerHTML = "";
+    WORK_OPTIONS.forEach(opt => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "custom-picker-option" + (opt.value === hiddenSelect.value ? " selected" : "");
+
+        const text = document.createElement("span");
+        text.textContent = opt.label;
+        btn.appendChild(text);
+
+        if(opt.value === hiddenSelect.value){
+            const check = document.createElement("span");
+            check.className = "custom-picker-option-check";
+            check.textContent = "✓";
+            btn.appendChild(check);
+        }
+
+        btn.addEventListener("click", () => {
+            hiddenSelect.value = opt.value;
+            picker.classList.remove("open");
+            renderWorkOptions();
+        });
+        menu.appendChild(btn);
+    });
+}
+
+document.getElementById("workPickerTrigger")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const picker = document.getElementById("workPicker");
+    if(!picker) return;
+    const wasOpen = picker.classList.contains("open");
+    document.querySelectorAll(".custom-picker.open").forEach(p => p.classList.remove("open"));
     if(!wasOpen) picker.classList.add("open");
 });
 
 document.addEventListener("click", () => {
-    document.querySelectorAll(".voice-picker.open").forEach(p => p.classList.remove("open"));
+    document.querySelectorAll(".custom-picker.open").forEach(p => p.classList.remove("open"));
 });
 
 document.getElementById("voiceTestBtn")?.addEventListener("click", () => {
@@ -1166,6 +1221,7 @@ function renderProfileModal(){
     document.getElementById("profileAvatar").textContent = letter;
 
     renderVoiceOptions();
+    renderWorkOptions();
 }
 
 document.getElementById("profileModalClose")?.addEventListener("click", () => closeModal("profileModal"));
