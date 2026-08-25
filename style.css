@@ -593,10 +593,13 @@ display:flex;
 align-items:center;
 gap:14px;
 padding:16px 26px;
-border-bottom:1px solid var(--glass-border);
-background:rgba(6,6,10,.35);
-backdrop-filter:var(--blur-soft);
--webkit-backdrop-filter:var(--blur-soft);
+border-bottom:1px solid var(--glass-border-strong);
+background:rgba(255,255,255,.055);
+backdrop-filter:var(--blur-glass);
+-webkit-backdrop-filter:var(--blur-glass);
+box-shadow:0 8px 28px rgba(0,0,0,.28);
+position:relative;
+z-index:5;
 flex-shrink:0;
 }
 
@@ -707,6 +710,11 @@ margin:auto;
 padding:60px 20px 30px;
 text-align:center;
 width:100%;
+}
+
+.chat-greeting .chat-input-bar{
+padding:32px 4px 0;
+text-align:left;
 }
 
 .greeting-logo{
