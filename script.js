@@ -1998,6 +1998,33 @@ const userInput = document.getElementById("userInput");
 let chatHistory = [];
 let attachedImage = null;
 
+// ---------- Centered input on empty chat, moves to the bottom once a
+// conversation starts (like ChatGPT's home screen) ----------
+
+function updateInputBarLayout(){
+    const inputBar = document.querySelector(".chat-input-bar");
+    const greeting = document.getElementById("chatGreeting");
+    const mainArea = document.querySelector(".main-area");
+    if(!inputBar || !greeting || !mainArea) return;
+
+    const isEmpty = chatMessages.children.length === 0;
+
+    if(isEmpty){
+        if(inputBar.parentElement !== greeting){
+            greeting.appendChild(inputBar);
+        }
+        mainArea.classList.add("centered-input");
+    } else {
+        if(inputBar.parentElement !== mainArea){
+            mainArea.appendChild(inputBar);
+        }
+        mainArea.classList.remove("centered-input");
+    }
+}
+
+new MutationObserver(updateInputBarLayout).observe(chatMessages, { childList: true });
+updateInputBarLayout();
+
 document.getElementById("attachBtn").addEventListener("click", () => {
     document.getElementById("chatFileInput").click();
 });
