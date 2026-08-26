@@ -1185,7 +1185,6 @@ function handleProfileEntry(){
     closeSidebarMobile();
 }
 
-document.getElementById("topbarSettingsBtn")?.addEventListener("click", handleProfileEntry);
 document.getElementById("sidebarUser")?.addEventListener("click", handleProfileEntry);
 
 // ---------- Profile modal ----------
@@ -1193,6 +1192,19 @@ document.getElementById("sidebarUser")?.addEventListener("click", handleProfileE
 function getProfile(){
     return JSON.parse(localStorage.getItem("zyntra-profile") || "{}");
 }
+
+function switchSettingsSection(section){
+    document.querySelectorAll(".settings-nav-item").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.settingsSection === section);
+    });
+    document.querySelectorAll(".settings-panel").forEach(panel => {
+        panel.style.display = panel.dataset.settingsPanel === section ? "block" : "none";
+    });
+}
+
+document.querySelectorAll(".settings-nav-item").forEach(btn => {
+    btn.addEventListener("click", () => switchSettingsSection(btn.dataset.settingsSection));
+});
 
 function renderProfileModal(){
     const guestView = document.getElementById("profileGuestView");
@@ -1205,7 +1217,8 @@ function renderProfileModal(){
     }
 
     guestView.style.display = "none";
-    signedInView.style.display = "block";
+    signedInView.style.display = "flex";
+    switchSettingsSection("account");
     renderPinnedChats();
 
     const email = localStorage.getItem("zyntra-user");
