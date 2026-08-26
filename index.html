@@ -135,7 +135,6 @@
             <div class="topbar-right">
                 <button class="theme-toggle" id="deleteChatBtn" title="Delete this chat" style="display:none;">🗑</button>
                 <button class="theme-toggle" id="themeToggle">🌙</button>
-                <button class="topbar-avatar" id="topbarSettingsBtn" title="Settings">⚙️</button>
             </div>
         </header>
 
@@ -341,76 +340,95 @@
 
 <!-- ================= SETTINGS MODAL ================= -->
 <div class="modal-overlay" id="profileModal">
-    <div class="modal-box">
+    <div class="modal-box settings-modal-box">
         <button class="modal-close" id="profileModalClose">✕</button>
-        <span class="tag">SETTINGS</span>
-        <h1><span>Settings</span></h1>
 
         <div id="profileGuestView">
+            <span class="tag">SETTINGS</span>
+            <h1><span>Settings</span></h1>
             <p>Sign in to personalize Zyntra AI, set a voice, and sync your chat history.</p>
             <button id="profileSigninBtn" class="mic-btn">Sign In</button>
         </div>
 
-        <div id="profileSignedInView" style="display:none;">
-            <div style="display:flex; align-items:center; gap:16px; margin-bottom:24px;">
-                <div class="profile-avatar" id="profileAvatar">M</div>
-                <p id="profileEmailDisplay" style="color:#9aa0c0; font-size:14px; margin:0;"></p>
-            </div>
+        <div id="profileSignedInView" class="settings-layout" style="display:none;">
+            <nav class="settings-nav">
+                <button type="button" class="settings-nav-item active" data-settings-section="account">
+                    <span class="settings-nav-icon">👤</span> Account
+                </button>
+                <button type="button" class="settings-nav-item" data-settings-section="personalization">
+                    <span class="settings-nav-icon">🎨</span> Personalization
+                </button>
+                <button type="button" class="settings-nav-item" data-settings-section="voice">
+                    <span class="settings-nav-icon">🔊</span> Voice
+                </button>
+                <button type="button" class="settings-nav-item" data-settings-section="pinned">
+                    <span class="settings-nav-icon">📌</span> Pinned Chats
+                </button>
+            </nav>
 
-            <h3 class="settings-section-title">Personalization</h3>
-            <div class="modal-input-row modal-input-col">
-                <label class="profile-label">Full name</label>
-                <input type="text" id="profileFullName" placeholder="Your full name">
-
-                <label class="profile-label">What should Zyntra AI call you?</label>
-                <input type="text" id="profileNickname" placeholder="Nickname">
-
-                <label class="profile-label">What best describes your work?</label>
-                <div class="custom-picker" id="workPicker">
-                    <button type="button" class="custom-picker-trigger" id="workPickerTrigger">
-                        <span id="workPickerLabel">Select one</span>
-                        <span class="custom-picker-chevron">▾</span>
-                    </button>
-                    <div class="custom-picker-menu" id="workPickerMenu"></div>
-                </div>
-                <select id="profileWork" style="display:none;">
-                    <option value="">Select one</option>
-                    <option value="Engineering">Engineering</option>
-                    <option value="Design">Design</option>
-                    <option value="Marketing">Marketing</option>
-                    <option value="Business">Business</option>
-                    <option value="Student">Student</option>
-                    <option value="Other">Other</option>
-                </select>
-
-                <label class="profile-label">Instructions for Zyntra AI</label>
-                <textarea id="profileInstructions" rows="4" placeholder="e.g. keep explanations brief and to the point"></textarea>
-
-                <button id="profileSaveBtn">Save</button>
-            </div>
-
-            <div style="border-top:1px solid #232a4d; margin-top:24px; padding-top:20px;">
-                <h3 class="settings-section-title">🔊 Voice</h3>
-                <p class="settings-section-hint">Choose the voice Zyntra AI speaks with in Voice Assistant and read-aloud replies.</p>
-                <div class="modal-input-row" style="margin-top:12px; align-items:flex-start;">
-                    <div class="custom-picker" id="voicePicker">
-                        <button type="button" class="custom-picker-trigger" id="voicePickerTrigger">
-                            <span id="voicePickerLabel">Auto (match message language)</span>
-                            <span class="custom-picker-chevron">▾</span>
-                        </button>
-                        <div class="custom-picker-menu" id="voicePickerMenu"></div>
+            <div class="settings-content">
+                <div class="settings-panel" data-settings-panel="account">
+                    <h2 class="settings-panel-title">Account</h2>
+                    <div style="display:flex; align-items:center; gap:16px; margin:20px 0 28px;">
+                        <div class="profile-avatar" id="profileAvatar">M</div>
+                        <p id="profileEmailDisplay" style="color:#9aa0c0; font-size:14px; margin:0;"></p>
                     </div>
-                    <button id="voiceTestBtn" type="button" style="flex:0 0 auto; padding:13px 18px;">▶ Test</button>
+                    <button id="profileSignoutBtn" style="width:100%; padding:12px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:#ff8fa8; font-weight:600; cursor:pointer;">🚪 Sign Out</button>
                 </div>
-            </div>
 
-            <div style="border-top:1px solid #232a4d; margin-top:24px; padding-top:20px;">
-                <h3 class="settings-section-title">📌 Pinned Chats</h3>
-                <div class="history-list" id="pinnedChatsBox" style="max-height:220px;"></div>
-            </div>
+                <div class="settings-panel" data-settings-panel="personalization" style="display:none;">
+                    <h2 class="settings-panel-title">Personalization</h2>
+                    <div class="modal-input-row modal-input-col" style="margin-top:20px;">
+                        <label class="profile-label">Full name</label>
+                        <input type="text" id="profileFullName" placeholder="Your full name">
 
-            <div style="border-top:1px solid #232a4d; margin-top:20px; padding-top:20px;">
-                <button id="profileSignoutBtn" style="width:100%; padding:12px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:#ff8fa8; font-weight:600; cursor:pointer;">🚪 Sign Out</button>
+                        <label class="profile-label">What should Zyntra AI call you?</label>
+                        <input type="text" id="profileNickname" placeholder="Nickname">
+
+                        <label class="profile-label">What best describes your work?</label>
+                        <div class="custom-picker" id="workPicker">
+                            <button type="button" class="custom-picker-trigger" id="workPickerTrigger">
+                                <span id="workPickerLabel">Select one</span>
+                                <span class="custom-picker-chevron">▾</span>
+                            </button>
+                            <div class="custom-picker-menu" id="workPickerMenu"></div>
+                        </div>
+                        <select id="profileWork" style="display:none;">
+                            <option value="">Select one</option>
+                            <option value="Engineering">Engineering</option>
+                            <option value="Design">Design</option>
+                            <option value="Marketing">Marketing</option>
+                            <option value="Business">Business</option>
+                            <option value="Student">Student</option>
+                            <option value="Other">Other</option>
+                        </select>
+
+                        <label class="profile-label">Instructions for Zyntra AI</label>
+                        <textarea id="profileInstructions" rows="4" placeholder="e.g. keep explanations brief and to the point"></textarea>
+
+                        <button id="profileSaveBtn">Save</button>
+                    </div>
+                </div>
+
+                <div class="settings-panel" data-settings-panel="voice" style="display:none;">
+                    <h2 class="settings-panel-title">Voice</h2>
+                    <p class="settings-section-hint" style="margin-top:20px;">Choose the voice Zyntra AI speaks with in Voice Assistant and read-aloud replies.</p>
+                    <div class="modal-input-row" style="margin-top:12px; align-items:flex-start;">
+                        <div class="custom-picker" id="voicePicker">
+                            <button type="button" class="custom-picker-trigger" id="voicePickerTrigger">
+                                <span id="voicePickerLabel">Auto (match message language)</span>
+                                <span class="custom-picker-chevron">▾</span>
+                            </button>
+                            <div class="custom-picker-menu" id="voicePickerMenu"></div>
+                        </div>
+                        <button id="voiceTestBtn" type="button" style="flex:0 0 auto; padding:13px 18px;">▶ Test</button>
+                    </div>
+                </div>
+
+                <div class="settings-panel" data-settings-panel="pinned" style="display:none;">
+                    <h2 class="settings-panel-title">Pinned Chats</h2>
+                    <div class="history-list" id="pinnedChatsBox" style="max-height:400px; margin-top:20px;"></div>
+                </div>
             </div>
         </div>
     </div>
