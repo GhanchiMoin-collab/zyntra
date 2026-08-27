@@ -352,8 +352,8 @@
 
         <div id="profileSignedInView" class="settings-layout" style="display:none;">
             <nav class="settings-nav">
-                <button type="button" class="settings-nav-item active" data-settings-section="account">
-                    <span class="settings-nav-icon">👤</span> Account
+                <button type="button" class="settings-nav-item active" data-settings-section="general">
+                    <span class="settings-nav-icon">⚙️</span> General
                 </button>
                 <button type="button" class="settings-nav-item" data-settings-section="personalization">
                     <span class="settings-nav-icon">🎨</span> Personalization
@@ -361,13 +361,34 @@
                 <button type="button" class="settings-nav-item" data-settings-section="voice">
                     <span class="settings-nav-icon">🔊</span> Voice
                 </button>
+                <button type="button" class="settings-nav-item" data-settings-section="data">
+                    <span class="settings-nav-icon">🗄️</span> Data Controls
+                </button>
+                <button type="button" class="settings-nav-item" data-settings-section="account">
+                    <span class="settings-nav-icon">👤</span> Account
+                </button>
                 <button type="button" class="settings-nav-item" data-settings-section="pinned">
                     <span class="settings-nav-icon">📌</span> Pinned Chats
                 </button>
             </nav>
 
             <div class="settings-content">
-                <div class="settings-panel" data-settings-panel="account">
+                <div class="settings-panel" data-settings-panel="general">
+                    <h2 class="settings-panel-title">General</h2>
+                    <div style="margin-top:20px;">
+                        <p class="profile-label" style="margin-top:0;">Theme</p>
+                        <div class="settings-theme-row">
+                            <button type="button" class="settings-theme-btn" data-theme="dark">🌙 Dark</button>
+                            <button type="button" class="settings-theme-btn" data-theme="light">☀️ Light</button>
+                        </div>
+                    </div>
+                    <div style="margin-top:24px; border-top:1px solid #232a4d; padding-top:20px;">
+                        <p class="profile-label" style="margin-top:0;">Language</p>
+                        <p class="settings-section-hint">Zyntra AI automatically replies in whatever language you write in — no setting needed.</p>
+                    </div>
+                </div>
+
+                <div class="settings-panel" data-settings-panel="account" style="display:none;">
                     <h2 class="settings-panel-title">Account</h2>
                     <div style="display:flex; align-items:center; gap:16px; margin:20px 0 28px;">
                         <div class="profile-avatar" id="profileAvatar">M</div>
@@ -422,6 +443,15 @@
                             <div class="custom-picker-menu" id="voicePickerMenu"></div>
                         </div>
                         <button id="voiceTestBtn" type="button" style="flex:0 0 auto; padding:13px 18px;">▶ Test</button>
+                    </div>
+                </div>
+
+                <div class="settings-panel" data-settings-panel="data" style="display:none;">
+                    <h2 class="settings-panel-title">Data Controls</h2>
+                    <div style="margin-top:20px;">
+                        <p class="profile-label" style="margin-top:0;">Chat history</p>
+                        <p class="settings-section-hint">Delete every saved conversation from this device. This can't be undone.</p>
+                        <button id="settingsClearHistoryBtn" type="button" style="margin-top:12px; padding:12px 20px; border:1px solid #5a2334; border-radius:12px; background:#2a1420; color:#ff8fa8; font-weight:700; cursor:pointer;">🗑 Clear all chat history</button>
                     </div>
                 </div>
 
