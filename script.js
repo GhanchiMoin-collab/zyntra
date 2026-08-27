@@ -1218,7 +1218,7 @@ function renderProfileModal(){
 
     guestView.style.display = "none";
     signedInView.style.display = "flex";
-    switchSettingsSection("account");
+    switchSettingsSection("general");
     renderPinnedChats();
 
     const email = localStorage.getItem("zyntra-user");
@@ -2031,15 +2031,39 @@ document.getElementById("newChatBtn")?.addEventListener("click", () => {
 // ---------- Theme toggle ----------
 
 const themeToggle = document.getElementById("themeToggle");
-if(localStorage.getItem("zyntra-theme") === "light"){
-    document.body.classList.add("light-mode");
-    themeToggle.textContent = "☀️";
-}
-themeToggle?.addEventListener("click", () => {
-    document.body.classList.toggle("light-mode");
-    const isLight = document.body.classList.contains("light-mode");
-    themeToggle.textContent = isLight ? "☀️" : "🌙";
+
+function applyTheme(isLight){
+    document.body.classList.toggle("light-mode", isLight);
+    if(themeToggle) themeToggle.textContent = isLight ? "☀️" : "🌙";
     localStorage.setItem("zyntra-theme", isLight ? "light" : "dark");
+    document.querySelectorAll(".settings-theme-btn").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.theme === (isLight ? "light" : "dark"));
+    });
+}
+
+applyTheme(localStorage.getItem("zyntra-theme") === "light");
+
+themeToggle?.addEventListener("click", () => {
+    applyTheme(!document.body.classList.contains("light-mode"));
+});
+
+document.querySelectorAll(".settings-theme-btn").forEach(btn => {
+    btn.addEventListener("click", () => applyTheme(btn.dataset.theme === "light"));
+});
+
+document.getElementById("settingsClearHistoryBtn")?.addEventListener("click", () => {
+    if(!isLoggedIn()) return;
+    confirmAction(
+        "Clear All History?",
+        "Are you sure you want to delete every saved conversation? This can't be undone.",
+        () => {
+            saveSessions([]);
+            currentSessionId = null;
+            renderSidebarHistory();
+            renderPinnedChats();
+            renderSearchChatsList(document.getElementById("searchChatsInput")?.value || "");
+        }
+    );
 });
 
 // ---------- Sidebar (mobile off-canvas) ----------
