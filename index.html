@@ -135,6 +135,7 @@
             <div class="topbar-right">
                 <button class="theme-toggle" id="deleteChatBtn" title="Delete this chat" style="display:none;">🗑</button>
                 <button class="theme-toggle" id="themeToggle">🌙</button>
+                <button class="theme-toggle" id="topbarSettingsBtn" title="Settings">⚙️</button>
             </div>
         </header>
 
@@ -352,10 +353,10 @@
 
         <div id="profileSignedInView" class="settings-layout" style="display:none;">
             <nav class="settings-nav">
-                <button type="button" class="settings-nav-item active" data-settings-section="general">
+                <button type="button" class="settings-nav-item" data-settings-section="general">
                     <span class="settings-nav-icon">⚙️</span> General
                 </button>
-                <button type="button" class="settings-nav-item" data-settings-section="personalization">
+                <button type="button" class="settings-nav-item active" data-settings-section="personalization">
                     <span class="settings-nav-icon">🎨</span> Personalization
                 </button>
                 <button type="button" class="settings-nav-item" data-settings-section="voice">
@@ -373,7 +374,7 @@
             </nav>
 
             <div class="settings-content">
-                <div class="settings-panel" data-settings-panel="general">
+                <div class="settings-panel" data-settings-panel="general" style="display:none;">
                     <h2 class="settings-panel-title">General</h2>
                     <div style="margin-top:20px;">
                         <p class="profile-label" style="margin-top:0;">Theme</p>
@@ -397,7 +398,7 @@
                     <button id="profileSignoutBtn" style="width:100%; padding:12px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:#ff8fa8; font-weight:600; cursor:pointer;">🚪 Sign Out</button>
                 </div>
 
-                <div class="settings-panel" data-settings-panel="personalization" style="display:none;">
+                <div class="settings-panel" data-settings-panel="personalization">
                     <h2 class="settings-panel-title">Personalization</h2>
                     <div class="modal-input-row modal-input-col" style="margin-top:20px;">
                         <label class="profile-label">Full name</label>
@@ -434,16 +435,19 @@
                 <div class="settings-panel" data-settings-panel="voice" style="display:none;">
                     <h2 class="settings-panel-title">Voice</h2>
                     <p class="settings-section-hint" style="margin-top:20px;">Choose the voice Zyntra AI speaks with in Voice Assistant and read-aloud replies.</p>
-                    <div class="modal-input-row" style="margin-top:12px; align-items:flex-start;">
-                        <div class="custom-picker" id="voicePicker">
-                            <button type="button" class="custom-picker-trigger" id="voicePickerTrigger">
-                                <span id="voicePickerLabel">Auto (match message language)</span>
-                                <span class="custom-picker-chevron">▾</span>
-                            </button>
-                            <div class="custom-picker-menu" id="voicePickerMenu"></div>
+
+                    <div class="voice-carousel">
+                        <button type="button" class="voice-carousel-arrow" id="voicePrevBtn" title="Previous voice">‹</button>
+                        <div class="voice-carousel-center">
+                            <div class="voice-orb" id="voiceOrb"></div>
+                            <p class="voice-carousel-name" id="voiceCarouselName">Auto</p>
+                            <p class="voice-carousel-desc" id="voiceCarouselDesc">Matches each message's language</p>
+                            <div class="voice-carousel-dots" id="voiceCarouselDots"></div>
                         </div>
-                        <button id="voiceTestBtn" type="button" style="flex:0 0 auto; padding:13px 18px;">▶ Test</button>
+                        <button type="button" class="voice-carousel-arrow" id="voiceNextBtn" title="Next voice">›</button>
                     </div>
+
+                    <button id="voiceTestBtn" type="button" class="voice-carousel-test">▶ Test this voice</button>
                 </div>
 
                 <div class="settings-panel" data-settings-panel="data" style="display:none;">
