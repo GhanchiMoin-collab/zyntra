@@ -684,65 +684,77 @@ function speakText(text, lang){
 
 // ---------- Voice settings (in Settings modal) ----------
 
-function renderVoiceOptions(){
-    const picker = document.getElementById("voicePicker");
-    const label = document.getElementById("voicePickerLabel");
-    const menu = document.getElementById("voicePickerMenu");
-    if(!picker || !label || !menu) return;
+let voiceCarouselIndex = 0;
 
+function getVoiceCarouselOptions(){
     const voices = speechSynthesis.getVoices();
-    if(!voices.length){
+    return [{ uri: "", name: "Auto", lang: "", desc: "Matches each message's language" }]
+        .concat(voices.map(v => ({ uri: v.voiceURI, name: v.name, lang: v.lang, desc: "" })));
+}
+
+function renderVoiceCarousel(){
+    const orb = document.getElementById("voiceOrb");
+    const nameEl = document.getElementById("voiceCarouselName");
+    if(!orb || !nameEl) return;
+
+    const options = getVoiceCarouselOptions();
+    if(options.length <= 1){
         // Voices often load asynchronously — retry once they're ready.
-        speechSynthesis.onvoiceschanged = () => renderVoiceOptions();
-        label.textContent = "Loading voices...";
-        menu.innerHTML = "";
+        speechSynthesis.onvoiceschanged = () => renderVoiceCarousel();
+        nameEl.textContent = "Loading voices...";
+        document.getElementById("voiceCarouselDesc").textContent = "";
+        document.getElementById("voiceCarouselDots").innerHTML = "";
         return;
     }
 
     const savedUri = localStorage.getItem("zyntra-voice-uri") || "";
-    const options = [{ uri: "", name: "Auto (match message language)" }]
-        .concat(voices.map(v => ({ uri: v.voiceURI, name: v.name })));
+    const idx = options.findIndex(o => o.uri === savedUri);
+    voiceCarouselIndex = idx === -1 ? 0 : idx;
 
-    const current = options.find(o => o.uri === savedUri) || options[0];
-    label.textContent = current.name;
-
-    menu.innerHTML = "";
-    options.forEach(opt => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "custom-picker-option" + (opt.uri === savedUri ? " selected" : "");
-
-        const text = document.createElement("span");
-        text.textContent = opt.name;
-        btn.appendChild(text);
-
-        if(opt.uri === savedUri){
-            const check = document.createElement("span");
-            check.className = "custom-picker-option-check";
-            check.textContent = "✓";
-            btn.appendChild(check);
-        }
-
-        btn.addEventListener("click", () => {
-            if(opt.uri){
-                localStorage.setItem("zyntra-voice-uri", opt.uri);
-            } else {
-                localStorage.removeItem("zyntra-voice-uri");
-            }
-            picker.classList.remove("open");
-            renderVoiceOptions();
-        });
-        menu.appendChild(btn);
-    });
+    updateVoiceCarouselDisplay(options);
 }
 
-document.getElementById("voicePickerTrigger")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const picker = document.getElementById("voicePicker");
-    if(!picker) return;
-    const wasOpen = picker.classList.contains("open");
-    document.querySelectorAll(".custom-picker.open").forEach(p => p.classList.remove("open"));
-    if(!wasOpen) picker.classList.add("open");
+function updateVoiceCarouselDisplay(options){
+    const opt = options[voiceCarouselIndex];
+
+    document.getElementById("voiceCarouselName").textContent = opt.name;
+    // Real info only — a browser voice doesn't come with a curated
+    // personality description, so we show its actual language instead of
+    // inventing one.
+    document.getElementById("voiceCarouselDesc").textContent = opt.lang ? `Language: ${opt.lang}` : opt.desc;
+
+    const dotsEl = document.getElementById("voiceCarouselDots");
+    dotsEl.innerHTML = "";
+    if(options.length <= 10){
+        options.forEach((o, i) => {
+            const dot = document.createElement("span");
+            dot.className = "voice-carousel-dot" + (i === voiceCarouselIndex ? " active" : "");
+            dotsEl.appendChild(dot);
+        });
+    } else {
+        const counter = document.createElement("span");
+        counter.className = "voice-carousel-counter";
+        counter.textContent = `${voiceCarouselIndex + 1} / ${options.length}`;
+        dotsEl.appendChild(counter);
+    }
+
+    if(opt.uri){
+        localStorage.setItem("zyntra-voice-uri", opt.uri);
+    } else {
+        localStorage.removeItem("zyntra-voice-uri");
+    }
+}
+
+document.getElementById("voicePrevBtn")?.addEventListener("click", () => {
+    const options = getVoiceCarouselOptions();
+    voiceCarouselIndex = (voiceCarouselIndex - 1 + options.length) % options.length;
+    updateVoiceCarouselDisplay(options);
+});
+
+document.getElementById("voiceNextBtn")?.addEventListener("click", () => {
+    const options = getVoiceCarouselOptions();
+    voiceCarouselIndex = (voiceCarouselIndex + 1) % options.length;
+    updateVoiceCarouselDisplay(options);
 });
 
 const WORK_OPTIONS = [
@@ -1185,6 +1197,7 @@ function handleProfileEntry(){
     closeSidebarMobile();
 }
 
+document.getElementById("topbarSettingsBtn")?.addEventListener("click", handleProfileEntry);
 document.getElementById("sidebarUser")?.addEventListener("click", handleProfileEntry);
 
 // ---------- Profile modal ----------
@@ -1218,7 +1231,7 @@ function renderProfileModal(){
 
     guestView.style.display = "none";
     signedInView.style.display = "flex";
-    switchSettingsSection("general");
+    switchSettingsSection("personalization");
     renderPinnedChats();
 
     const email = localStorage.getItem("zyntra-user");
@@ -1233,7 +1246,7 @@ function renderProfileModal(){
     const letter = (profile.nickname || profile.fullName || email || "?").trim().charAt(0).toUpperCase();
     document.getElementById("profileAvatar").textContent = letter;
 
-    renderVoiceOptions();
+    renderVoiceCarousel();
     renderWorkOptions();
 }
 
