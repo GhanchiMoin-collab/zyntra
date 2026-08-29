@@ -4,5 +4,13 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+    // Google OAuth refresh tokens live here. They're written and read
+    // ONLY by the backend via the Firebase Admin SDK, which bypasses
+    // these rules entirely — this explicit deny makes sure no client,
+    // including the token's own owner, can ever read or write them
+    // directly through the app.
+    match /oauth_tokens/{userId} {
+      allow read, write: if false;
+    }
   }
 }
