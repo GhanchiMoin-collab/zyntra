@@ -1444,6 +1444,11 @@ document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
     const provider = new firebase.auth.GoogleAuthProvider();
 
     if(isMobileDevice()){
+        // Marks that a redirect sign-in is in flight, so if we come back
+        // with neither a user nor an error, we can tell the difference
+        // between "just a normal page load" and "the redirect silently
+        // lost its state" — and say something instead of going quiet.
+        sessionStorage.setItem("zyntra-redirect-pending", "1");
         firebase.auth().signInWithRedirect(provider);
         return;
     }
@@ -1459,13 +1464,28 @@ document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
 });
 
 // Catch the result when returning from a mobile redirect sign-in
+const zyntraRedirectWasPending = sessionStorage.getItem("zyntra-redirect-pending") === "1";
+sessionStorage.removeItem("zyntra-redirect-pending");
+
 firebase.auth().getRedirectResult()
     .then(result => {
         if(result && result.user){
             finishSignin(result.user.email);
+        } else if(zyntraRedirectWasPending){
+            // A redirect sign-in was just attempted, but nothing came
+            // back — no user, no error either. This usually means the
+            // browser (often an embedded/in-app browser rather than
+            // Chrome/Safari directly) blocked the storage Firebase needs
+            // to carry sign-in state across the redirect. Say so plainly
+            // instead of silently reverting to Guest with no explanation.
+            console.error('Redirect sign-in returned no user and no error — likely blocked storage in an embedded browser.');
+            document.getElementById("signinContext").style.display = "none";
+            openModal("signinModal");
+            showSigninError("Sign-in didn't complete. If you're inside another app's built-in browser, try opening this site in Chrome or Safari directly and sign in again.");
         }
     })
     .catch(err => {
+        console.error('Redirect sign-in error:', err);
         const msg = firebaseErrorMessage(err.code, err.message);
         if(msg){
             document.getElementById("signinContext").style.display = "none";
