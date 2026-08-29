@@ -78,6 +78,28 @@ const TOOLS = [
     async execute() {
       return { iso: new Date().toISOString() };
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "remember_fact",
+      description: "Save a short, durable fact about the user for future conversations — something likely to still be true and useful weeks from now (their name, job, ongoing projects, preferences, recurring constraints). Do NOT save one-off details, temporary context, or anything sensitive (passwords, financial account numbers, health details). Call this quietly whenever the user shares something worth remembering — don't announce that you're saving it, and don't ask permission first.",
+      parameters: {
+        type: "object",
+        properties: {
+          fact: { type: "string", description: "The fact, written concisely in third person, e.g. \"Building an app called Zyntra AI\" or \"Prefers Python over JavaScript\"." }
+        },
+        required: ["fact"]
+      }
+    },
+    // This backend has no direct database access (Firestore here is
+    // client-side only, scoped to the signed-in user by firestore.rules).
+    // So this tool just acknowledges the call — the actual save happens
+    // in the frontend, which reads zyntra_memory_writes off the response
+    // and writes it to Firestore under the current user. See script.js.
+    async execute() {
+      return { saved: true };
+    }
   }
 
   // Next tools to add here, following the same { function, execute } shape:
@@ -128,6 +150,26 @@ function extractSourcesFromToolMessages(messages) {
     seen.add(s.url);
     return true;
   }).slice(0, 6);
+}
+
+// Pulls any remember_fact tool calls the model made out of the finished
+// conversation, so the frontend can persist them to the signed-in user's
+// Firestore doc. Returns a plain array of fact strings.
+function extractMemoryWrites(messages) {
+  const facts = [];
+  for (const m of messages) {
+    if (m.role !== "assistant" || !Array.isArray(m.tool_calls)) continue;
+    for (const call of m.tool_calls) {
+      if (call.function?.name !== "remember_fact") continue;
+      try {
+        const args = JSON.parse(call.function.arguments || "{}");
+        if (args.fact && typeof args.fact === "string") facts.push(args.fact.trim());
+      } catch {
+        // malformed arguments from the model — skip it rather than error out
+      }
+    }
+  }
+  return facts;
 }
 
 export default async function handler(req, res) {
@@ -194,7 +236,7 @@ Rules:
 - Match their energy: be more playful when they're being casual or joking, more focused and reassuring when they're stressed or stuck on a problem, and genuinely celebratory when they share good news or a win.
 - You understand and can respond fluently in any language the user writes in — Hindi, Spanish, Arabic, French, Chinese, and every other language. Always reply in the same language the user used, unless they ask you to switch.
 - If the user sends an image, look at it carefully and help solve, explain, or answer whatever they're asking about it.
-- You have real tools available (web_search, get_current_datetime, and possibly others). Use them whenever they'd make your answer more accurate or current — don't guess at facts, prices, dates, or anything time-sensitive when you can look it up instead.
+- You have real tools available (web_search, get_current_datetime, remember_fact, and possibly others). Use web_search and get_current_datetime whenever they'd make your answer more accurate or current — don't guess at facts, prices, dates, or anything time-sensitive when you can look it up instead. Use remember_fact quietly, in the background, whenever the user shares something durable worth remembering for future chats (their name, job, project, preferences) — never announce that you're remembering something, just call the tool and continue the conversation naturally.
 `
       }
     ];
@@ -344,8 +386,9 @@ Rules:
     }
 
     const zyntra_sources = extractSourcesFromToolMessages(result.finalMessages || []);
+    const zyntra_memory_writes = extractMemoryWrites(result.finalMessages || []);
 
-    return res.status(200).json({ ...result.data, zyntra_sources });
+    return res.status(200).json({ ...result.data, zyntra_sources, zyntra_memory_writes });
   } catch (error) {
     console.error('Unhandled /api/chat error:', error);
     return res.status(500).json({ error: error?.message || 'Something went wrong on our end. Please try again.' });
