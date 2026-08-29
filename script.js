@@ -961,7 +961,8 @@ async function callChatAPI(messages, options){
     if(!res.ok) throw new Error(data.error || "Request failed");
     return {
         content: data.choices[0].message.content,
-        sources: Array.isArray(data.zyntra_sources) ? data.zyntra_sources : []
+        sources: Array.isArray(data.zyntra_sources) ? data.zyntra_sources : [],
+        memoryWrites: Array.isArray(data.zyntra_memory_writes) ? data.zyntra_memory_writes : []
     };
 }
 
@@ -1233,6 +1234,7 @@ function renderProfileModal(){
     signedInView.style.display = "flex";
     switchSettingsSection("personalization");
     renderPinnedChats();
+    renderSettingsMemoryList();
 
     const email = localStorage.getItem("zyntra-user");
     const profile = getProfile();
@@ -1345,6 +1347,126 @@ function finishSignin(email){
     renderSidebarHistory();
     showToast("✅ You're signed in successfully!");
 }
+
+// ================= Firestore cloud sync =================
+// Profile + chat sessions already live in localStorage (read/written by
+// getProfile/getSessions/saveSessions elsewhere in this file) so the rest
+// of the app works exactly as before. This section mirrors that same data
+// to Firestore, keyed by the signed-in Firebase user, so it survives a
+// cleared cache and follows the user to a new device — instead of only
+// existing in the browser that created it.
+
+let zyntraCloudSyncing = false; // true while pulling down, to avoid an echo save
+let zyntraCloudSaveTimer = null;
+
+function zyntraUserDocRef(){
+    const user = firebase.auth().currentUser;
+    if(!user) return null;
+    return db.collection("users").doc(user.uid);
+}
+
+// ---- Long-term memory ----
+// Durable facts about the user (name, job, ongoing projects, preferences)
+// that the AI decides are worth keeping via the remember_fact tool in
+// api/chat.js. Stored as a plain array on the same Firestore user doc as
+// profile/sessions, cached in localStorage for instant access, and fed
+// back into every new conversation's system prompt below.
+
+function getMemories(){
+    return JSON.parse(localStorage.getItem("zyntra-memories") || "[]");
+}
+
+function saveMemories(memories){
+    localStorage.setItem("zyntra-memories", JSON.stringify(memories));
+    scheduleCloudSave();
+}
+
+// Called after every AI reply with whatever facts it chose to remember
+// (zyntra_memory_writes from /api/chat). Skips near-duplicates and caps
+// the list so it can't grow without bound.
+function addMemories(facts){
+    if(!Array.isArray(facts) || facts.length === 0) return;
+    const memories = getMemories();
+    facts.forEach(fact => {
+        const normalized = (fact || "").trim();
+        if(!normalized) return;
+        const alreadyKnown = memories.some(m => m.fact.toLowerCase() === normalized.toLowerCase());
+        if(alreadyKnown) return;
+        memories.push({ fact: normalized, ts: Date.now() });
+    });
+    // Keep the most recent 60 — plenty for a system-prompt note, and
+    // bounded so it never bloats the request payload over time.
+    saveMemories(memories.slice(-60));
+}
+
+// Debounced so rapid local writes (e.g. several messages in a row)
+// collapse into one Firestore write instead of one per message.
+function scheduleCloudSave(){
+    if(zyntraCloudSyncing) return;
+    clearTimeout(zyntraCloudSaveTimer);
+    zyntraCloudSaveTimer = setTimeout(pushLocalToCloud, 1200);
+}
+
+async function pushLocalToCloud(){
+    const ref = zyntraUserDocRef();
+    if(!ref) return;
+    try{
+        await ref.set({
+            profile: getProfile(),
+            sessions: getSessions(),
+            memories: getMemories(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    }catch(err){
+        console.error("Zyntra cloud save failed:", err);
+    }
+}
+
+async function pullCloudToLocal(){
+    const ref = zyntraUserDocRef();
+    if(!ref) return;
+    zyntraCloudSyncing = true;
+    try{
+        const snap = await ref.get();
+        if(snap.exists){
+            const data = snap.data() || {};
+            if(data.profile) localStorage.setItem("zyntra-profile", JSON.stringify(data.profile));
+            if(Array.isArray(data.sessions)) localStorage.setItem("zyntra-sessions", JSON.stringify(data.sessions));
+            if(Array.isArray(data.memories)) localStorage.setItem("zyntra-memories", JSON.stringify(data.memories));
+        } else {
+            // Brand new account in Firestore — seed the cloud with
+            // whatever this browser already has (e.g. a first chat sent
+            // before this sync finished setting up).
+            zyntraCloudSyncing = false;
+            await pushLocalToCloud();
+            return;
+        }
+    }catch(err){
+        console.error("Zyntra cloud pull failed:", err);
+    }finally{
+        zyntraCloudSyncing = false;
+        renderAuthNav();
+        renderSidebarHistory();
+    }
+}
+
+// Runs on every page load AND right after sign-in/sign-up/Google sign-in,
+// since all of those trigger onAuthStateChanged — so there's no separate
+// hook needed in finishSignin.
+firebase.auth().onAuthStateChanged(user => {
+    if(user) pullCloudToLocal();
+});
+
+// Wrap the existing local-save functions (declared earlier in this file)
+// so every place that already calls them also schedules a cloud save,
+// with no changes needed at any of those call sites.
+const zyntraLocalSaveSessions = saveSessions;
+saveSessions = function(sessions){
+    zyntraLocalSaveSessions(sessions);
+    scheduleCloudSave();
+};
+
+document.getElementById("profileSaveBtn")?.addEventListener("click", scheduleCloudSave);
 
 function showToast(message){
     let toast = document.getElementById("zyntraToast");
@@ -2099,6 +2221,42 @@ document.getElementById("settingsClearHistoryBtn")?.addEventListener("click", ()
     );
 });
 
+function renderSettingsMemoryList(){
+    const list = document.getElementById("settingsMemoryList");
+    const empty = document.getElementById("settingsMemoryEmpty");
+    if(!list || !empty) return;
+
+    const memories = getMemories();
+    list.innerHTML = "";
+    if(memories.length === 0){
+        empty.style.display = "block";
+        return;
+    }
+    empty.style.display = "none";
+    // Most recently learned first.
+    [...memories].reverse().forEach(m => {
+        const li = document.createElement("li");
+        li.textContent = m.fact;
+        list.appendChild(li);
+    });
+}
+
+document.querySelectorAll('.settings-nav-item[data-settings-section="data"]').forEach(btn => {
+    btn.addEventListener("click", renderSettingsMemoryList);
+});
+
+document.getElementById("settingsClearMemoryBtn")?.addEventListener("click", () => {
+    if(!isLoggedIn()) return;
+    confirmAction(
+        "Clear Everything Remembered?",
+        "This deletes every fact Zyntra has learned about you across all your conversations. This can't be undone.",
+        () => {
+            saveMemories([]);
+            renderSettingsMemoryList();
+        }
+    );
+});
+
 // ---------- Sidebar (mobile off-canvas) ----------
 
 function openSidebarMobile(){
@@ -2473,6 +2631,10 @@ async function sendChatMessage(prefill){
         let note = "Always reply in the same language the user writes in (for example, reply in Hindi if they write in Hindi, in Spanish if they write in Spanish, and so on — support any language naturally). If the user explicitly asks you to reply or speak in a specific language (for example \"talk in Gujarati\" or \"reply in French\"), you MUST switch to writing your entire response in that requested language from that point on, using its native script, not English. Pay attention to the emotional tone of what the user writes (happy, sad, frustrated, excited, worried, etc.) and respond with matching empathy and tone — be warm and supportive if they seem upset or stressed, and match their energy if they're happy or excited. Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process or thought process, and do not add unnecessary meta-commentary about the question itself. Just give the direct, natural answer.";
         if(profile.nickname) note += ` Call the user "${profile.nickname}".`;
         if(profile.instructions) note += ` User's custom instructions: ${profile.instructions}`;
+        const memories = getMemories();
+        if(memories.length){
+            note += ` Here are things you already know about this user from past conversations — weave them in naturally where relevant, don't just list them back at the user: ${memories.map(m => m.fact).join("; ")}.`;
+        }
         chatHistory.push({ role: "system", content: note });
     }
 
@@ -2507,9 +2669,10 @@ async function sendChatMessage(prefill){
     chatArea.scrollTop = chatArea.scrollHeight;
 
     try{
-        const { content: reply, sources } = await callChatAPI(chatHistory, { forceSearch: webSearchEnabled });
+        const { content: reply, sources, memoryWrites } = await callChatAPI(chatHistory, { forceSearch: webSearchEnabled });
         chatHistory.push({ role: "assistant", content: reply });
         logMessageToHistory("assistant", reply);
+        addMemories(memoryWrites);
         aiContent.textContent = "";
         typeOutText(aiContent, reply, chatArea, () => {
             loadingDiv.classList.add("done");
