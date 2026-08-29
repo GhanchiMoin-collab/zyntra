@@ -1,3 +1,7 @@
+import { google } from "googleapis";
+import { getAdminAuth } from "./_lib/firebaseAdmin.js";
+import { getAuthorizedClientForUser } from "./_lib/googleOAuth.js";
+
 // Vercel's default serverless timeout (10s on Hobby) isn't enough for a
 // real web search — the model may call a tool, wait on the result, then
 // write the answer, which can take 15-40+ seconds. This raises the
@@ -100,6 +104,80 @@ const TOOLS = [
     async execute() {
       return { saved: true };
     }
+  },
+  {
+    requiresGoogle: true,
+    type: "function",
+    function: {
+      name: "send_email",
+      description: "Send an email from the user's connected Gmail account. Only available once the user has connected Google in Settings. This sends a real email that can't be unsent — always state the exact recipient, subject, and body back to the user in your reply and get clear confirmation before calling this tool, unless they already gave you all three details explicitly in this message.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Recipient email address." },
+          subject: { type: "string", description: "Email subject line." },
+          body: { type: "string", description: "Plain text email body." }
+        },
+        required: ["to", "subject", "body"]
+      }
+    },
+    async execute({ to, subject, body }, ctx) {
+      if (!ctx?.googleClient) return { error: "Gmail isn't connected for this user." };
+      try {
+        const gmail = google.gmail({ version: "v1", auth: ctx.googleClient });
+        const message = [
+          `To: ${to}`,
+          `Subject: ${subject}`,
+          "Content-Type: text/plain; charset=utf-8",
+          "",
+          body
+        ].join("\n");
+        const raw = Buffer.from(message).toString("base64url");
+        await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
+        return { sent: true, to, subject };
+      } catch (err) {
+        console.error("send_email failed:", err);
+        return { error: "Failed to send email: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresGoogle: true,
+    type: "function",
+    function: {
+      name: "create_calendar_event",
+      description: "Create an event on the user's connected Google Calendar. Only available once the user has connected Google in Settings. Confirm the title, date/time, and duration with the user before calling this, unless they already gave you all the details explicitly.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Event title." },
+          start_iso: { type: "string", description: "Event start time in ISO 8601, e.g. 2026-09-02T15:00:00." },
+          end_iso: { type: "string", description: "Event end time in ISO 8601." },
+          description: { type: "string", description: "Optional event description." },
+          timezone: { type: "string", description: "IANA timezone, e.g. Asia/Kolkata. Ask the user if unclear, otherwise default to Asia/Kolkata." }
+        },
+        required: ["title", "start_iso", "end_iso"]
+      }
+    },
+    async execute({ title, start_iso, end_iso, description, timezone }, ctx) {
+      if (!ctx?.googleClient) return { error: "Google Calendar isn't connected for this user." };
+      try {
+        const calendar = google.calendar({ version: "v3", auth: ctx.googleClient });
+        const { data } = await calendar.events.insert({
+          calendarId: "primary",
+          requestBody: {
+            summary: title,
+            description: description || "",
+            start: { dateTime: start_iso, timeZone: timezone || "Asia/Kolkata" },
+            end: { dateTime: end_iso, timeZone: timezone || "Asia/Kolkata" }
+          }
+        });
+        return { created: true, eventLink: data.htmlLink };
+      } catch (err) {
+        console.error("create_calendar_event failed:", err);
+        return { error: "Failed to create event: " + (err.message || "unknown error") };
+      }
+    }
   }
 
   // Next tools to add here, following the same { function, execute } shape:
@@ -112,7 +190,7 @@ const TOOLS = [
 
 const TOOLS_BY_NAME = Object.fromEntries(TOOLS.map(t => [t.function.name, t]));
 
-async function executeTool(name, argsJson) {
+async function executeTool(name, argsJson, ctx) {
   const tool = TOOLS_BY_NAME[name];
   if (!tool) return { error: `Unknown tool: ${name}` };
   let args = {};
@@ -122,7 +200,7 @@ async function executeTool(name, argsJson) {
     return { error: "Invalid arguments JSON from model." };
   }
   try {
-    return await tool.execute(args);
+    return await tool.execute(args, ctx);
   } catch (err) {
     console.error(`Tool ${name} threw:`, err);
     return { error: `Tool ${name} failed: ${err.message}` };
@@ -214,6 +292,24 @@ export default async function handler(req, res) {
       m => Array.isArray(m.content) && m.content.some(part => part.type === 'image_url')
     );
 
+    // If the frontend sent a Firebase ID token (it does automatically once
+    // signed in), verify it to get a trusted uid, then check whether that
+    // user has connected Google. Both steps fail silently — a missing
+    // token, missing admin config, or no Google connection just means the
+    // Gmail/Calendar tools aren't offered this request; plain chat is
+    // completely unaffected.
+    let googleClient = null;
+    try {
+      const authHeader = req.headers.authorization || "";
+      const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+      if (idToken) {
+        const decoded = await getAdminAuth().verifyIdToken(idToken);
+        googleClient = await getAuthorizedClientForUser(decoded.uid);
+      }
+    } catch (err) {
+      console.error("Auth/Google lookup failed (continuing without Google tools):", err.message);
+    }
+
     const systemMessages = [
       {
         role: "system",
@@ -245,6 +341,13 @@ Rules:
       systemMessages.push({
         role: "system",
         content: "The user has explicitly turned on web search for this message. Call the web_search tool before answering, even if you think you already know the answer — prefer freshly retrieved facts over memory. Weave the findings into a natural answer."
+      });
+    }
+
+    if (googleClient) {
+      systemMessages.push({
+        role: "system",
+        content: "The user has connected their Google account. You may use send_email and create_calendar_event when they clearly ask you to send an email or schedule something — state the exact recipient/subject/body or event title/time back to them and get confirmation first, unless they already gave every detail explicitly, since these are real actions that can't be undone."
       });
     }
 
@@ -320,7 +423,8 @@ Rules:
           messages: conversation
         };
         if (includeTools) {
-          body.tools = TOOLS.map(({ function: fn }) => ({ type: "function", function: fn }));
+          const availableTools = TOOLS.filter(t => !t.requiresGoogle || !!googleClient);
+          body.tools = availableTools.map(({ function: fn }) => ({ type: "function", function: fn }));
           body.tool_choice = (round === 0 && forceSearch && !hasImage) ? { type: "function", function: { name: "web_search" } } : "auto";
         }
         if (hasImage) {
@@ -345,7 +449,7 @@ Rules:
         // results, and loop back so it can use them in its next reply.
         conversation = [...conversation, message];
         for (const call of toolCalls) {
-          const toolResult = await executeTool(call.function.name, call.function.arguments);
+          const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient });
           conversation.push({
             role: "tool",
             tool_call_id: call.id,
