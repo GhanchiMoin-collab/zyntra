@@ -943,9 +943,22 @@ async function callChatAPI(messages, options){
     if(opts.forceSearch) payload.forceSearch = true;
     if(opts.lite) payload.lite = true;
 
+    const headers = { "Content-Type": "application/json" };
+    // Sent so the backend can verify who's asking and, if they've connected
+    // Google, offer the send_email / create_calendar_event tools for this
+    // request. Silently skipped if getIdToken fails — chat still works.
+    if(firebase.auth().currentUser){
+        try{
+            const idToken = await firebase.auth().currentUser.getIdToken();
+            headers["Authorization"] = "Bearer " + idToken;
+        }catch(err){
+            console.error("Couldn't get ID token:", err);
+        }
+    }
+
     const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(payload)
     });
 
@@ -1235,6 +1248,7 @@ function renderProfileModal(){
     switchSettingsSection("personalization");
     renderPinnedChats();
     renderSettingsMemoryList();
+    refreshGoogleConnectionStatus();
 
     const email = localStorage.getItem("zyntra-user");
     const profile = getProfile();
@@ -1398,6 +1412,93 @@ function addMemories(facts){
     // bounded so it never bloats the request payload over time.
     saveMemories(memories.slice(-60));
 }
+
+// ---- Google connection (Gmail / Calendar) ----
+// The refresh token itself never touches this browser — it's stored
+// server-side by /api/auth/*, keyed to the signed-in Firebase user. This
+// section only handles the connect/disconnect UI and status display.
+
+async function refreshGoogleConnectionStatus(){
+    const statusEl = document.getElementById("googleConnectionStatus");
+    const btn = document.getElementById("googleConnectBtn");
+    if(!statusEl || !btn || !firebase.auth().currentUser) return;
+
+    statusEl.textContent = "Checking…";
+    try{
+        const idToken = await firebase.auth().currentUser.getIdToken();
+        const res = await fetch("/api/auth/google-status", {
+            headers: { "Authorization": "Bearer " + idToken }
+        });
+        const data = await res.json();
+        if(data.connected){
+            statusEl.textContent = data.googleEmail ? `Connected as ${data.googleEmail}` : "Connected";
+            btn.textContent = "Disconnect";
+            btn.dataset.connected = "true";
+        } else {
+            statusEl.textContent = "Not connected";
+            btn.textContent = "Connect";
+            btn.dataset.connected = "false";
+        }
+    }catch(err){
+        console.error("Couldn't check Google connection status:", err);
+        statusEl.textContent = "Couldn't check status — try again later.";
+    }
+}
+
+document.getElementById("googleConnectBtn")?.addEventListener("click", async () => {
+    if(!firebase.auth().currentUser) return;
+    const btn = document.getElementById("googleConnectBtn");
+
+    if(btn.dataset.connected === "true"){
+        confirmAction(
+            "Disconnect Google?",
+            "Zyntra will no longer be able to send emails or create calendar events on your behalf.",
+            async () => {
+                try{
+                    const idToken = await firebase.auth().currentUser.getIdToken();
+                    await fetch("/api/auth/google-disconnect", {
+                        method: "POST",
+                        headers: { "Authorization": "Bearer " + idToken }
+                    });
+                    showToast("Google disconnected.");
+                    refreshGoogleConnectionStatus();
+                }catch(err){
+                    console.error("Disconnect failed:", err);
+                    showToast("Couldn't disconnect. Please try again.");
+                }
+            }
+        );
+        return;
+    }
+
+    try{
+        btn.disabled = true;
+        const idToken = await firebase.auth().currentUser.getIdToken();
+        const res = await fetch("/api/auth/google-start", {
+            headers: { "Authorization": "Bearer " + idToken }
+        });
+        const data = await res.json();
+        if(!res.ok || !data.url) throw new Error(data.error || "Couldn't start Google connection.");
+        window.location.href = data.url; // full navigation — this leaves the app to Google's consent screen
+    }catch(err){
+        console.error("Connect failed:", err);
+        showToast(err.message || "Couldn't connect Google. Please try again.");
+        btn.disabled = false;
+    }
+});
+
+// Google redirects back to "/" with one of these query params after the
+// user finishes (or cancels) the consent screen — check once on load.
+(function handleGoogleRedirectResult(){
+    const params = new URLSearchParams(window.location.search);
+    if(params.has("google_connected")){
+        showToast("✅ Google connected!");
+        window.history.replaceState({}, "", window.location.pathname);
+    } else if(params.has("google_error")){
+        showToast("⚠️ Google connection failed: " + params.get("google_error"));
+        window.history.replaceState({}, "", window.location.pathname);
+    }
+})();
 
 // Debounced so rapid local writes (e.g. several messages in a row)
 // collapse into one Firestore write instead of one per message.
