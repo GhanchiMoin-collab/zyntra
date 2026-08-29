@@ -532,6 +532,7 @@
 
 <script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-firestore-compat.js"></script>
 <script>
     firebase.initializeApp({
         apiKey: "AIzaSyAWuJOkwON5KLALez5_p4rQYA7vNoGgjvM",
@@ -540,6 +541,15 @@
         storageBucket: "zyntra-98cad.firebasestorage.app",
         messagingSenderId: "960720019638",
         appId: "1:960720019638:web:3f672e5d103386ed858617"
+    });
+    // Firestore gives every signed-in user real cloud storage for their
+    // profile + chat history, so it survives cleared caches and syncs
+    // across devices — instead of living only in this browser's localStorage.
+    const db = firebase.firestore();
+    db.enablePersistence({ synchronizeTabs: true }).catch(() => {
+        // Fails silently in browsers/tabs that don't support offline
+        // persistence (e.g. multiple tabs without synchronizeTabs support,
+        // private browsing) — Firestore still works, just online-only.
     });
 </script>
 
