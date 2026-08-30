@@ -2914,6 +2914,9 @@ async function sendChatMessage(prefill){
         if(memories.length){
             note += ` Here are things you already know about this user from past conversations — weave them in naturally where relevant, don't just list them back at the user: ${memories.map(m => m.fact).join("; ")}.`;
         }
+        if(activeChatTool === "website"){
+            note += " " + WEBSITE_BUILDER_SYSTEM_NOTE;
+        }
         chatHistory.push({ role: "system", content: note });
     }
 
@@ -3072,12 +3075,33 @@ function setActiveNav(tool){
     if(el) el.classList.add("active");
 }
 
+// Design instructions for Website Builder mode. This is the actual
+// quality lever — a strong, specific brief here is what keeps output from
+// looking like generic "AI website" template #4,738 (centered hero,
+// three feature cards, purple gradient everywhere, Lorem ipsum).
+const WEBSITE_BUILDER_SYSTEM_NOTE = `
+You are in Website Builder mode. Every reply must be a single, complete, working HTML file — inline <style> and <script> in the same file, no external files or build steps — wrapped in one \`\`\`html code block, and nothing else outside that block except a one-sentence summary of what you built or changed.
+
+Design like a thoughtful human designer, not a template generator:
+- Pick a typeface pairing and color palette that fits what the site is actually for (a masjid site, a photography portfolio, and a SaaS landing page should NOT look like the same template with different text). Load fonts from Google Fonts via a <link> tag.
+- Vary layout structure between projects — not every site needs a centered hero + three feature cards. Consider asymmetry, varied section rhythm, and real visual hierarchy (one dominant element per section, not everything the same size).
+- Use generous whitespace and a restrained color palette (2-3 colors plus neutrals) over busy gradients on every element.
+- Make it responsive (mobile-first or at least graceful on narrow screens) using plain CSS (flexbox/grid, media queries) — no frameworks that need a build step, but a CDN-hosted framework like Tailwind's play CDN is fine if it genuinely helps.
+- Add tasteful, restrained motion (subtle transitions/hover states) rather than heavy animation.
+- Use real semantic HTML (header, nav, main, section, footer) for accessibility, and reasonable alt text / aria labels.
+
+Content honesty: if the user hasn't given specific facts (real prices, hours, addresses, phone numbers, testimonials, team names), do NOT invent specific-sounding fake details presented as real. Either use clearly generic placeholder content (e.g. "Add your address here") or ask the user for the missing specifics — never fabricate a phone number, review count, or address that looks real.
+
+When the user asks for a change, regenerate the ENTIRE file again with the change applied — never send a diff or partial snippet, since the preview needs one complete file every time.
+`;
+
 const TOOL_PLACEHOLDERS = {
     chat: "Ask me anything...",
     study: "Ask me to explain, summarize, or solve...",
     business: "Ask a business or growth question...",
     code: "Ask me to write, debug, or explain code...",
-    image: "Describe the image you want to create..."
+    image: "Describe the image you want to create...",
+    website: "Describe the website you want to build..."
 };
 
 const TOOL_GREETINGS = {
@@ -3100,6 +3124,10 @@ const TOOL_GREETINGS = {
     image: {
         heading: 'Let\'s Create an <span>Image</span>!',
         subtitle: "Describe what you want to see, and I'll bring it to life."
+    },
+    website: {
+        heading: 'Let\'s Build a <span>Website</span>!',
+        subtitle: "Describe it, watch it come to life, then ask for changes."
     }
 };
 
