@@ -357,7 +357,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { messages: rawMessages, forceSearch, research, lite } = req.body || {};
+    const { messages: rawMessages, forceSearch, research, website, lite } = req.body || {};
 
     if (!Array.isArray(rawMessages)) {
       return res.status(400).json({ error: 'Missing messages array' });
@@ -647,7 +647,7 @@ Rules:
         const roundStart = Date.now();
         const body = {
           temperature: 0.7,
-          max_tokens: research ? 3072 : 2048, // a bit more room for a thorough, sourced answer
+          max_tokens: website ? 8000 : (research ? 3072 : 2048), // a full single-file website needs far more room than a normal reply
           messages: conversation
         };
         if (includeTools) {
@@ -719,7 +719,7 @@ Rules:
         console.error('Streaming agent loop failed, retrying without tools:', streamResult.status, streamResult.data?.error?.message);
         streamResult = await callGroqStreaming(primaryModel, {
           temperature: 0.7,
-          max_tokens: 2048,
+          max_tokens: website ? 8000 : (research ? 3072 : 2048),
           messages: fullMessages
         }, 15000, onDelta);
       }
