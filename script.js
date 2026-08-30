@@ -979,6 +979,81 @@ async function callChatAPI(messages, options){
     };
 }
 
+// Same job as callChatAPI, but the AI's reply arrives in real time instead
+// of all at once. onDelta(text) is called with each new piece of text as
+// it's generated — the caller is responsible for appending it to whatever
+// is shown on screen. Resolves once the reply is complete, with the same
+// sources/memoryWrites shape callChatAPI returns.
+async function streamChatAPI(messages, onDelta, options){
+    const opts = options || {};
+    const headers = { "Content-Type": "application/json" };
+    if(firebase.auth().currentUser){
+        try{
+            const idToken = await firebase.auth().currentUser.getIdToken();
+            headers["Authorization"] = "Bearer " + idToken;
+        }catch(err){
+            console.error("Couldn't get ID token:", err);
+        }
+    }
+
+    const payload = { messages, stream: true };
+    if(opts.research) payload.research = true;
+
+    const res = await fetch("/api/chat", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload)
+    });
+
+    if(!res.ok || !res.body){
+        // Errors are still sent as normal JSON when the request fails
+        // before streaming can start (e.g. missing messages).
+        let data = {};
+        try{ data = await res.json(); }catch{}
+        throw new Error(data.error || "Request failed");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let sources = [];
+    let memoryWrites = [];
+    let errorMessage = null;
+
+    while(true){
+        const { done, value } = await reader.read();
+        if(done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let boundary;
+        while((boundary = buffer.indexOf("\n\n")) !== -1){
+            const rawEvent = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            const line = rawEvent.trim();
+            if(!line.startsWith("data:")) continue;
+
+            let payload;
+            try{
+                payload = JSON.parse(line.slice(5).trim());
+            }catch{
+                continue; // skip a malformed chunk rather than breaking the whole reply
+            }
+
+            if(payload.type === "content" && payload.text){
+                onDelta(payload.text);
+            } else if(payload.type === "done"){
+                sources = Array.isArray(payload.sources) ? payload.sources : [];
+                memoryWrites = Array.isArray(payload.memoryWrites) ? payload.memoryWrites : [];
+            } else if(payload.type === "error"){
+                errorMessage = payload.message || "Something went wrong. Please try again.";
+            }
+        }
+    }
+
+    if(errorMessage) throw new Error(errorMessage);
+    return { sources, memoryWrites };
+}
+
 // ---------- Generic modal open/close ----------
 
 function openModal(id){
@@ -2383,6 +2458,7 @@ const chatArea = document.getElementById("chatArea");
 const userInput = document.getElementById("userInput");
 let chatHistory = [];
 let attachedImage = null;
+let attachedDocument = null; // { name, text } — set once client-side extraction finishes
 
 // ---------- Centered input on empty chat, moves to the bottom once a
 // conversation starts (like ChatGPT's home screen) ----------
@@ -2418,36 +2494,126 @@ document.getElementById("attachBtn").addEventListener("click", () => {
 document.getElementById("chatFileInput").addEventListener("change", (e) => {
     const file = e.target.files[0];
     if(!file) return;
-    if(!file.type.startsWith("image/")){
-        alert("Please select an image file.");
+
+    if(file.type.startsWith("image/")){
+        attachedDocument = null;
+        const reader = new FileReader();
+        reader.onload = () => {
+            attachedImage = reader.result;
+            renderAttachPreview();
+        };
+        reader.readAsDataURL(file);
         return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-        attachedImage = reader.result;
-        renderAttachPreview();
-    };
-    reader.readAsDataURL(file);
+
+    extractDocumentText(file)
+        .then(text => {
+            attachedImage = null;
+            // Cap what actually gets sent to the AI — long enough for real
+            // documents, short enough to not blow past model context limits
+            // (trimMessages on the backend caps history separately anyway).
+            const MAX_CHARS = 15000;
+            attachedDocument = {
+                name: file.name,
+                text: text.length > MAX_CHARS ? text.slice(0, MAX_CHARS) + "\n\n[...truncated, document continues beyond this point...]" : text,
+                truncated: text.length > MAX_CHARS
+            };
+            renderAttachPreview();
+        })
+        .catch(err => {
+            console.error("Document extraction failed:", err);
+            showToast("⚠️ Couldn't read that file: " + (err.message || "unsupported format"));
+            document.getElementById("chatFileInput").value = "";
+        });
 });
+
+// Pulls plain text out of a PDF, Word doc, Excel sheet, or plain text/CSV
+// file — entirely in the browser, so an attached document is ready to
+// discuss immediately with no server round-trip. Returns a Promise<string>.
+async function extractDocumentText(file){
+    const name = file.name.toLowerCase();
+
+    if(name.endsWith(".pdf")){
+        if(!window.pdfjsLib) throw new Error("PDF reader didn't load — check your connection and try again.");
+        const buffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+        let text = "";
+        const pageCount = Math.min(pdf.numPages, 60); // sane cap for very long PDFs
+        for(let i = 1; i <= pageCount; i++){
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            text += content.items.map(item => item.str).join(" ") + "\n\n";
+        }
+        if(!text.trim()) throw new Error("This PDF has no selectable text (it may be a scanned image).");
+        return text.trim();
+    }
+
+    if(name.endsWith(".docx") || name.endsWith(".doc")){
+        if(!window.mammoth) throw new Error("Word document reader didn't load — check your connection and try again.");
+        const buffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+        if(!result.value.trim()) throw new Error("Couldn't find any text in that document.");
+        return result.value.trim();
+    }
+
+    if(name.endsWith(".xlsx") || name.endsWith(".xls")){
+        if(!window.XLSX) throw new Error("Spreadsheet reader didn't load — check your connection and try again.");
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        let text = "";
+        workbook.SheetNames.forEach(sheetName => {
+            text += `--- Sheet: ${sheetName} ---\n`;
+            text += XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]) + "\n\n";
+        });
+        return text.trim();
+    }
+
+    if(name.endsWith(".txt") || name.endsWith(".csv")){
+        return await file.text();
+    }
+
+    throw new Error("Unsupported file type. Try a PDF, Word doc, Excel sheet, CSV, or plain text file.");
+}
 
 function renderAttachPreview(){
     const preview = document.getElementById("attachPreview");
-    if(!attachedImage){ preview.innerHTML = ""; return; }
     preview.innerHTML = "";
-    const thumb = document.createElement("div");
-    thumb.className = "attach-thumb";
-    const img = document.createElement("img");
-    img.src = attachedImage;
-    const removeBtn = document.createElement("button");
-    removeBtn.textContent = "✕";
-    removeBtn.addEventListener("click", () => {
-        attachedImage = null;
-        document.getElementById("chatFileInput").value = "";
-        renderAttachPreview();
-    });
-    thumb.appendChild(img);
-    thumb.appendChild(removeBtn);
-    preview.appendChild(thumb);
+
+    if(attachedImage){
+        const thumb = document.createElement("div");
+        thumb.className = "attach-thumb";
+        const img = document.createElement("img");
+        img.src = attachedImage;
+        const removeBtn = document.createElement("button");
+        removeBtn.textContent = "✕";
+        removeBtn.addEventListener("click", () => {
+            attachedImage = null;
+            document.getElementById("chatFileInput").value = "";
+            renderAttachPreview();
+        });
+        thumb.appendChild(img);
+        thumb.appendChild(removeBtn);
+        preview.appendChild(thumb);
+        return;
+    }
+
+    if(attachedDocument){
+        const chip = document.createElement("div");
+        chip.className = "attach-doc-chip";
+        const wordCount = attachedDocument.text.split(/\s+/).filter(Boolean).length;
+        chip.innerHTML = `<span class="attach-doc-icon">📄</span>`
+            + `<span class="attach-doc-info"><strong>${attachedDocument.name}</strong>`
+            + `<small>${wordCount.toLocaleString()} words extracted${attachedDocument.truncated ? " (truncated)" : ""}</small></span>`;
+        const removeBtn = document.createElement("button");
+        removeBtn.textContent = "✕";
+        removeBtn.addEventListener("click", () => {
+            attachedDocument = null;
+            document.getElementById("chatFileInput").value = "";
+            renderAttachPreview();
+        });
+        chip.appendChild(removeBtn);
+        preview.appendChild(chip);
+    }
 }
 
 // Fallback-only heuristic, used solely if the AI classification call itself
@@ -2682,7 +2848,7 @@ async function sendImageOrChatMessage(msg){
 
 async function sendChatMessage(prefill){
     const msg = (prefill !== undefined ? prefill : userInput.value.trim());
-    if(!msg && !attachedImage) return;
+    if(!msg && !attachedImage && !attachedDocument) return;
 
     if(activeChatTool === "image" && msg){
         return sendImageOrChatMessage(msg);
@@ -2702,6 +2868,12 @@ async function sendChatMessage(prefill){
         imgEl.src = attachedImage;
         imgEl.className = "sent-image";
         userDiv.appendChild(imgEl);
+    }
+    if(attachedDocument){
+        const docChip = document.createElement("div");
+        docChip.className = "sent-doc-chip";
+        docChip.innerHTML = `<span>📄</span> ${attachedDocument.name}`;
+        userDiv.appendChild(docChip);
     }
     if(msg){
         const p = document.createElement("p");
@@ -2724,6 +2896,11 @@ async function sendChatMessage(prefill){
             { type: "text", text: msg || "What is in this image? Please help solve or explain it." },
             { type: "image_url", image_url: { url: attachedImage } }
         ];
+    } else if(attachedDocument){
+        // Documents aren't multimodal like images — fold the already-
+        // extracted text straight into the text the model reads.
+        historyContent = `[Attached document: "${attachedDocument.name}"]\n---\n${attachedDocument.text}\n---\n\n`
+            + (msg || "Please read the attached document and summarize the key points.");
     } else {
         historyContent = msg;
     }
@@ -2741,11 +2918,12 @@ async function sendChatMessage(prefill){
     }
 
     chatHistory.push({ role: "user", content: historyContent });
-    logMessageToHistory("user", msg || "[Image attached]");
+    logMessageToHistory("user", msg || (attachedDocument ? `[Document: ${attachedDocument.name}]` : "[Image attached]"));
     bumpStat("conversations");
     recordFreeMessage();
 
     attachedImage = null;
+    attachedDocument = null;
     document.getElementById("chatFileInput").value = "";
     renderAttachPreview();
 
@@ -2757,29 +2935,41 @@ async function sendChatMessage(prefill){
     aiAvatar.className = "ai-message-avatar";
     const aiContent = document.createElement("div");
     aiContent.className = "ai-message-content";
-    aiContent.textContent = "Thinking...";
+    aiContent.textContent = researchModeEnabled ? "🔎 Researching…" : "Thinking...";
     loadingDiv.appendChild(aiAvatar);
     loadingDiv.appendChild(aiContent);
     chatMessages.appendChild(loadingDiv);
     chatArea.scrollTop = chatArea.scrollHeight;
 
     try{
-        const { content: reply, sources, memoryWrites } = await callChatAPI(chatHistory);
-        chatHistory.push({ role: "assistant", content: reply });
-        logMessageToHistory("assistant", reply);
-        addMemories(memoryWrites);
-        aiContent.textContent = "";
-        typeOutText(aiContent, reply, chatArea, () => {
+        let accumulated = "";
+        let firstChunkReceived = false;
+        const { sources, memoryWrites } = await streamChatAPI(chatHistory, (chunk) => {
+            if(!firstChunkReceived){
+                aiContent.textContent = "";
+                firstChunkReceived = true;
+            }
+            accumulated += chunk;
+            aiContent.innerHTML = formatAIText(accumulated);
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }, { research: researchModeEnabled });
+
+        if(!accumulated){
+            aiContent.textContent = "Sorry, I didn't get a response. Please try again.";
+        } else {
+            chatHistory.push({ role: "assistant", content: accumulated });
+            logMessageToHistory("assistant", accumulated);
+            addMemories(memoryWrites);
             loadingDiv.classList.add("done");
             if(sources && sources.length){
                 aiContent.appendChild(buildSourcesRow(sources));
             }
-            addMessageActionBar(aiContent, reply);
+            addMessageActionBar(aiContent, accumulated);
             const aiTime = document.createElement("span");
             aiTime.className = "msg-time";
             aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
             aiContent.appendChild(aiTime);
-        });
+        }
     }catch(err){
         aiContent.textContent = friendlyErrorMessage(err);
     }
@@ -2790,6 +2980,31 @@ document.getElementById("sendMessage").addEventListener("click", () => sendChatM
 userInput.addEventListener("keydown", e => {
     if(e.key === "Enter") sendChatMessage();
 });
+
+// ---------- Research mode ----------
+// A deliberate "go deep" toggle — when on, the agent runs several web
+// searches from different angles instead of one quick one, and writes a
+// longer, more thoroughly sourced answer. Off by default since most
+// messages don't need it.
+
+let researchModeEnabled = false;
+
+function setResearchButtonState(){
+    const btn = document.getElementById("researchBtn");
+    if(!btn) return;
+    btn.classList.toggle("active", researchModeEnabled);
+    btn.title = researchModeEnabled
+        ? "Research mode: ON — deeper, multi-source answers. Click to turn off"
+        : "Research mode — click for deeper, multi-source answers";
+}
+
+document.getElementById("researchBtn")?.addEventListener("click", () => {
+    researchModeEnabled = !researchModeEnabled;
+    setResearchButtonState();
+    showToast(researchModeEnabled ? "🔎 Research mode turned on" : "🔎 Research mode turned off");
+});
+
+setResearchButtonState();
 
 // ---------- Homepage suggestion chips ----------
 // Fills the empty space below the greeting with a handful of clickable
