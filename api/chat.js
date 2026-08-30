@@ -172,20 +172,119 @@ const TOOLS = [
             end: { dateTime: end_iso, timeZone: timezone || "Asia/Kolkata" }
           }
         });
-        return { created: true, eventLink: data.htmlLink };
+        return { created: true, eventId: data.id, eventLink: data.htmlLink };
       } catch (err) {
         console.error("create_calendar_event failed:", err);
         return { error: "Failed to create event: " + (err.message || "unknown error") };
       }
     }
+  },
+  {
+    requiresGoogle: true,
+    type: "function",
+    function: {
+      name: "list_calendar_events",
+      description: "Look up what's already on the user's connected Google Calendar in a given time range. Use this before creating an event if you need to check for conflicts, or whenever the user asks what's on their schedule (e.g. \"what do I have today\", \"am I free Friday afternoon\").",
+      parameters: {
+        type: "object",
+        properties: {
+          time_min_iso: { type: "string", description: "Start of the range to check, ISO 8601, e.g. 2026-09-02T00:00:00." },
+          time_max_iso: { type: "string", description: "End of the range to check, ISO 8601, e.g. 2026-09-03T00:00:00." }
+        },
+        required: ["time_min_iso", "time_max_iso"]
+      }
+    },
+    async execute({ time_min_iso, time_max_iso }, ctx) {
+      if (!ctx?.googleClient) return { error: "Google Calendar isn't connected for this user." };
+      try {
+        const calendar = google.calendar({ version: "v3", auth: ctx.googleClient });
+        const { data } = await calendar.events.list({
+          calendarId: "primary",
+          timeMin: new Date(time_min_iso).toISOString(),
+          timeMax: new Date(time_max_iso).toISOString(),
+          singleEvents: true,
+          orderBy: "startTime",
+          maxResults: 20
+        });
+        const events = (data.items || []).map(ev => ({
+          id: ev.id,
+          title: ev.summary || "(untitled)",
+          start: ev.start?.dateTime || ev.start?.date,
+          end: ev.end?.dateTime || ev.end?.date
+        }));
+        return { events };
+      } catch (err) {
+        console.error("list_calendar_events failed:", err);
+        return { error: "Failed to check the calendar: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresGoogle: true,
+    type: "function",
+    function: {
+      name: "update_calendar_event",
+      description: "Change the time, title, or description of an existing event on the user's connected Google Calendar. Requires the event's ID — call list_calendar_events first if you don't already have it from earlier in this conversation. Confirm the change with the user before calling this.",
+      parameters: {
+        type: "object",
+        properties: {
+          event_id: { type: "string", description: "The event's ID, from list_calendar_events or create_calendar_event." },
+          title: { type: "string", description: "New title, if changing it." },
+          start_iso: { type: "string", description: "New start time in ISO 8601, if changing it." },
+          end_iso: { type: "string", description: "New end time in ISO 8601, if changing it." },
+          timezone: { type: "string", description: "IANA timezone for the new times, e.g. Asia/Kolkata. Only needed if start_iso/end_iso are given." }
+        },
+        required: ["event_id"]
+      }
+    },
+    async execute({ event_id, title, start_iso, end_iso, timezone }, ctx) {
+      if (!ctx?.googleClient) return { error: "Google Calendar isn't connected for this user." };
+      try {
+        const calendar = google.calendar({ version: "v3", auth: ctx.googleClient });
+        const requestBody = {};
+        if (title) requestBody.summary = title;
+        if (start_iso) requestBody.start = { dateTime: start_iso, timeZone: timezone || "Asia/Kolkata" };
+        if (end_iso) requestBody.end = { dateTime: end_iso, timeZone: timezone || "Asia/Kolkata" };
+        const { data } = await calendar.events.patch({
+          calendarId: "primary",
+          eventId: event_id,
+          requestBody
+        });
+        return { updated: true, eventLink: data.htmlLink };
+      } catch (err) {
+        console.error("update_calendar_event failed:", err);
+        return { error: "Failed to update the event: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresGoogle: true,
+    type: "function",
+    function: {
+      name: "cancel_calendar_event",
+      description: "Delete/cancel an existing event on the user's connected Google Calendar. Requires the event's ID — call list_calendar_events first if you don't already have it. Always confirm with the user before cancelling, since this can't be undone.",
+      parameters: {
+        type: "object",
+        properties: {
+          event_id: { type: "string", description: "The event's ID, from list_calendar_events or create_calendar_event." }
+        },
+        required: ["event_id"]
+      }
+    },
+    async execute({ event_id }, ctx) {
+      if (!ctx?.googleClient) return { error: "Google Calendar isn't connected for this user." };
+      try {
+        const calendar = google.calendar({ version: "v3", auth: ctx.googleClient });
+        await calendar.events.delete({ calendarId: "primary", eventId: event_id });
+        return { cancelled: true };
+      } catch (err) {
+        console.error("cancel_calendar_event failed:", err);
+        return { error: "Failed to cancel the event: " + (err.message || "unknown error") };
+      }
+    }
   }
 
-  // Next tools to add here, following the same { function, execute } shape:
-  // - send_email (Gmail API, needs stored OAuth token per user)
-  // - create_calendar_event (Calendar API, same OAuth token)
-  // Both need the user to have connected their Google account first
-  // (OAuth + refresh token stored server-side, e.g. in Firestore keyed by
-  // their Firebase uid) — that connection flow isn't built yet.
+  // Next tools to add here, following the same { function, execute } shape.
 ];
 
 const TOOLS_BY_NAME = Object.fromEntries(TOOLS.map(t => [t.function.name, t]));
@@ -210,7 +309,7 @@ async function executeTool(name, argsJson, ctx) {
 // Pulls web_search results out of the running message list so the
 // frontend can show the user what was actually searched, same shape as
 // before (zyntra_sources: [{ title, url }]).
-function extractSourcesFromToolMessages(messages) {
+function extractSourcesFromToolMessages(messages, maxSources = 6) {
   const sources = [];
   for (const m of messages) {
     if (m.role !== "tool") continue;
@@ -227,7 +326,7 @@ function extractSourcesFromToolMessages(messages) {
     if (seen.has(s.url)) return false;
     seen.add(s.url);
     return true;
-  }).slice(0, 6);
+  }).slice(0, maxSources);
 }
 
 // Pulls any remember_fact tool calls the model made out of the finished
@@ -258,7 +357,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { messages: rawMessages, forceSearch, lite } = req.body || {};
+    const { messages: rawMessages, forceSearch, research, lite } = req.body || {};
 
     if (!Array.isArray(rawMessages)) {
       return res.status(400).json({ error: 'Missing messages array' });
@@ -344,10 +443,17 @@ Rules:
       });
     }
 
+    if (!hasImage && research) {
+      systemMessages.push({
+        role: "system",
+        content: "The user has turned on Research mode for this message — they want a thorough, well-sourced answer, not a quick one. Use web_search multiple times from different angles (e.g. different phrasings, different aspects of the question, follow-up searches based on what you find) before answering — aim for at least 2-3 searches covering different sources unless the question is genuinely simple. Cross-check facts across sources where possible, note if sources disagree, and write a more complete, structured answer than you normally would. Still keep it readable — use headings or bullet points if that helps organize a longer answer."
+      });
+    }
+
     if (googleClient) {
       systemMessages.push({
         role: "system",
-        content: "The user has connected their Google account. You may use send_email and create_calendar_event when they clearly ask you to send an email or schedule something — state the exact recipient/subject/body or event title/time back to them and get confirmation first, unless they already gave every detail explicitly, since these are real actions that can't be undone."
+        content: "The user has connected their Google account. You may use send_email, create_calendar_event, list_calendar_events, update_calendar_event, and cancel_calendar_event when they clearly ask you to send an email or manage their schedule — check list_calendar_events before creating something if there's any chance of a conflict, and always state the exact recipient/subject/body or event details back to them and get confirmation first (unless they already gave every detail explicitly), since these are real actions that can't be undone."
       });
     }
 
@@ -404,14 +510,136 @@ Rules:
       return { ok: response.ok, status: response.status, data };
     }
 
+    // Same job as callGroq, but reads Groq's response as a live token
+    // stream and calls onDelta(text) as each piece of the reply arrives —
+    // used so the user sees words appear in real time instead of waiting
+    // for the whole answer. Returns the SAME shape as callGroq once the
+    // stream ends (data.choices[0].message), so runAgentLoop below can
+    // use either function interchangeably.
+    async function callGroqStreaming(model, body, timeBudget, onDelta) {
+      const controller = new AbortController();
+      const abortTimer = setTimeout(() => controller.abort(), timeBudget);
+
+      let response;
+      try {
+        response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ model, ...body, stream: true }),
+          signal: controller.signal
+        });
+      } catch (fetchErr) {
+        clearTimeout(abortTimer);
+        if (fetchErr && fetchErr.name === 'AbortError') {
+          return { ok: false, status: 504, data: { error: { message: "That took too long to respond. Please try again." } } };
+        }
+        console.error('Groq stream fetch error:', fetchErr);
+        return { ok: false, status: 502, data: { error: { message: "Couldn't reach the AI service. Please try again." } } };
+      }
+
+      if (!response.ok) {
+        clearTimeout(abortTimer);
+        // Errors (bad request, rate limit, etc.) come back as a normal
+        // JSON body even when stream:true was requested, since the
+        // failure happens before any streaming starts.
+        let data;
+        try {
+          data = await response.json();
+        } catch {
+          data = { error: { message: "The AI service returned an error." } };
+        }
+        return { ok: false, status: response.status, data };
+      }
+
+      let accumulatedContent = "";
+      const toolCallsByIndex = {};
+      let finishReason = null;
+
+      try {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          let boundary;
+          while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+            const rawEvent = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            const line = rawEvent.trim();
+            if (!line.startsWith("data:")) continue;
+            const payload = line.slice(5).trim();
+            if (payload === "[DONE]") continue;
+
+            let parsed;
+            try {
+              parsed = JSON.parse(payload);
+            } catch {
+              continue; // skip a malformed chunk rather than aborting the whole stream
+            }
+
+            const choice = parsed?.choices?.[0];
+            if (!choice) continue;
+            if (choice.finish_reason) finishReason = choice.finish_reason;
+
+            const delta = choice.delta || {};
+            if (delta.content) {
+              accumulatedContent += delta.content;
+              if (onDelta) onDelta(delta.content);
+            }
+            if (Array.isArray(delta.tool_calls)) {
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index ?? 0;
+                if (!toolCallsByIndex[idx]) {
+                  toolCallsByIndex[idx] = { id: tc.id || "", type: "function", function: { name: "", arguments: "" } };
+                }
+                if (tc.id) toolCallsByIndex[idx].id = tc.id;
+                if (tc.function?.name) toolCallsByIndex[idx].function.name += tc.function.name;
+                if (tc.function?.arguments) toolCallsByIndex[idx].function.arguments += tc.function.arguments;
+              }
+            }
+          }
+        }
+      } catch (streamErr) {
+        console.error('Groq stream read error:', streamErr);
+        if (!accumulatedContent) {
+          clearTimeout(abortTimer);
+          return { ok: false, status: 502, data: { error: { message: "The connection to the AI service was interrupted. Please try again." } } };
+        }
+        // Partial content already arrived and was shown to the user —
+        // treat what we have as the (possibly cut short) final answer
+        // rather than discarding it.
+      }
+
+      clearTimeout(abortTimer);
+      const toolCalls = Object.values(toolCallsByIndex);
+      const message = {
+        role: "assistant",
+        content: accumulatedContent || null,
+        ...(toolCalls.length ? { tool_calls: toolCalls } : {})
+      };
+
+      return { ok: true, status: 200, data: { choices: [{ message, finish_reason: finishReason }] } };
+    }
+
     // ---- Agent loop ----
     // Give the model the tools and let it decide whether to call one. If
     // it calls a tool, run it server-side, feed the result back as a
     // `tool` message, and ask again — up to a few rounds so it can chain
     // tool calls (e.g. search, then search again with a better query).
-    async function runAgentLoop(model, includeTools) {
+    // When onDelta is provided, every round streams live instead of
+    // waiting for the full response — safe to do for every round because
+    // tool-calling rounds essentially never carry visible content
+    // alongside a tool_call, so nothing gets shown until the real answer.
+    async function runAgentLoop(model, includeTools, onDelta) {
       let conversation = [...fullMessages];
-      const maxRounds = 4;
+      const maxRounds = research ? 8 : 4; // research mode allows several more search rounds to chain
       let overallBudget = 45000; // leaves headroom under the 60s function ceiling
       let lastResult = null;
 
@@ -419,19 +647,21 @@ Rules:
         const roundStart = Date.now();
         const body = {
           temperature: 0.7,
-          max_tokens: 2048,
+          max_tokens: research ? 3072 : 2048, // a bit more room for a thorough, sourced answer
           messages: conversation
         };
         if (includeTools) {
           const availableTools = TOOLS.filter(t => !t.requiresGoogle || !!googleClient);
           body.tools = availableTools.map(({ function: fn }) => ({ type: "function", function: fn }));
-          body.tool_choice = (round === 0 && forceSearch && !hasImage) ? { type: "function", function: { name: "web_search" } } : "auto";
+          body.tool_choice = (round === 0 && (forceSearch || research) && !hasImage) ? { type: "function", function: { name: "web_search" } } : "auto";
         }
         if (hasImage) {
           body.reasoning_format = "hidden"; // qwen shows raw <think> reasoning unless hidden
         }
 
-        const result = await callGroq(model, body, Math.max(overallBudget, 8000));
+        const result = onDelta
+          ? await callGroqStreaming(model, body, Math.max(overallBudget, 8000), onDelta)
+          : await callGroq(model, body, Math.max(overallBudget, 8000));
         overallBudget -= (Date.now() - roundStart);
         lastResult = result;
 
@@ -470,6 +700,41 @@ Rules:
     }
 
     const primaryModel = hasImage ? 'qwen/qwen3.6-27b' : 'openai/gpt-oss-20b';
+    const wantsStream = !!req.body?.stream && !hasImage; // image mode + lite stay non-streaming for simplicity
+
+    if (wantsStream) {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no' // disables proxy buffering so chunks arrive immediately, not batched
+      });
+
+      const sendEvent = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      const onDelta = (text) => sendEvent({ type: "content", text });
+
+      let streamResult = await runAgentLoop(primaryModel, true, onDelta);
+
+      if (!streamResult.ok) {
+        console.error('Streaming agent loop failed, retrying without tools:', streamResult.status, streamResult.data?.error?.message);
+        streamResult = await callGroqStreaming(primaryModel, {
+          temperature: 0.7,
+          max_tokens: 2048,
+          messages: fullMessages
+        }, 15000, onDelta);
+      }
+
+      if (!streamResult.ok) {
+        sendEvent({ type: "error", message: userFacingError(streamResult) });
+        return res.end();
+      }
+
+      const zyntra_sources = extractSourcesFromToolMessages(streamResult.finalMessages || [], research ? 12 : 6);
+      const zyntra_memory_writes = extractMemoryWrites(streamResult.finalMessages || []);
+      sendEvent({ type: "done", sources: zyntra_sources, memoryWrites: zyntra_memory_writes });
+      return res.end();
+    }
+
     let result = await runAgentLoop(primaryModel, !hasImage);
 
     // If the tool-enabled call failed outright (e.g. this Groq account
@@ -489,12 +754,20 @@ Rules:
       return res.status(result.status || 500).json({ error: userFacingError(result) });
     }
 
-    const zyntra_sources = extractSourcesFromToolMessages(result.finalMessages || []);
+    const zyntra_sources = extractSourcesFromToolMessages(result.finalMessages || [], research ? 12 : 6);
     const zyntra_memory_writes = extractMemoryWrites(result.finalMessages || []);
 
     return res.status(200).json({ ...result.data, zyntra_sources, zyntra_memory_writes });
   } catch (error) {
     console.error('Unhandled /api/chat error:', error);
+    if (res.headersSent) {
+      // Streaming had already started — can't send a fresh status/JSON
+      // response at this point, so end the stream with an error event.
+      try {
+        res.write(`data: ${JSON.stringify({ type: "error", message: "Something went wrong on our end. Please try again." })}\n\n`);
+      } catch {}
+      return res.end();
+    }
     return res.status(500).json({ error: error?.message || 'Something went wrong on our end. Please try again.' });
   }
 }
