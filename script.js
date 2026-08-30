@@ -2632,7 +2632,7 @@ function runImageGeneration(msg, loadingDiv, aiContent){
 }
 
 async function runImageModeConversationalReply(msg, loadingDiv, aiContent){
-    aiContent.textContent = "Typing...";
+    aiContent.textContent = "Thinking...";
 
     // A lightweight system note so the reply understands the context it's
     // replying in, without needing the actual image data.
@@ -2757,7 +2757,7 @@ async function sendChatMessage(prefill){
     aiAvatar.className = "ai-message-avatar";
     const aiContent = document.createElement("div");
     aiContent.className = "ai-message-content";
-    aiContent.textContent = "Typing...";
+    aiContent.textContent = "Thinking...";
     loadingDiv.appendChild(aiAvatar);
     loadingDiv.appendChild(aiContent);
     chatMessages.appendChild(loadingDiv);
