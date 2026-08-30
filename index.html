@@ -169,8 +169,9 @@
 
         <div class="chat-input-bar">
             <div class="chat-input-inner">
-                <input type="file" id="chatFileInput" accept="image/*" style="display:none">
-                <button id="attachBtn" class="attach-btn" title="Attach image">＋</button>
+                <input type="file" id="chatFileInput" accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xlsx,.xls" style="display:none">
+                <button id="attachBtn" class="attach-btn" title="Attach image or document">＋</button>
+                <button id="researchBtn" class="attach-btn" title="Research mode — deeper, multi-source answers">🔎</button>
                 <input id="userInput" type="text" placeholder="Ask me anything...">
                 <button id="sendMessage" class="send-btn" title="Send">➤</button>
             </div>
@@ -575,6 +576,18 @@
         // private browsing) — Firestore still works, just online-only.
     });
 </script>
+
+<!-- Document upload: extract text from PDF/DOCX/XLSX entirely in the
+     browser (no server round-trip needed) so attached files can be
+     answered on immediately. Loaded before script.js since it uses these. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+    if(window["pdfjsLib"]){
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <script src="script.js"></script>
 <script>
