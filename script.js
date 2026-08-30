@@ -998,6 +998,7 @@ async function streamChatAPI(messages, onDelta, options){
 
     const payload = { messages, stream: true };
     if(opts.research) payload.research = true;
+    if(opts.website) payload.website = true;
 
     const res = await fetch("/api/chat", {
         method: "POST",
@@ -2955,7 +2956,7 @@ async function sendChatMessage(prefill){
             accumulated += chunk;
             aiContent.innerHTML = formatAIText(accumulated);
             chatArea.scrollTop = chatArea.scrollHeight;
-        }, { research: researchModeEnabled });
+        }, { research: researchModeEnabled, website: activeChatTool === "website" });
 
         if(!accumulated){
             aiContent.textContent = "Sorry, I didn't get a response. Please try again.";
