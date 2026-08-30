@@ -2259,6 +2259,7 @@ function resetChatView(){
     currentSessionId = null;
     chatMessages.innerHTML = "";
     document.getElementById("chatGreeting").style.display = "";
+    renderPromptSuggestions();
     updateDeleteChatBtnVisibility();
 }
 
@@ -2631,7 +2632,7 @@ function runImageGeneration(msg, loadingDiv, aiContent){
 }
 
 async function runImageModeConversationalReply(msg, loadingDiv, aiContent){
-    aiContent.textContent = webSearchEnabled ? "🌐 Searching the web…" : "Typing...";
+    aiContent.textContent = "Typing...";
 
     // A lightweight system note so the reply understands the context it's
     // replying in, without needing the actual image data.
@@ -2643,7 +2644,7 @@ async function runImageModeConversationalReply(msg, loadingDiv, aiContent){
     };
 
     try{
-        const { content: reply } = await callChatAPI([contextNote, { role: "user", content: msg }], { forceSearch: webSearchEnabled });
+        const { content: reply } = await callChatAPI([contextNote, { role: "user", content: msg }]);
         logMessageToHistory("assistant", reply);
         aiContent.textContent = "";
         typeOutText(aiContent, reply, chatArea, () => {
@@ -2756,21 +2757,14 @@ async function sendChatMessage(prefill){
     aiAvatar.className = "ai-message-avatar";
     const aiContent = document.createElement("div");
     aiContent.className = "ai-message-content";
-    if(webSearchEnabled){
-        aiContent.innerHTML = '<span class="searching-indicator">'
-            + '<span class="searching-dot"></span><span class="searching-dot"></span><span class="searching-dot"></span>'
-            + '<span class="searching-label">🌐 Searching the web…</span>'
-            + '</span>';
-    } else {
-        aiContent.textContent = "Typing...";
-    }
+    aiContent.textContent = "Typing...";
     loadingDiv.appendChild(aiAvatar);
     loadingDiv.appendChild(aiContent);
     chatMessages.appendChild(loadingDiv);
     chatArea.scrollTop = chatArea.scrollHeight;
 
     try{
-        const { content: reply, sources, memoryWrites } = await callChatAPI(chatHistory, { forceSearch: webSearchEnabled });
+        const { content: reply, sources, memoryWrites } = await callChatAPI(chatHistory);
         chatHistory.push({ role: "assistant", content: reply });
         logMessageToHistory("assistant", reply);
         addMemories(memoryWrites);
@@ -2797,49 +2791,61 @@ userInput.addEventListener("keydown", e => {
     if(e.key === "Enter") sendChatMessage();
 });
 
-// ---------- Extra input bar icons ----------
+// ---------- Homepage suggestion chips ----------
+// Fills the empty space below the greeting with a handful of clickable
+// starter prompts — a fresh random set each time the greeting screen
+// shows, pulled from a much bigger pool so it doesn't feel repetitive.
 
-const PROMPT_IDEAS = [
-    "Explain quantum computing in simple terms",
-    "Write a Python function to sort a list",
-    "Give me 5 tips to be more productive",
-    "Write a short essay about climate change",
-    "Help me plan a healthy weekly meal plan",
-    "Give me business ideas for a small budget",
-    "Explain how blockchain works, simply",
-    "Write a friendly email asking for a deadline extension"
+const PROMPT_SUGGESTIONS = [
+    { icon: "💡", text: "Explain quantum computing in simple terms" },
+    { icon: "🐍", text: "Write a Python function to sort a list" },
+    { icon: "📈", text: "Give me 5 tips to be more productive" },
+    { icon: "🌍", text: "Write a short essay about climate change" },
+    { icon: "🥗", text: "Help me plan a healthy weekly meal plan" },
+    { icon: "💼", text: "Give me business ideas for a small budget" },
+    { icon: "⛓️", text: "Explain how blockchain works, simply" },
+    { icon: "✉️", text: "Write a friendly email asking for a deadline extension" },
+    { icon: "🎯", text: "Help me set achievable goals for this month" },
+    { icon: "🧠", text: "Quiz me on world capitals" },
+    { icon: "📝", text: "Summarize a book plot I describe to you" },
+    { icon: "🎁", text: "Give me creative gift ideas for a friend's birthday" },
+    { icon: "🏋️", text: "Build me a beginner home workout routine" },
+    { icon: "📊", text: "Explain the stock market like I'm 10 years old" },
+    { icon: "🧳", text: "Plan a 3-day budget-friendly trip itinerary" },
+    { icon: "🎬", text: "Recommend movies based on a mood I describe" }
 ];
 
-document.getElementById("promptIdeaBtn")?.addEventListener("click", () => {
-    const idea = PROMPT_IDEAS[Math.floor(Math.random() * PROMPT_IDEAS.length)];
-    userInput.value = idea;
-    userInput.focus();
-});
+function renderPromptSuggestions(){
+    const container = document.getElementById("promptSuggestions");
+    if(!container) return;
 
-// ---------- Web search toggle ----------
-// groq/compound (the model this app already uses) can search the web on its
-// own when it decides a question needs current info. This button lets the
-// user explicitly force it to search for their next message(s) instead of
-// leaving it entirely up to the model's judgement.
+    // Only makes sense on the plain chat homepage — other tools (Study,
+    // Business, Code, etc.) have their own focused greeting already.
+    if(activeChatTool && activeChatTool !== "chat"){
+        container.innerHTML = "";
+        return;
+    }
 
-let webSearchEnabled = false;
+    const pool = [...PROMPT_SUGGESTIONS];
+    const picks = [];
+    for(let i = 0; i < 4 && pool.length; i++){
+        const idx = Math.floor(Math.random() * pool.length);
+        picks.push(pool.splice(idx, 1)[0]);
+    }
 
-function setWebSearchButtonState(){
-    const btn = document.getElementById("webSearchBtn");
-    if(!btn) return;
-    btn.classList.toggle("active", webSearchEnabled);
-    btn.title = webSearchEnabled
-        ? "Web search: ON — click to turn off"
-        : "Web search — click to force a live search on your next message";
+    container.innerHTML = "";
+    picks.forEach(({ icon, text }) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "prompt-suggestion-chip";
+        chip.innerHTML = `<span class="chip-icon">${icon}</span><span>${text}</span>`;
+        chip.addEventListener("click", () => {
+            userInput.value = text;
+            sendChatMessage();
+        });
+        container.appendChild(chip);
+    });
 }
-
-document.getElementById("webSearchBtn")?.addEventListener("click", () => {
-    webSearchEnabled = !webSearchEnabled;
-    setWebSearchButtonState();
-    showToast(webSearchEnabled ? "🌐 Web search turned on" : "🌐 Web search turned off");
-});
-
-setWebSearchButtonState();
 
 // ==========================
 // Tool routing (sidebar nav, dropdown-less)
@@ -2852,7 +2858,7 @@ function setActiveNav(tool){
 }
 
 const TOOL_PLACEHOLDERS = {
-    chat: "Type your message...",
+    chat: "Ask me anything...",
     study: "Ask me to explain, summarize, or solve...",
     business: "Ask a business or growth question...",
     code: "Ask me to write, debug, or explain code...",
@@ -2906,6 +2912,7 @@ function openTool(tool, prefix){
         applyToolGreeting(tool);
         userInput.placeholder = TOOL_PLACEHOLDERS[tool];
         document.getElementById("chatGreeting").style.display = chatMessages.children.length ? "none" : "";
+        renderPromptSuggestions();
         userInput.value = prefix || "";
         userInput.focus();
         closeSidebarMobile();
@@ -3380,3 +3387,4 @@ if(!SpeechRecognitionAPI){
 // ---------- Initial render ----------
 
 renderSidebarHistory();
+renderPromptSuggestions();
