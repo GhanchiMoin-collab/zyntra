@@ -1300,6 +1300,73 @@ align-items:center;
 justify-content:center;
 }
 
+.attach-doc-chip{
+position:relative;
+display:inline-flex;
+align-items:center;
+gap:10px;
+max-width:280px;
+padding:9px 34px 9px 12px;
+margin-bottom:10px;
+border-radius:var(--r-md);
+border:1px solid var(--glass-border-strong);
+background:var(--glass);
+}
+
+.attach-doc-icon{
+font-size:20px;
+flex-shrink:0;
+}
+
+.attach-doc-info{
+display:flex;
+flex-direction:column;
+gap:1px;
+min-width:0;
+}
+
+.attach-doc-info strong{
+font-size:13px;
+color:var(--text-1);
+white-space:nowrap;
+overflow:hidden;
+text-overflow:ellipsis;
+}
+
+.attach-doc-info small{
+font-size:11px;
+color:var(--text-2);
+}
+
+.attach-doc-chip button{
+position:absolute;
+top:-8px;
+right:-8px;
+width:22px;
+height:22px;
+border-radius:50%;
+border:none;
+background:var(--danger-strong);
+color:white;
+font-size:12px;
+cursor:pointer;
+display:flex;
+align-items:center;
+justify-content:center;
+}
+
+.sent-doc-chip{
+display:inline-flex;
+align-items:center;
+gap:8px;
+padding:9px 14px;
+margin-bottom:8px;
+border-radius:var(--r-md);
+background:rgba(255,255,255,.14);
+font-size:13px;
+font-weight:600;
+}
+
 .ad-banner-slot{
 max-width:820px;
 width:calc(100% - 48px);
