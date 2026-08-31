@@ -2710,6 +2710,94 @@ Answer with exactly one word: IMAGE or CHAT.`
     }
 }
 
+function isVagueWebsiteIntent(msg){
+    const text = (msg || "").trim().toLowerCase().replace(/[.!]+$/, "");
+    return /^(i want to (make|build|create)( an?)? (website|site|webpage|page)|i want (an?|to make) (website|site|webpage)|let'?s (make|build|create)( an?)? (website|site|webpage|something)|make (an?|the) (website|site|webpage)|build (an?|me an?|the) (website|site|webpage)|create (an?|the) (website|site|webpage)|can (you|u) (make|build) (an?|me an?) (website|site|webpage))$/i.test(text);
+}
+
+// Asks the AI itself whether this message (inside Website Builder) is a
+// request to build or change a website, or just a normal chat message —
+// same pattern as classifyImageIntent, so Website Builder can talk
+// naturally instead of trying to force a full rebuild on every message.
+async function classifyWebsiteIntent(msg){
+    const text = (msg || "").trim();
+    const wordCount = text.split(/\s+/).length;
+
+    if(isVagueWebsiteIntent(text)){
+        return false; // vague intent, no real details yet — chat and ask for specifics
+    }
+
+    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|not bad|damn|omg|what|why|how|who|when|where|let|lets|let's|can|could|do|are|is|please|pls|plz|stop|wait|no|nah|don't|dont|cancel|undo|enough)\b/i;
+    if(wordCount >= 6 && !conversationalStart.test(text)){
+        return true;
+    }
+
+    try{
+        const { content } = await callChatAPI([
+            {
+                role: "user",
+                content: `You are classifying a message sent inside an AI website-building chat. Reply with exactly one word: BUILD or CHAT.
+
+BUILD = the message asks to create a new website, or change/add to a website already being worked on (e.g. "a portfolio site for a photographer", "make the header bigger", "change the colors to blue", "add a contact section").
+
+CHAT = anything else: greetings, thanks, questions about the site, complaints, commands directed at the assistant (stop, wait, please, don't, cancel, undo, no), or vague statements of intent with no real subject (e.g. "i want to make a website", "build me a site", "let's create something").
+
+Examples:
+"a landing page for a coffee shop" -> BUILD
+"make the header bigger" -> BUILD
+"change it to dark mode" -> BUILD
+"thanks, looks great!" -> CHAT
+"what do you think of this design" -> CHAT
+"i want to build a website" -> CHAT
+"can you build me a website?" -> CHAT
+
+Message: "${msg}"
+
+Answer with exactly one word: BUILD or CHAT.`
+            }
+        ], { lite: true });
+        const clean = (content || "").trim().toLowerCase();
+        if(clean.startsWith("build")) return true;
+        if(clean.startsWith("chat")) return false;
+        if(/\bbuild\b/.test(clean) && !/\bchat\b/.test(clean)) return true;
+        if(/\bchat\b/.test(clean) && !/\bbuild\b/.test(clean)) return false;
+        return true; // genuinely ambiguous — default to attempting a build, the tool's main purpose
+    }catch(err){
+        return true; // network hiccup — default to attempting a build rather than silently doing nothing
+    }
+}
+
+// Lightweight reply for CHAT-classified messages inside Website Builder —
+// no HTML generation, no heavy system prompt, just a natural response.
+async function runWebsiteModeConversationalReply(msg, loadingDiv, aiContent){
+    aiContent.textContent = "Thinking...";
+
+    const contextNote = {
+        role: "system",
+        content: isVagueWebsiteIntent(msg)
+            ? "You are chatting inside Zyntra AI's Website Builder. The user just said they want a website but didn't describe what it should be for (e.g. \"i want to build a website\", \"make me a site\"). Warmly ask what kind of site they want — suggest they describe the purpose, style, or business/topic. Keep it short."
+            : "You are chatting inside Zyntra AI's Website Builder. The user just sent a message that is a reply/question/comment rather than a new build or edit request (e.g. reacting to a site you already built for them). Reply naturally and briefly, like a friendly web designer — don't generate any HTML or code for this message."
+    };
+
+    try{
+        const { content: reply } = await callChatAPI([contextNote, { role: "user", content: msg }]);
+        logMessageToHistory("assistant", reply);
+        aiContent.textContent = "";
+        typeOutText(aiContent, reply, chatArea, () => {
+            loadingDiv.classList.add("done");
+            addMessageActionBar(aiContent, reply);
+            const aiTime = document.createElement("span");
+            aiTime.className = "msg-time";
+            aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            aiContent.appendChild(aiTime);
+        });
+    }catch(err){
+        aiContent.textContent = friendlyErrorMessage(err);
+        loadingDiv.classList.add("done");
+    }
+    chatArea.scrollTop = chatArea.scrollHeight;
+}
+
 // A single, warm, human fallback message used anywhere a reply genuinely
 // fails — instead of a cold "something went wrong", or a swallowed error.
 function friendlyErrorMessage(err){
@@ -2847,12 +2935,42 @@ async function sendImageOrChatMessage(msg){
     }
 }
 
+// Handles CHAT-classified messages inside Website Builder — greetings,
+// thanks, questions about the site — without triggering a full rebuild.
+// classifyWebsiteIntent (called just before this) already decided this
+// isn't a build/edit request.
+async function sendWebsiteChatOnlyMessage(msg){
+    if(!msg) return;
+
+    if(isLockedOut()){
+        showChatLockedModal();
+        return;
+    }
+
+    appendUserBubble(msg);
+    logMessageToHistory("user", msg);
+    bumpStat("conversations");
+    recordFreeMessage();
+
+    const { loadingDiv, aiContent } = appendLoadingAiBubble("Thinking...");
+    runWebsiteModeConversationalReply(msg, loadingDiv, aiContent);
+}
+
 async function sendChatMessage(prefill){
     const msg = (prefill !== undefined ? prefill : userInput.value.trim());
     if(!msg && !attachedImage && !attachedDocument) return;
 
     if(activeChatTool === "image" && msg){
         return sendImageOrChatMessage(msg);
+    }
+
+    if(activeChatTool === "website" && msg && !attachedImage && !attachedDocument){
+        const isBuildRequest = await classifyWebsiteIntent(msg);
+        if(!isBuildRequest){
+            return sendWebsiteChatOnlyMessage(msg);
+        }
+        // else: a real build/edit request — fall through to the normal
+        // flow below, which already builds the site via the website flag.
     }
 
     if(isLockedOut()){
@@ -3081,7 +3199,7 @@ function setActiveNav(tool){
 // looking like generic "AI website" template #4,738 (centered hero,
 // three feature cards, purple gradient everywhere, Lorem ipsum).
 const WEBSITE_BUILDER_SYSTEM_NOTE = `
-You are in Website Builder mode. Every reply must be a single, complete, working HTML file — inline <style> and <script> in the same file, no external files or build steps — wrapped in one \`\`\`html code block, and nothing else outside that block except a one-sentence summary of what you built or changed.
+You are in Website Builder mode. Every reply that builds or changes a website must be a single, complete, working HTML file — inline <style> and <script> in the same file, no external files or build steps — wrapped in one \`\`\`html code block. After the code block, talk to the user like a real designer handing off work: a couple of natural sentences on what you built and why you made the choices you did (layout, colors, tone) — not a cold one-liner, and not a wall of text either.
 
 Design like a thoughtful human designer, not a template generator:
 - Pick a typeface pairing and color palette that fits what the site is actually for (a masjid site, a photography portfolio, and a SaaS landing page should NOT look like the same template with different text). Load fonts from Google Fonts via a <link> tag.
