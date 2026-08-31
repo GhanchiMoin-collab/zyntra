@@ -647,7 +647,7 @@ Rules:
         const roundStart = Date.now();
         const body = {
           temperature: 0.7,
-          max_tokens: website ? 8000 : (research ? 3072 : 2048), // a full single-file website needs far more room than a normal reply
+          max_tokens: website ? 4096 : (research ? 3072 : 2048), // a full single-file website needs far more room than a normal reply
           messages: conversation
         };
         if (includeTools) {
@@ -719,7 +719,21 @@ Rules:
         console.error('Streaming agent loop failed, retrying without tools:', streamResult.status, streamResult.data?.error?.message);
         streamResult = await callGroqStreaming(primaryModel, {
           temperature: 0.7,
-          max_tokens: website ? 8000 : (research ? 3072 : 2048),
+          max_tokens: website ? 4096 : (research ? 3072 : 2048),
+          messages: fullMessages
+        }, 15000, onDelta);
+      }
+
+      // If it's STILL failing and the error looks like it's about the
+      // requested response length (e.g. this Groq account's tier caps
+      // max_tokens lower than what was requested), retry once more with
+      // a small, conservative budget rather than giving up — a shorter
+      // reply the user can ask to continue beats a hard failure.
+      if (!streamResult.ok && /max.?tokens|too large|reduce/i.test(streamResult.data?.error?.message || '')) {
+        console.error('Retrying with a conservative token budget after a likely length-related rejection.');
+        streamResult = await callGroqStreaming(primaryModel, {
+          temperature: 0.7,
+          max_tokens: 1536,
           messages: fullMessages
         }, 15000, onDelta);
       }
