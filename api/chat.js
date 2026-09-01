@@ -1,5 +1,5 @@
 import { google } from "googleapis";
-import { getAdminAuth } from "./_lib/firebaseAdmin.js";
+import { getAdminAuth, getAdminDb, increment } from "./_lib/firebaseAdmin.js";
 import { getAuthorizedClientForUser } from "./_lib/googleOAuth.js";
 
 // Vercel's default serverless timeout (10s on Hobby) isn't enough for a
@@ -398,15 +398,60 @@ export default async function handler(req, res) {
     // Gmail/Calendar tools aren't offered this request; plain chat is
     // completely unaffected.
     let googleClient = null;
+    let uid = null; // trusted user id, used below for server-side usage tracking
     try {
       const authHeader = req.headers.authorization || "";
       const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
       if (idToken) {
         const decoded = await getAdminAuth().verifyIdToken(idToken);
+        uid = decoded.uid;
         googleClient = await getAuthorizedClientForUser(decoded.uid);
       }
     } catch (err) {
       console.error("Auth/Google lookup failed (continuing without Google tools):", err.message);
+    }
+
+    // ---- Usage tracking ----
+    // Accumulates real Groq usage across every round of the agent loop
+    // (including retries/fallbacks) for THIS single /api/chat call, then
+    // gets written once to Firestore as atomic increments. This is the
+    // real, server-side source of truth for plan limits and pricing —
+    // never trust anything the client claims about its own usage.
+    const usageStats = { groqRequests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, modelCounts: {} };
+    function trackUsage(model, usage) {
+      usageStats.groqRequests += 1;
+      usageStats.modelCounts[model] = (usageStats.modelCounts[model] || 0) + 1;
+      if (usage) {
+        usageStats.inputTokens += usage.prompt_tokens || 0;
+        usageStats.outputTokens += usage.completion_tokens || 0;
+        usageStats.totalTokens += usage.total_tokens || 0;
+      }
+    }
+    // Writes the accumulated stats for this call to
+    // users/{uid}/usage/{YYYY-MM}. Fire-and-forget-safe: any failure here
+    // (Firestore down, admin not configured, etc.) is logged and swallowed
+    // — it must never break the actual chat response the user is waiting on.
+    async function logUsage() {
+      if (!uid) return; // not signed in — nothing to attribute this to
+      try {
+        const month = new Date().toISOString().slice(0, 7); // "2026-09"
+        const ref = getAdminDb().collection('users').doc(uid).collection('usage').doc(month);
+        const update = {
+          messages: increment(1),
+          groqRequests: increment(usageStats.groqRequests),
+          inputTokens: increment(usageStats.inputTokens),
+          outputTokens: increment(usageStats.outputTokens),
+          totalTokens: increment(usageStats.totalTokens),
+          lastUpdated: new Date().toISOString()
+        };
+        if (research) update.researchRequests = increment(1);
+        for (const [model, count] of Object.entries(usageStats.modelCounts)) {
+          update[`modelCounts.${model}`] = increment(count);
+        }
+        await ref.set(update, { merge: true });
+      } catch (err) {
+        console.error('Usage logging failed (non-fatal, response already served):', err.message);
+      }
     }
 
     const systemMessages = [
@@ -507,6 +552,7 @@ Rules:
         }
       }
 
+      if (response.ok) trackUsage(model, data?.usage);
       return { ok: response.ok, status: response.status, data };
     }
 
@@ -528,7 +574,10 @@ Rules:
             'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ model, ...body, stream: true }),
+          // stream_options.include_usage makes Groq send one extra final
+          // chunk (empty choices, populated `usage`) once streaming ends —
+          // that's how we get real token counts for streamed responses too.
+          body: JSON.stringify({ model, ...body, stream: true, stream_options: { include_usage: true } }),
           signal: controller.signal
         });
       } catch (fetchErr) {
@@ -557,6 +606,7 @@ Rules:
       let accumulatedContent = "";
       const toolCallsByIndex = {};
       let finishReason = null;
+      let streamUsage = null;
 
       try {
         const reader = response.body.getReader();
@@ -583,6 +633,11 @@ Rules:
             } catch {
               continue; // skip a malformed chunk rather than aborting the whole stream
             }
+
+            // The final usage chunk (when stream_options.include_usage is
+            // set) has an empty/absent `choices` array, so this check must
+            // happen before the `if (!choice) continue` below or it's missed.
+            if (parsed.usage) streamUsage = parsed.usage;
 
             const choice = parsed?.choices?.[0];
             if (!choice) continue;
@@ -618,6 +673,7 @@ Rules:
       }
 
       clearTimeout(abortTimer);
+      trackUsage(model, streamUsage);
       const toolCalls = Object.values(toolCallsByIndex);
       const message = {
         role: "assistant",
@@ -745,6 +801,7 @@ Rules:
 
       const zyntra_sources = extractSourcesFromToolMessages(streamResult.finalMessages || [], research ? 12 : 6);
       const zyntra_memory_writes = extractMemoryWrites(streamResult.finalMessages || []);
+      await logUsage();
       sendEvent({ type: "done", sources: zyntra_sources, memoryWrites: zyntra_memory_writes });
       return res.end();
     }
@@ -771,6 +828,7 @@ Rules:
     const zyntra_sources = extractSourcesFromToolMessages(result.finalMessages || [], research ? 12 : 6);
     const zyntra_memory_writes = extractMemoryWrites(result.finalMessages || []);
 
+    await logUsage();
     return res.status(200).json({ ...result.data, zyntra_sources, zyntra_memory_writes });
   } catch (error) {
     console.error('Unhandled /api/chat error:', error);
