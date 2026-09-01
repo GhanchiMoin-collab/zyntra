@@ -41,3 +41,10 @@ export function getAdminDb() {
 export function isAdminConfigured() {
   return !!process.env.FIREBASE_SERVICE_ACCOUNT;
 }
+
+// Shorthand for Firestore's atomic increment — used by the usage-tracking
+// writes in api/chat.js so concurrent requests from the same user never
+// clobber each other's counts (unlike a read-then-write update).
+export function increment(n) {
+  return admin.firestore.FieldValue.increment(n);
+}
