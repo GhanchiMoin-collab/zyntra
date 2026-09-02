@@ -1872,6 +1872,63 @@ body.light-mode .search-chats-row:hover{
 background:rgba(10,10,25,.05);
 }
 
+/* Plugin toggle rows (Plugins modal) */
+.plugin-row{
+display:flex;
+align-items:flex-start;
+justify-content:space-between;
+gap:16px;
+padding:14px 16px;
+border:1px solid #2b3154;
+border-radius:var(--r-md);
+background:#171d3d;
+}
+.plugin-row-icon{
+font-size:20px;
+margin-right:10px;
+}
+.plugin-row-title{
+font-weight:600;
+color:var(--text-1);
+font-size:14.5px;
+}
+.plugin-row-desc{
+color:var(--text-3);
+font-size:13px;
+margin-top:3px;
+line-height:1.4;
+}
+.plugin-row-switch{
+flex-shrink:0;
+width:42px;
+height:24px;
+cursor:pointer;
+}
+
+/* Project color swatches (Projects modal) */
+.project-color-dot{
+width:26px;
+height:26px;
+border-radius:50%;
+cursor:pointer;
+border:2px solid transparent;
+flex-shrink:0;
+}
+.project-color-dot.selected{
+border-color:#fff;
+}
+
+/* Scheduled task rows share .search-chats-row but need a status pill */
+.scheduled-row-status{
+font-size:11px;
+padding:3px 9px;
+border-radius:999px;
+background:#232a5c;
+color:#b9c0ff;
+flex-shrink:0;
+white-space:nowrap;
+}
+
 .file-card-preview{
 display:none;
 border-top:1px solid var(--glass-border);
