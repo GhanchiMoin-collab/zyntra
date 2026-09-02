@@ -1476,6 +1476,7 @@ function saveMemories(memories){
 // the list so it can't grow without bound.
 function addMemories(facts){
     if(!Array.isArray(facts) || facts.length === 0) return;
+    if(!getPlugins().memory) return;
     const memories = getMemories();
     facts.forEach(fact => {
         const normalized = (fact || "").trim();
@@ -1487,6 +1488,152 @@ function addMemories(facts){
     // Keep the most recent 60 — plenty for a system-prompt note, and
     // bounded so it never bloats the request payload over time.
     saveMemories(memories.slice(-60));
+}
+
+// ---- Projects ----
+// Groups of chats that share custom instructions (e.g. "always answer as
+// a senior React dev"), stored the same way as memories/sessions: plain
+// array in localStorage, synced to the same Firestore user doc.
+
+function getProjects(){
+    return JSON.parse(localStorage.getItem("zyntra-projects") || "[]");
+}
+
+function saveProjects(projects){
+    localStorage.setItem("zyntra-projects", JSON.stringify(projects));
+    scheduleCloudSave();
+}
+
+const PROJECT_COLORS = ["#7c5cff", "#ff6b8a", "#37c98f", "#ffb545", "#4fb8ff", "#c85cff"];
+
+// Which project (if any) new chats should be tagged with and get their
+// custom instructions from. Cleared whenever the user starts a chat that
+// isn't explicitly "+ New Chat" from inside a project.
+let currentProjectId = null;
+
+function createProject(name, instructions, color){
+    const projects = getProjects();
+    const project = {
+        id: Date.now(),
+        name: name.trim(),
+        instructions: (instructions || "").trim(),
+        color: color || PROJECT_COLORS[0],
+        createdAt: Date.now()
+    };
+    projects.unshift(project);
+    saveProjects(projects);
+    return project;
+}
+
+function updateProject(id, changes){
+    const projects = getProjects();
+    const project = projects.find(p => p.id === id);
+    if(project) Object.assign(project, changes);
+    saveProjects(projects);
+}
+
+function deleteProject(id){
+    saveProjects(getProjects().filter(p => p.id !== id));
+    // Un-tag any chats that belonged to this project — their history stays,
+    // they just go back to being regular chats.
+    const sessions = getSessions();
+    let changed = false;
+    sessions.forEach(s => {
+        if(s.projectId === id){ s.projectId = null; changed = true; }
+    });
+    if(changed) saveSessions(sessions);
+}
+
+// ---- Plugins ----
+// Toggleable built-in capabilities. Missing/undefined defaults to true so
+// existing users see no behavior change until they actually flip something.
+
+const PLUGIN_DEFS = [
+    { key: "webSearch", icon: "🔎", title: "Web Search & Research", desc: "Let Zyntra search the web for current information, and show the Research mode toggle for deeper, multi-source answers." },
+    { key: "googleTools", icon: "📧", title: "Google Tools", desc: "Let a connected Google account be used for Gmail and Calendar actions." },
+    { key: "memory", icon: "🧠", title: "Memory", desc: "Let Zyntra remember facts about you across conversations." },
+    { key: "imageGen", icon: "🖼️", title: "Image Generator", desc: "Show the Image Generator tool in the sidebar." },
+    { key: "codexBuilder", icon: "🧑‍💻", title: "Codex", desc: "Show the Codex (coding + website building) tool in the sidebar." }
+];
+
+function getPlugins(){
+    const saved = JSON.parse(localStorage.getItem("zyntra-plugins") || "{}");
+    const merged = {};
+    PLUGIN_DEFS.forEach(p => { merged[p.key] = saved[p.key] !== false; }); // default true
+    return merged;
+}
+
+function savePlugins(plugins){
+    localStorage.setItem("zyntra-plugins", JSON.stringify(plugins));
+    scheduleCloudSave();
+}
+
+function setPlugin(key, enabled){
+    const plugins = getPlugins();
+    plugins[key] = enabled;
+    savePlugins(plugins);
+    applyPluginVisibility();
+}
+
+// Hides/shows sidebar nav items and chat-bar toggles based on the current
+// plugin settings — the actual "gating", not just a cosmetic switch.
+function applyPluginVisibility(){
+    const plugins = getPlugins();
+
+    const imageNav = document.querySelector('.nav-item[data-tool="image"]');
+    if(imageNav) imageNav.style.display = plugins.imageGen ? "" : "none";
+
+    const codexNav = document.querySelector('.nav-item[data-tool="codex"]');
+    if(codexNav) codexNav.style.display = plugins.codexBuilder ? "" : "none";
+
+    const researchBtn = document.getElementById("researchBtn");
+    if(researchBtn) researchBtn.style.display = plugins.webSearch ? "" : "none";
+    if(!plugins.webSearch) researchModeEnabled = false;
+
+    const googleCard = document.getElementById("googleConnectionCard");
+    if(googleCard) googleCard.style.display = plugins.googleTools ? "" : "none";
+}
+
+// ---- Scheduled Tasks ----
+// Tasks Zyntra runs automatically on a schedule, even while the app is
+// closed. Creation/listing/deletion happens locally + cloud-synced like
+// everything else above; actual execution is handled server-side by a
+// scheduled job that writes results back here.
+
+function getScheduledTasks(){
+    return JSON.parse(localStorage.getItem("zyntra-scheduled") || "[]");
+}
+
+function saveScheduledTasks(tasks){
+    localStorage.setItem("zyntra-scheduled", JSON.stringify(tasks));
+    scheduleCloudSave();
+}
+
+function createScheduledTask(prompt, frequency){
+    const tasks = getScheduledTasks();
+    const task = {
+        id: Date.now(),
+        prompt: prompt.trim(),
+        frequency, // "daily" | "weekly"
+        active: true,
+        createdAt: Date.now(),
+        lastRunAt: null,
+        results: [] // { ranAt, reply }
+    };
+    tasks.unshift(task);
+    saveScheduledTasks(tasks);
+    return task;
+}
+
+function deleteScheduledTask(id){
+    saveScheduledTasks(getScheduledTasks().filter(t => t.id !== id));
+}
+
+function toggleScheduledTask(id){
+    const tasks = getScheduledTasks();
+    const task = tasks.find(t => t.id === id);
+    if(task) task.active = !task.active;
+    saveScheduledTasks(tasks);
 }
 
 // ---- Google connection (Gmail / Calendar) ----
@@ -1592,6 +1739,9 @@ async function pushLocalToCloud(){
             profile: getProfile(),
             sessions: getSessions(),
             memories: getMemories(),
+            projects: getProjects(),
+            plugins: getPlugins(),
+            scheduledTasks: getScheduledTasks(),
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
     }catch(err){
@@ -1610,6 +1760,9 @@ async function pullCloudToLocal(){
             if(data.profile) localStorage.setItem("zyntra-profile", JSON.stringify(data.profile));
             if(Array.isArray(data.sessions)) localStorage.setItem("zyntra-sessions", JSON.stringify(data.sessions));
             if(Array.isArray(data.memories)) localStorage.setItem("zyntra-memories", JSON.stringify(data.memories));
+            if(Array.isArray(data.projects)) localStorage.setItem("zyntra-projects", JSON.stringify(data.projects));
+            if(data.plugins) localStorage.setItem("zyntra-plugins", JSON.stringify(data.plugins));
+            if(Array.isArray(data.scheduledTasks)) localStorage.setItem("zyntra-scheduled", JSON.stringify(data.scheduledTasks));
         } else {
             // Brand new account in Firestore — seed the cloud with
             // whatever this browser already has (e.g. a first chat sent
@@ -1624,6 +1777,7 @@ async function pullCloudToLocal(){
         zyntraCloudSyncing = false;
         renderAuthNav();
         renderSidebarHistory();
+        applyPluginVisibility();
     }
 }
 
@@ -1843,7 +1997,8 @@ function logMessageToHistory(role, content){
             type: activeChatTool || "chat",
             title: cleanTitle.length > 40 ? cleanTitle.slice(0, 40) + "…" : cleanTitle,
             time: Date.now(),
-            messages: []
+            messages: [],
+            projectId: currentProjectId || null
         });
     }
 
@@ -2084,6 +2239,348 @@ document.getElementById("searchChatsInput")?.addEventListener("input", (e) => {
     renderSearchChatsList(e.target.value);
 });
 
+// ==========================
+// Projects modal
+// ==========================
+
+function showProjectsView(view){
+    document.getElementById("projectsListView").style.display = view === "list" ? "" : "none";
+    document.getElementById("projectDetailView").style.display = view === "detail" ? "" : "none";
+    document.getElementById("projectFormView").style.display = view === "form" ? "" : "none";
+}
+
+function renderProjectsList(){
+    const list = document.getElementById("projectsList");
+    if(!list) return;
+    list.innerHTML = "";
+
+    if(!isLoggedIn()){
+        list.innerHTML = '<p class="search-chats-empty">Sign in to create and sync projects.</p>';
+        return;
+    }
+
+    const projects = getProjects();
+    if(projects.length === 0){
+        list.innerHTML = '<p class="search-chats-empty">No projects yet. Create one to group related chats together.</p>';
+        return;
+    }
+
+    projects.forEach(project => {
+        const row = document.createElement("div");
+        row.className = "search-chats-row";
+
+        const dot = document.createElement("span");
+        dot.style.cssText = `width:12px;height:12px;border-radius:50%;background:${project.color};flex-shrink:0;`;
+
+        const title = document.createElement("span");
+        title.className = "search-chats-row-title";
+        title.textContent = project.name;
+
+        const count = document.createElement("span");
+        count.style.cssText = "color:#8a8ea8; font-size:12.5px; flex-shrink:0;";
+        const chatCount = getSessions().filter(s => s.projectId === project.id).length;
+        count.textContent = chatCount + (chatCount === 1 ? " chat" : " chats");
+
+        row.appendChild(dot);
+        row.appendChild(title);
+        row.appendChild(count);
+        row.addEventListener("click", () => openProjectDetail(project.id));
+        list.appendChild(row);
+    });
+}
+
+let projectDetailId = null;
+
+function openProjectDetail(id){
+    const project = getProjects().find(p => p.id === id);
+    if(!project) return;
+    projectDetailId = id;
+    document.getElementById("projectDetailColorTag").textContent = project.name.toUpperCase();
+    document.getElementById("projectDetailColorTag").style.background = project.color + "33";
+    document.getElementById("projectDetailColorTag").style.color = project.color;
+    document.getElementById("projectDetailName").textContent = project.name;
+    document.getElementById("projectDetailInstructions").textContent = project.instructions || "No custom instructions set.";
+    renderProjectChatsList(id);
+    showProjectsView("detail");
+}
+
+function renderProjectChatsList(projectId){
+    const list = document.getElementById("projectChatsList");
+    if(!list) return;
+    list.innerHTML = "";
+    const sessions = getSessions().filter(s => s.projectId === projectId);
+    if(sessions.length === 0){
+        list.innerHTML = '<p class="search-chats-empty">No chats in this project yet.</p>';
+        return;
+    }
+    sessions.forEach(session => {
+        const row = document.createElement("div");
+        row.className = "search-chats-row";
+        const icon = document.createElement("span");
+        icon.className = "search-chats-row-icon";
+        icon.textContent = SESSION_TYPE_ICONS[session.type] || SESSION_TYPE_ICONS.chat;
+        const title = document.createElement("span");
+        title.className = "search-chats-row-title";
+        title.textContent = session.title;
+        row.appendChild(icon);
+        row.appendChild(title);
+        row.addEventListener("click", () => {
+            closeModal("projectsModal");
+            openSession(session);
+        });
+        list.appendChild(row);
+    });
+}
+
+let projectFormEditId = null;
+let projectFormSelectedColor = PROJECT_COLORS[0];
+
+function renderProjectColorPicker(){
+    const picker = document.getElementById("projectColorPicker");
+    if(!picker) return;
+    picker.innerHTML = "";
+    PROJECT_COLORS.forEach(color => {
+        const dot = document.createElement("div");
+        dot.className = "project-color-dot" + (color === projectFormSelectedColor ? " selected" : "");
+        dot.style.background = color;
+        dot.addEventListener("click", () => {
+            projectFormSelectedColor = color;
+            renderProjectColorPicker();
+        });
+        picker.appendChild(dot);
+    });
+}
+
+function openProjectForm(editId){
+    projectFormEditId = editId || null;
+    const project = editId ? getProjects().find(p => p.id === editId) : null;
+    document.getElementById("projectFormTag").textContent = editId ? "EDIT PROJECT" : "NEW PROJECT";
+    document.getElementById("projectFormTitle").textContent = editId ? "Edit Project" : "New Project";
+    document.getElementById("projectNameInput").value = project ? project.name : "";
+    document.getElementById("projectInstructionsInput").value = project ? project.instructions : "";
+    projectFormSelectedColor = project ? project.color : PROJECT_COLORS[0];
+    renderProjectColorPicker();
+    showProjectsView("form");
+    setTimeout(() => document.getElementById("projectNameInput").focus(), 50);
+}
+
+document.getElementById("navProjects")?.addEventListener("click", () => {
+    if(!isLoggedIn()){
+        openModal("signinModal");
+        closeSidebarMobile();
+        return;
+    }
+    showProjectsView("list");
+    renderProjectsList();
+    openModal("projectsModal");
+    closeSidebarMobile();
+});
+document.getElementById("projectsModalClose")?.addEventListener("click", () => closeModal("projectsModal"));
+document.getElementById("newProjectBtn")?.addEventListener("click", () => openProjectForm(null));
+document.getElementById("projectBackBtn")?.addEventListener("click", () => { showProjectsView("list"); renderProjectsList(); });
+document.getElementById("projectCancelBtn")?.addEventListener("click", () => {
+    showProjectsView(projectFormEditId ? "detail" : "list");
+    if(!projectFormEditId) renderProjectsList();
+});
+document.getElementById("projectSaveBtn")?.addEventListener("click", () => {
+    const name = document.getElementById("projectNameInput").value.trim();
+    if(!name){ showToast("Give the project a name first."); return; }
+    const instructions = document.getElementById("projectInstructionsInput").value.trim();
+    if(projectFormEditId){
+        updateProject(projectFormEditId, { name, instructions, color: projectFormSelectedColor });
+        openProjectDetail(projectFormEditId);
+    } else {
+        createProject(name, instructions, projectFormSelectedColor);
+        showProjectsView("list");
+        renderProjectsList();
+    }
+});
+document.getElementById("projectEditBtn")?.addEventListener("click", () => openProjectForm(projectDetailId));
+document.getElementById("projectDeleteBtn")?.addEventListener("click", () => {
+    const project = getProjects().find(p => p.id === projectDetailId);
+    if(!project) return;
+    confirmAction(
+        "Delete This Project?",
+        `Are you sure you want to delete "${project.name}"? Its chats will stay in your history, just no longer grouped together.`,
+        () => {
+            deleteProject(projectDetailId);
+            showProjectsView("list");
+            renderProjectsList();
+        }
+    );
+});
+document.getElementById("projectNewChatBtn")?.addEventListener("click", () => {
+    currentProjectId = projectDetailId;
+    closeModal("projectsModal");
+    resetChatView();
+    openTool("chat");
+    showToast("💬 New chat started in this project");
+});
+
+// ==========================
+// Plugins modal
+// ==========================
+
+function renderPluginsList(){
+    const list = document.getElementById("pluginsList");
+    if(!list) return;
+    list.innerHTML = "";
+    const plugins = getPlugins();
+
+    PLUGIN_DEFS.forEach(def => {
+        const row = document.createElement("div");
+        row.className = "plugin-row";
+
+        const left = document.createElement("div");
+        left.style.cssText = "display:flex; align-items:flex-start;";
+        const icon = document.createElement("span");
+        icon.className = "plugin-row-icon";
+        icon.textContent = def.icon;
+        const textWrap = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "plugin-row-title";
+        title.textContent = def.title;
+        const desc = document.createElement("div");
+        desc.className = "plugin-row-desc";
+        desc.textContent = def.desc;
+        textWrap.appendChild(title);
+        textWrap.appendChild(desc);
+        left.appendChild(icon);
+        left.appendChild(textWrap);
+
+        const toggle = document.createElement("input");
+        toggle.type = "checkbox";
+        toggle.className = "plugin-row-switch";
+        toggle.checked = plugins[def.key];
+        toggle.addEventListener("change", () => {
+            setPlugin(def.key, toggle.checked);
+            showToast((toggle.checked ? "✅ " : "🚫 ") + def.title + (toggle.checked ? " enabled" : " disabled"));
+        });
+
+        row.appendChild(left);
+        row.appendChild(toggle);
+        list.appendChild(row);
+    });
+}
+
+document.getElementById("navPlugins")?.addEventListener("click", () => {
+    renderPluginsList();
+    openModal("pluginsModal");
+    closeSidebarMobile();
+});
+document.getElementById("pluginsModalClose")?.addEventListener("click", () => closeModal("pluginsModal"));
+
+// ==========================
+// Scheduled modal
+// ==========================
+
+function showScheduledView(view){
+    document.getElementById("scheduledListView").style.display = view === "list" ? "" : "none";
+    document.getElementById("scheduledFormView").style.display = view === "form" ? "" : "none";
+}
+
+function renderScheduledList(){
+    const list = document.getElementById("scheduledList");
+    if(!list) return;
+    list.innerHTML = "";
+
+    if(!isLoggedIn()){
+        list.innerHTML = '<p class="search-chats-empty">Sign in to create scheduled tasks.</p>';
+        return;
+    }
+
+    const tasks = getScheduledTasks();
+    if(tasks.length === 0){
+        list.innerHTML = '<p class="search-chats-empty">No scheduled tasks yet.</p>';
+        return;
+    }
+
+    tasks.forEach(task => {
+        const row = document.createElement("div");
+        row.className = "search-chats-row";
+        row.style.alignItems = "flex-start";
+
+        const textWrap = document.createElement("div");
+        textWrap.style.cssText = "flex:1; min-width:0; display:flex; flex-direction:column; gap:4px;";
+        const title = document.createElement("span");
+        title.className = "search-chats-row-title";
+        title.style.whiteSpace = "normal";
+        title.textContent = task.prompt;
+        const meta = document.createElement("span");
+        meta.style.cssText = "color:#8a8ea8; font-size:12px;";
+        const lastRun = task.lastRunAt ? `Last ran ${timeAgo(task.lastRunAt)}` : "Not run yet";
+        meta.textContent = (task.frequency === "daily" ? "Daily" : "Weekly") + " — " + lastRun;
+        textWrap.appendChild(title);
+        textWrap.appendChild(meta);
+        if(task.results && task.results.length){
+            const lastResult = task.results[task.results.length - 1];
+            const resultPreview = document.createElement("span");
+            resultPreview.style.cssText = "color:#c8cae0; font-size:12.5px; margin-top:2px;";
+            resultPreview.textContent = "💬 " + (lastResult.reply.length > 90 ? lastResult.reply.slice(0, 90) + "…" : lastResult.reply);
+            textWrap.appendChild(resultPreview);
+        }
+
+        const status = document.createElement("span");
+        status.className = "scheduled-row-status";
+        status.textContent = task.active ? "Active" : "Paused";
+        status.style.cursor = "pointer";
+        status.title = "Click to " + (task.active ? "pause" : "resume");
+        status.addEventListener("click", (e) => {
+            e.stopPropagation();
+            toggleScheduledTask(task.id);
+            renderScheduledList();
+        });
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "search-chats-row-action";
+        deleteBtn.style.opacity = "1";
+        deleteBtn.textContent = "🗑";
+        deleteBtn.title = "Delete this task";
+        deleteBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            deleteScheduledTask(task.id);
+            renderScheduledList();
+        });
+
+        row.appendChild(textWrap);
+        row.appendChild(status);
+        row.appendChild(deleteBtn);
+        list.appendChild(row);
+    });
+}
+
+document.getElementById("navScheduled")?.addEventListener("click", () => {
+    if(!isLoggedIn()){
+        openModal("signinModal");
+        closeSidebarMobile();
+        return;
+    }
+    showScheduledView("list");
+    renderScheduledList();
+    openModal("scheduledModal");
+    closeSidebarMobile();
+});
+document.getElementById("scheduledModalClose")?.addEventListener("click", () => closeModal("scheduledModal"));
+document.getElementById("newScheduledBtn")?.addEventListener("click", () => {
+    document.getElementById("scheduledPromptInput").value = "";
+    document.getElementById("scheduledFrequencyInput").value = "daily";
+    showScheduledView("form");
+    setTimeout(() => document.getElementById("scheduledPromptInput").focus(), 50);
+});
+document.getElementById("scheduledCancelBtn")?.addEventListener("click", () => showScheduledView("list"));
+document.getElementById("scheduledSaveBtn")?.addEventListener("click", () => {
+    const prompt = document.getElementById("scheduledPromptInput").value.trim();
+    if(!prompt){ showToast("Describe what Zyntra should do first."); return; }
+    const frequency = document.getElementById("scheduledFrequencyInput").value;
+    createScheduledTask(prompt, frequency);
+    showScheduledView("list");
+    renderScheduledList();
+    showToast("🕐 Scheduled task created");
+});
+
+applyPluginVisibility();
+
 function buildSidebarHistoryRow(session){
     const row = document.createElement("div");
     row.className = "sidebar-history-row" + (session.pinned ? " pinned" : "");
@@ -2216,6 +2713,7 @@ function openSession(session){
 
 function openChatSession(session){
     activeChatTool = session.type || "chat";
+    currentProjectId = session.projectId || null;
     setActiveNav(activeChatTool);
     if(TOOL_PLACEHOLDERS[activeChatTool]) userInput.placeholder = TOOL_PLACEHOLDERS[activeChatTool];
 
@@ -2337,9 +2835,7 @@ function resetChatView(){
     document.getElementById("chatGreeting").style.display = "";
     renderPromptSuggestions();
     updateDeleteChatBtnVisibility();
-}
-
-function updateDeleteChatBtnVisibility(){
+}function updateDeleteChatBtnVisibility(){
     const btn = document.getElementById("deleteChatBtn");
     if(!btn) return;
     btn.style.display = (currentSessionId && isLoggedIn()) ? "flex" : "none";
@@ -2356,6 +2852,7 @@ document.getElementById("deleteChatBtn")?.addEventListener("click", () => {
 });
 
 document.getElementById("newChatBtn")?.addEventListener("click", () => {
+    currentProjectId = null;
     resetChatView();
     closeSidebarMobile();
     userInput.focus();
@@ -2710,94 +3207,6 @@ Answer with exactly one word: IMAGE or CHAT.`
     }
 }
 
-function isVagueWebsiteIntent(msg){
-    const text = (msg || "").trim().toLowerCase().replace(/[.!]+$/, "");
-    return /^(i want to (make|build|create)( an?)? (website|site|webpage|page)|i want (an?|to make) (website|site|webpage)|let'?s (make|build|create)( an?)? (website|site|webpage|something)|make (an?|the) (website|site|webpage)|build (an?|me an?|the) (website|site|webpage)|create (an?|the) (website|site|webpage)|can (you|u) (make|build) (an?|me an?) (website|site|webpage))$/i.test(text);
-}
-
-// Asks the AI itself whether this message (inside Website Builder) is a
-// request to build or change a website, or just a normal chat message —
-// same pattern as classifyImageIntent, so Website Builder can talk
-// naturally instead of trying to force a full rebuild on every message.
-async function classifyWebsiteIntent(msg){
-    const text = (msg || "").trim();
-    const wordCount = text.split(/\s+/).length;
-
-    if(isVagueWebsiteIntent(text)){
-        return false; // vague intent, no real details yet — chat and ask for specifics
-    }
-
-    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|not bad|damn|omg|what|why|how|who|when|where|let|lets|let's|can|could|do|are|is|please|pls|plz|stop|wait|no|nah|don't|dont|cancel|undo|enough)\b/i;
-    if(wordCount >= 6 && !conversationalStart.test(text)){
-        return true;
-    }
-
-    try{
-        const { content } = await callChatAPI([
-            {
-                role: "user",
-                content: `You are classifying a message sent inside an AI website-building chat. Reply with exactly one word: BUILD or CHAT.
-
-BUILD = the message asks to create a new website, or change/add to a website already being worked on (e.g. "a portfolio site for a photographer", "make the header bigger", "change the colors to blue", "add a contact section").
-
-CHAT = anything else: greetings, thanks, questions about the site, complaints, commands directed at the assistant (stop, wait, please, don't, cancel, undo, no), or vague statements of intent with no real subject (e.g. "i want to make a website", "build me a site", "let's create something").
-
-Examples:
-"a landing page for a coffee shop" -> BUILD
-"make the header bigger" -> BUILD
-"change it to dark mode" -> BUILD
-"thanks, looks great!" -> CHAT
-"what do you think of this design" -> CHAT
-"i want to build a website" -> CHAT
-"can you build me a website?" -> CHAT
-
-Message: "${msg}"
-
-Answer with exactly one word: BUILD or CHAT.`
-            }
-        ], { lite: true });
-        const clean = (content || "").trim().toLowerCase();
-        if(clean.startsWith("build")) return true;
-        if(clean.startsWith("chat")) return false;
-        if(/\bbuild\b/.test(clean) && !/\bchat\b/.test(clean)) return true;
-        if(/\bchat\b/.test(clean) && !/\bbuild\b/.test(clean)) return false;
-        return true; // genuinely ambiguous — default to attempting a build, the tool's main purpose
-    }catch(err){
-        return true; // network hiccup — default to attempting a build rather than silently doing nothing
-    }
-}
-
-// Lightweight reply for CHAT-classified messages inside Website Builder —
-// no HTML generation, no heavy system prompt, just a natural response.
-async function runWebsiteModeConversationalReply(msg, loadingDiv, aiContent){
-    aiContent.textContent = "Thinking...";
-
-    const contextNote = {
-        role: "system",
-        content: isVagueWebsiteIntent(msg)
-            ? "You are chatting inside Zyntra AI's Website Builder. The user just said they want a website but didn't describe what it should be for (e.g. \"i want to build a website\", \"make me a site\"). Warmly ask what kind of site they want — suggest they describe the purpose, style, or business/topic. Keep it short."
-            : "You are chatting inside Zyntra AI's Website Builder. The user just sent a message that is a reply/question/comment rather than a new build or edit request (e.g. reacting to a site you already built for them). Reply naturally and briefly, like a friendly web designer — don't generate any HTML or code for this message."
-    };
-
-    try{
-        const { content: reply } = await callChatAPI([contextNote, { role: "user", content: msg }]);
-        logMessageToHistory("assistant", reply);
-        aiContent.textContent = "";
-        typeOutText(aiContent, reply, chatArea, () => {
-            loadingDiv.classList.add("done");
-            addMessageActionBar(aiContent, reply);
-            const aiTime = document.createElement("span");
-            aiTime.className = "msg-time";
-            aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-            aiContent.appendChild(aiTime);
-        });
-    }catch(err){
-        aiContent.textContent = friendlyErrorMessage(err);
-        loadingDiv.classList.add("done");
-    }
-    chatArea.scrollTop = chatArea.scrollHeight;
-}
-
 // A single, warm, human fallback message used anywhere a reply genuinely
 // fails — instead of a cold "something went wrong", or a swallowed error.
 function friendlyErrorMessage(err){
@@ -2935,42 +3344,12 @@ async function sendImageOrChatMessage(msg){
     }
 }
 
-// Handles CHAT-classified messages inside Website Builder — greetings,
-// thanks, questions about the site — without triggering a full rebuild.
-// classifyWebsiteIntent (called just before this) already decided this
-// isn't a build/edit request.
-async function sendWebsiteChatOnlyMessage(msg){
-    if(!msg) return;
-
-    if(isLockedOut()){
-        showChatLockedModal();
-        return;
-    }
-
-    appendUserBubble(msg);
-    logMessageToHistory("user", msg);
-    bumpStat("conversations");
-    recordFreeMessage();
-
-    const { loadingDiv, aiContent } = appendLoadingAiBubble("Thinking...");
-    runWebsiteModeConversationalReply(msg, loadingDiv, aiContent);
-}
-
 async function sendChatMessage(prefill){
     const msg = (prefill !== undefined ? prefill : userInput.value.trim());
     if(!msg && !attachedImage && !attachedDocument) return;
 
     if(activeChatTool === "image" && msg){
         return sendImageOrChatMessage(msg);
-    }
-
-    if(activeChatTool === "website" && msg && !attachedImage && !attachedDocument){
-        const isBuildRequest = await classifyWebsiteIntent(msg);
-        if(!isBuildRequest){
-            return sendWebsiteChatOnlyMessage(msg);
-        }
-        // else: a real build/edit request — fall through to the normal
-        // flow below, which already builds the site via the website flag.
     }
 
     if(isLockedOut()){
@@ -3030,11 +3409,17 @@ async function sendChatMessage(prefill){
         if(profile.nickname) note += ` Call the user "${profile.nickname}".`;
         if(profile.instructions) note += ` User's custom instructions: ${profile.instructions}`;
         const memories = getMemories();
-        if(memories.length){
+        if(memories.length && getPlugins().memory){
             note += ` Here are things you already know about this user from past conversations — weave them in naturally where relevant, don't just list them back at the user: ${memories.map(m => m.fact).join("; ")}.`;
         }
-        if(activeChatTool === "website"){
-            note += " " + WEBSITE_BUILDER_SYSTEM_NOTE;
+        if(activeChatTool === "codex"){
+            note += " " + CODEX_SYSTEM_NOTE;
+        }
+        if(currentProjectId){
+            const project = getProjects().find(p => p.id === currentProjectId);
+            if(project && project.instructions){
+                note += ` You are working inside the "${project.name}" project. Project-specific instructions: ${project.instructions}`;
+            }
         }
         chatHistory.push({ role: "system", content: note });
     }
@@ -3074,7 +3459,7 @@ async function sendChatMessage(prefill){
             accumulated += chunk;
             aiContent.innerHTML = formatAIText(accumulated);
             chatArea.scrollTop = chatArea.scrollHeight;
-        }, { research: researchModeEnabled, website: activeChatTool === "website" });
+        }, { research: researchModeEnabled, website: activeChatTool === "codex" });
 
         if(!accumulated){
             aiContent.textContent = "Sorry, I didn't get a response. Please try again.";
@@ -3194,47 +3579,34 @@ function setActiveNav(tool){
     if(el) el.classList.add("active");
 }
 
-// Design instructions for Website Builder mode. This is the actual
-// quality lever — a strong, specific brief here is what keeps output from
-// looking like generic "AI website" template #4,738 (centered hero,
-// three feature cards, purple gradient everywhere, Lorem ipsum).
-const WEBSITE_BUILDER_SYSTEM_NOTE = `
-You are in Website Builder mode. Every reply that builds or changes a website must be a single, complete, working HTML file — inline <style> and <script> in the same file, no external files or build steps — wrapped in one \`\`\`html code block. After the code block, talk to the user like a real designer handing off work: a couple of natural sentences on what you built and why you made the choices you did (layout, colors, tone) — not a cold one-liner, and not a wall of text either.
+// Design + behavior instructions for Codex mode, which merges what used to
+// be four separate tools (Poster Maker, Study Helper, Code with Zyntra,
+// Website Builder) into one option that handles both plain coding help and
+// full website/app builds — the model decides which per message, based on
+// this note, rather than a separate classifier call.
+const CODEX_SYSTEM_NOTE = `
+You are in Codex mode — Zyntra's unified coding and building assistant. Every message calls for ONE of these two response styles; figure out which and respond accordingly:
 
-Design like a thoughtful human designer, not a template generator:
-- Pick a typeface pairing and color palette that fits what the site is actually for (a masjid site, a photography portfolio, and a SaaS landing page should NOT look like the same template with different text). Load fonts from Google Fonts via a <link> tag.
-- Vary layout structure between projects — not every site needs a centered hero + three feature cards. Consider asymmetry, varied section rhythm, and real visual hierarchy (one dominant element per section, not everything the same size).
-- Use generous whitespace and a restrained color palette (2-3 colors plus neutrals) over busy gradients on every element.
-- Make it responsive (mobile-first or at least graceful on narrow screens) using plain CSS (flexbox/grid, media queries) — no frameworks that need a build step, but a CDN-hosted framework like Tailwind's play CDN is fine if it genuinely helps.
-- Add tasteful, restrained motion (subtle transitions/hover states) rather than heavy animation.
-- Use real semantic HTML (header, nav, main, section, footer) for accessibility, and reasonable alt text / aria labels.
+1. BUILDING a full website, web app, game, or any other browser-based tool (e.g. "a portfolio site for a photographer", "make the header bigger", "change it to dark mode", "build me a simple calculator app"): reply with a single, complete, working HTML file — inline <style> and <script> in the same file, no external files or build steps — wrapped in one \`\`\`html code block. After the code block, talk to the user like a real developer/designer handing off work: a couple of natural sentences on what you built and why you made the choices you did — not a cold one-liner, not a wall of text. When the user asks for a change to something you already built, regenerate the ENTIRE file again with the change applied — never send a diff or partial snippet, since the preview needs one complete file every time.
 
-Content honesty: if the user hasn't given specific facts (real prices, hours, addresses, phone numbers, testimonials, team names), do NOT invent specific-sounding fake details presented as real. Either use clearly generic placeholder content (e.g. "Add your address here") or ask the user for the missing specifics — never fabricate a phone number, review count, or address that looks real.
+   Design like a thoughtful human designer, not a template generator: pick a typeface pairing and color palette that actually fits the subject (a masjid site, a photography portfolio, and a SaaS landing page should NOT look like the same template with different text) — load fonts from Google Fonts via a <link> tag. Vary layout structure between projects rather than defaulting to centered-hero-plus-three-cards every time. Use generous whitespace and a restrained palette (2-3 colors plus neutrals) over busy gradients everywhere. Make it responsive with plain CSS (flexbox/grid, media queries) — a CDN-hosted framework like Tailwind's play CDN is fine if it helps, but nothing that needs a build step. Add tasteful, restrained motion rather than heavy animation. Use real semantic HTML (header, nav, main, section, footer) and reasonable alt text/aria labels. If the user hasn't given specific facts (real prices, hours, addresses, phone numbers, testimonials, team names), do NOT invent specific-sounding fake details presented as real — use clearly generic placeholders or ask for the missing specifics instead.
 
-When the user asks for a change, regenerate the ENTIRE file again with the change applied — never send a diff or partial snippet, since the preview needs one complete file every time.
+2. EVERYDAY CODING help — writing, debugging, explaining, refactoring, or answering questions about code in any language or context (a Python function, a React component meant to live inside a real project, a SQL query, fixing an error, code review, algorithms, etc.): just help directly and conversationally, with properly formatted code blocks in the relevant language. Do NOT wrap these into a single HTML file — that treatment is ONLY for full standalone browser builds from case 1. Most everyday coding questions belong here.
+
+If a message is just conversation (thanks, a question about something you already built, a greeting) — reply naturally and briefly, without generating any code at all.
 `;
 
 const TOOL_PLACEHOLDERS = {
     chat: "Ask me anything...",
-    study: "Ask me to explain, summarize, or solve...",
     business: "Ask a business or growth question...",
-    code: "Ask me to write, debug, or explain code...",
     image: "Describe the image you want to create...",
-    website: "Describe the website you want to build..."
+    codex: "Ask me to code, debug, or build a website/app..."
 };
 
 const TOOL_GREETINGS = {
     chat: {
         heading: 'Hey, I\'m <span>Zyntra AI</span>',
         subtitle: "Your personal AI assistant. Ask me anything!"
-    },
-    study: {
-        heading: 'Let\'s <span>Study</span>!',
-        subtitle: "Ask me to explain a topic, summarize notes, or solve a problem."
-    },
-    code: {
-        heading: 'Let\'s Do <span>Coding</span>!',
-        subtitle: "Ask me to write, debug, or explain any code."
     },
     business: {
         heading: 'Let\'s Grow Your <span>Business</span>!',
@@ -3244,9 +3616,9 @@ const TOOL_GREETINGS = {
         heading: 'Let\'s Create an <span>Image</span>!',
         subtitle: "Describe what you want to see, and I'll bring it to life."
     },
-    website: {
-        heading: 'Let\'s Build a <span>Website</span>!',
-        subtitle: "Describe it, watch it come to life, then ask for changes."
+    codex: {
+        heading: '<span>Codex</span>',
+        subtitle: "Write and debug code, or describe a website or app and watch it come to life."
     }
 };
 
@@ -3278,9 +3650,6 @@ function openTool(tool, prefix){
         userInput.value = prefix || "";
         userInput.focus();
         closeSidebarMobile();
-    } else if(tool === "poster"){
-        openModal("posterModal");
-        closeSidebarMobile();
     } else if(tool === "voice"){
         openModal("voiceModal");
         closeSidebarMobile();
@@ -3291,6 +3660,7 @@ function openTool(tool, prefix){
 document.querySelectorAll("[data-tool]").forEach(el => {
     el.addEventListener("click", e => {
         e.preventDefault();
+        currentProjectId = null; // manually picking a sidebar tool always exits project context
         openTool(el.dataset.tool, el.dataset.prefix);
     });
 });
