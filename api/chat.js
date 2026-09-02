@@ -693,7 +693,38 @@ Rules:
     // waiting for the full response — safe to do for every round because
     // tool-calling rounds essentially never carry visible content
     // alongside a tool_call, so nothing gets shown until the real answer.
-    async function runAgentLoop(model, includeTools, onDelta) {
+    // Retryable = worth trying the next model in the chain. 429 covers
+    // both per-minute rate limits and the daily request cap; 5xx and our
+    // own synthetic 504 (request timeout) mean Groq/the network had a bad
+    // moment, not that the request itself was invalid. A 400 (e.g. bad
+    // request shape) is NOT retryable — trying another model won't fix it,
+    // it'll just waste time before falling through to the real error.
+    function isRetryableFailure(result) {
+      return result.status === 429 || result.status >= 500;
+    }
+
+    // Tries each model in modelChain in order, moving to the next one only
+    // on a retryable failure (rate limit / daily quota / upstream error).
+    // Each Groq model has its OWN separate rate-limit bucket, so this is
+    // what actually multiplies daily capacity — not just a safety net.
+    // Returns the same { ok, status, data } shape as callGroq/callGroqStreaming,
+    // plus `modelUsed` so callers/logs know which model actually answered.
+    async function callGroqWithFallback(modelChain, body, timeBudget, streaming, onDelta) {
+      let lastResult = null;
+      for (const model of modelChain) {
+        const result = streaming
+          ? await callGroqStreaming(model, body, timeBudget, onDelta)
+          : await callGroq(model, body, timeBudget);
+        result.modelUsed = model;
+        lastResult = result;
+        if (result.ok) return result;
+        if (!isRetryableFailure(result)) return result;
+        console.error(`Model ${model} failed (${result.status}), trying next in chain...`);
+      }
+      return lastResult;
+    }
+
+    async function runAgentLoop(modelChain, includeTools, onDelta) {
       let conversation = [...fullMessages];
       const maxRounds = research ? 8 : 4; // research mode allows several more search rounds to chain
       let overallBudget = 45000; // leaves headroom under the 60s function ceiling
@@ -715,9 +746,7 @@ Rules:
           body.reasoning_format = "hidden"; // qwen shows raw <think> reasoning unless hidden
         }
 
-        const result = onDelta
-          ? await callGroqStreaming(model, body, Math.max(overallBudget, 8000), onDelta)
-          : await callGroq(model, body, Math.max(overallBudget, 8000));
+        const result = await callGroqWithFallback(modelChain, body, Math.max(overallBudget, 8000), !!onDelta, onDelta);
         overallBudget -= (Date.now() - roundStart);
         lastResult = result;
 
@@ -755,7 +784,15 @@ Rules:
       return lastResult;
     }
 
-    const primaryModel = hasImage ? 'qwen/qwen3.6-27b' : 'openai/gpt-oss-20b';
+    // Text chat tries gpt-oss-20b first, then falls back to gpt-oss-120b,
+    // then qwen3.8-27b — each on Groq's own separate per-model daily quota,
+    // so this is real extra capacity, not just redundancy. qwen3.6-27b is
+    // reserved for vision only (it doesn't support tool calling on Groq),
+    // so it's kept out of the text fallback chain to avoid competing with
+    // image traffic for its quota.
+    const primaryModelChain = hasImage
+      ? ['qwen/qwen3.6-27b']
+      : ['openai/gpt-oss-20b', 'openai/gpt-oss-120b', 'qwen/qwen3.8-27b'];
     const wantsStream = !!req.body?.stream && !hasImage; // image mode + lite stay non-streaming for simplicity
 
     if (wantsStream) {
@@ -769,15 +806,15 @@ Rules:
       const sendEvent = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
       const onDelta = (text) => sendEvent({ type: "content", text });
 
-      let streamResult = await runAgentLoop(primaryModel, true, onDelta);
+      let streamResult = await runAgentLoop(primaryModelChain, true, onDelta);
 
       if (!streamResult.ok) {
         console.error('Streaming agent loop failed, retrying without tools:', streamResult.status, streamResult.data?.error?.message);
-        streamResult = await callGroqStreaming(primaryModel, {
+        streamResult = await callGroqWithFallback(primaryModelChain, {
           temperature: 0.7,
           max_tokens: website ? 4096 : (research ? 3072 : 2048),
           messages: fullMessages
-        }, 15000, onDelta);
+        }, 15000, true, onDelta);
       }
 
       // If it's STILL failing and the error looks like it's about the
@@ -787,11 +824,11 @@ Rules:
       // reply the user can ask to continue beats a hard failure.
       if (!streamResult.ok && /max.?tokens|too large|reduce/i.test(streamResult.data?.error?.message || '')) {
         console.error('Retrying with a conservative token budget after a likely length-related rejection.');
-        streamResult = await callGroqStreaming(primaryModel, {
+        streamResult = await callGroqWithFallback(primaryModelChain, {
           temperature: 0.7,
           max_tokens: 1536,
           messages: fullMessages
-        }, 15000, onDelta);
+        }, 15000, true, onDelta);
       }
 
       if (!streamResult.ok) {
@@ -806,7 +843,7 @@ Rules:
       return res.end();
     }
 
-    let result = await runAgentLoop(primaryModel, !hasImage);
+    let result = await runAgentLoop(primaryModelChain, !hasImage);
 
     // If the tool-enabled call failed outright (e.g. this Groq account
     // tier doesn't support tool calling on this model), retry once with
@@ -814,11 +851,11 @@ Rules:
     // an error.
     if (!result.ok && !hasImage) {
       console.error('Agent loop failed, retrying without tools:', result.status, result.data?.error?.message);
-      result = await callGroq(primaryModel, {
+      result = await callGroqWithFallback(primaryModelChain, {
         temperature: 0.7,
         max_tokens: 2048,
         messages: fullMessages
-      }, 15000);
+      }, 15000, false);
     }
 
     if (!result.ok) {
@@ -845,7 +882,7 @@ Rules:
 }
 
 async function callGroqLite(messages) {
-  async function attempt(timeBudget) {
+  async function attempt(timeBudget, model) {
     const controller = new AbortController();
     const abortTimer = setTimeout(() => controller.abort(), timeBudget);
 
@@ -858,7 +895,7 @@ async function callGroqLite(messages) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          model: 'openai/gpt-oss-20b',
+          model,
           temperature: 0,
           max_tokens: 12,
           messages
@@ -887,15 +924,25 @@ async function callGroqLite(messages) {
   }
 
   const budgetMs = 12000;
-  let result = await attempt(budgetMs);
+  const primaryModel = 'openai/gpt-oss-20b';
+  let result = await attempt(budgetMs, primaryModel);
 
   if (!result.ok && result.status === 429) {
     const waitMs = parseRetryAfterMs(result.data?.error?.message);
     if (waitMs !== null && waitMs < budgetMs - 2000) {
       console.error(`Rate limited on lite call, retrying in ${waitMs}ms`);
       await sleep(waitMs);
-      result = await attempt(Math.max(budgetMs - waitMs, 4000));
+      result = await attempt(Math.max(budgetMs - waitMs, 4000), primaryModel);
     }
+  }
+
+  // Still failing (rate limit with no usable Retry-After, daily quota
+  // exhausted, or an upstream error) — try once on a model with its own
+  // separate quota rather than surfacing an error for what's usually just
+  // a quick internal classification call.
+  if (!result.ok && (result.status === 429 || result.status >= 500)) {
+    console.error('Lite call still failing, falling back to gpt-oss-120b');
+    result = await attempt(6000, 'openai/gpt-oss-120b');
   }
 
   return result;
