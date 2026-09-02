@@ -78,12 +78,12 @@
         <nav class="sidebar-nav">
             <button class="nav-item active" id="navChat" data-tool="chat"><span class="nav-icon">💬</span> AI Chat</button>
             <button class="nav-item" data-tool="image"><span class="nav-icon">🖼️</span> Image Generator</button>
-            <button class="nav-item" data-tool="poster"><span class="nav-icon">🪧</span> Poster Maker</button>
-            <button class="nav-item" data-tool="study" data-prefix="Help me study this topic: "><span class="nav-icon">📘</span> Study Helper</button>
-            <button class="nav-item" data-tool="code"><span class="nav-icon">💻</span> Code with Zyntra</button>
+            <button class="nav-item" data-tool="codex"><span class="nav-icon">🧑‍💻</span> Codex</button>
             <button class="nav-item" data-tool="voice"><span class="nav-icon">🎤</span> Voice Assistant</button>
             <button class="nav-item" data-tool="business" data-prefix="Give me business ideas for "><span class="nav-icon">💼</span> Business Tools</button>
-            <button class="nav-item" data-tool="website"><span class="nav-icon">🌐</span> Website Builder</button>
+            <button class="nav-item" id="navPlugins" data-panel="plugins"><span class="nav-icon">🧩</span> Plugins</button>
+            <button class="nav-item" id="navProjects" data-panel="projects"><span class="nav-icon">📁</span> Projects</button>
+            <button class="nav-item" id="navScheduled" data-panel="scheduled"><span class="nav-icon">🕐</span> Scheduled</button>
         </nav>
 
         <div class="sidebar-history">
@@ -481,6 +481,102 @@
                 <div class="settings-panel" data-settings-panel="pinned" style="display:none;">
                     <h2 class="settings-panel-title">Pinned Chats</h2>
                     <div class="history-list" id="pinnedChatsBox" style="max-height:400px; margin-top:20px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================= PROJECTS MODAL ================= -->
+<div class="modal-overlay" id="projectsModal">
+    <div class="modal-box settings-modal-box">
+        <button class="modal-close" id="projectsModalClose">✕</button>
+
+        <div id="projectsListView">
+            <span class="tag">PROJECTS</span>
+            <h1><span>Projects</span></h1>
+            <p>Group related chats together, each with their own custom instructions.</p>
+            <button id="newProjectBtn" type="button" style="margin:16px 0 20px;">+ New Project</button>
+            <div class="history-list" id="projectsList" style="max-height:50vh;"></div>
+        </div>
+
+        <div id="projectDetailView" style="display:none;">
+            <button type="button" id="projectBackBtn" class="modal-close" style="left:20px; right:auto;">←</button>
+            <span class="tag" id="projectDetailColorTag">PROJECT</span>
+            <h1><span id="projectDetailName">Project</span></h1>
+            <p id="projectDetailInstructions" style="color:#9aa0c0;"></p>
+            <div style="display:flex; gap:10px; margin:16px 0 20px; flex-wrap:wrap;">
+                <button id="projectNewChatBtn" type="button">+ New Chat</button>
+                <button id="projectEditBtn" type="button" style="background:#171d3d; border:1px solid #2b3154;">✏️ Edit</button>
+                <button id="projectDeleteBtn" type="button" style="background:#2a1420; border:1px solid #5a2334; color:#ff8fa8;">🗑 Delete</button>
+            </div>
+            <div class="history-list" id="projectChatsList" style="max-height:40vh;"></div>
+        </div>
+
+        <div id="projectFormView" style="display:none;">
+            <span class="tag" id="projectFormTag">NEW PROJECT</span>
+            <h1><span id="projectFormTitle">New Project</span></h1>
+            <div class="modal-input-row modal-input-col" style="margin-top:16px;">
+                <label class="profile-label">Project name</label>
+                <input type="text" id="projectNameInput" placeholder="e.g. Zyntra AI, Masjid site, School work">
+
+                <label class="profile-label">Custom instructions (optional)</label>
+                <textarea id="projectInstructionsInput" rows="4" placeholder="e.g. Always answer as a senior React developer, use TypeScript, keep explanations short."></textarea>
+
+                <label class="profile-label">Color</label>
+                <div id="projectColorPicker" style="display:flex; gap:10px; margin-top:4px;"></div>
+
+                <div style="display:flex; gap:10px; margin-top:20px;">
+                    <button id="projectSaveBtn" type="button">Save Project</button>
+                    <button id="projectCancelBtn" type="button" style="background:#171d3d; border:1px solid #2b3154;">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================= PLUGINS MODAL ================= -->
+<div class="modal-overlay" id="pluginsModal">
+    <div class="modal-box settings-modal-box">
+        <button class="modal-close" id="pluginsModalClose">✕</button>
+        <span class="tag">PLUGINS</span>
+        <h1><span>Plugins</span></h1>
+        <p>Turn Zyntra's built-in capabilities on or off. This is saved to your account and applies everywhere you're signed in.</p>
+        <div id="pluginsList" style="margin-top:20px; display:flex; flex-direction:column; gap:14px;"></div>
+    </div>
+</div>
+
+<!-- ================= SCHEDULED MODAL ================= -->
+<div class="modal-overlay" id="scheduledModal">
+    <div class="modal-box settings-modal-box">
+        <button class="modal-close" id="scheduledModalClose">✕</button>
+
+        <div id="scheduledListView">
+            <span class="tag">SCHEDULED</span>
+            <h1><span>Scheduled Tasks</span></h1>
+            <p>Zyntra will run these automatically and save the result here — even while the app is closed.</p>
+            <button id="newScheduledBtn" type="button" style="margin:16px 0 20px;">+ New Scheduled Task</button>
+            <div class="history-list" id="scheduledList" style="max-height:50vh;"></div>
+        </div>
+
+        <div id="scheduledFormView" style="display:none;">
+            <span class="tag">NEW SCHEDULED TASK</span>
+            <h1><span>Schedule a Task</span></h1>
+            <div class="modal-input-row modal-input-col" style="margin-top:16px;">
+                <label class="profile-label">What should Zyntra do?</label>
+                <textarea id="scheduledPromptInput" rows="3" placeholder="e.g. Give me 3 fresh business ideas for a small budget"></textarea>
+
+                <label class="profile-label">Repeat</label>
+                <select id="scheduledFrequencyInput">
+                    <option value="daily">Every day</option>
+                    <option value="weekly">Every week</option>
+                </select>
+
+                <p class="settings-section-hint" style="margin-top:8px;">Runs once a day, at a time we pick automatically — exact-time scheduling isn't available on our current hosting plan yet.</p>
+
+                <div style="display:flex; gap:10px; margin-top:20px;">
+                    <button id="scheduledSaveBtn" type="button">Create Task</button>
+                    <button id="scheduledCancelBtn" type="button" style="background:#171d3d; border:1px solid #2b3154;">Cancel</button>
                 </div>
             </div>
         </div>
