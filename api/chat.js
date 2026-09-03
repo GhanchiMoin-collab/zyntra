@@ -793,7 +793,13 @@ Rules:
     const primaryModelChain = hasImage
       ? ['qwen/qwen3.6-27b']
       : ['openai/gpt-oss-20b', 'openai/gpt-oss-120b', 'qwen/qwen3.8-27b'];
-    const wantsStream = !!req.body?.stream && !hasImage; // image mode + lite stay non-streaming for simplicity
+    // Images stream too now — the frontend always sends stream:true and
+    // only knows how to read an SSE response, so silently falling back to
+    // plain JSON here for image messages left it waiting for chunks that
+    // would never arrive (frontend keeps parsing for "data:" lines that
+    // don't exist in a JSON body), producing "Sorry, I didn't get a
+    // response" every time an image was attached.
+    const wantsStream = !!req.body?.stream;
 
     if (wantsStream) {
       res.writeHead(200, {
@@ -806,7 +812,7 @@ Rules:
       const sendEvent = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
       const onDelta = (text) => sendEvent({ type: "content", text });
 
-      let streamResult = await runAgentLoop(primaryModelChain, true, onDelta);
+      let streamResult = await runAgentLoop(primaryModelChain, !hasImage, onDelta);
 
       if (!streamResult.ok) {
         console.error('Streaming agent loop failed, retrying without tools:', streamResult.status, streamResult.data?.error?.message);
