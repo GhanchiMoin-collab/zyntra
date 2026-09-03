@@ -209,12 +209,33 @@
                     <span class="tag" id="projectDetailColorTag">PROJECT</span>
                     <h1 class="page-view-title" id="projectDetailName" style="margin-top:8px;">Project</h1>
                     <p id="projectDetailInstructions" style="color:var(--text-2); max-width:640px;"></p>
+                    <div id="projectMembersRow" class="project-members-row"></div>
                     <div style="display:flex; gap:10px; margin:18px 0 24px; flex-wrap:wrap;">
                         <button id="projectNewChatBtn" type="button" class="page-new-btn">+ New Chat</button>
+                        <button id="projectShareBtn" type="button" class="page-secondary-btn">👥 Share</button>
                         <button id="projectEditBtn" type="button" class="page-secondary-btn">✏️ Edit</button>
                         <button id="projectDeleteBtn" type="button" class="page-danger-btn">🗑 Delete</button>
                     </div>
                     <div class="history-list" id="projectChatsList" style="max-width:640px;"></div>
+                </div>
+
+                <div id="projectShareScreen" style="display:none;">
+                    <div class="page-view-header">
+                        <button type="button" id="projectShareBackBtn" class="page-back-btn">← Back</button>
+                    </div>
+                    <span class="tag">SHARE PROJECT</span>
+                    <h1 class="page-view-title" id="projectShareTitle" style="margin-top:8px;">Share "Project"</h1>
+                    <p style="color:var(--text-2); max-width:520px;">Invite another Zyntra account by email. They'll get full access — they can view instructions and chat inside this project too.</p>
+                    <div class="modal-input-row modal-input-col" style="margin-top:16px; max-width:420px;">
+                        <label class="profile-label">Email address</label>
+                        <div style="display:flex; gap:10px;">
+                            <input type="email" id="projectShareEmailInput" placeholder="teammate@email.com" style="flex:1;">
+                            <button id="projectShareSendBtn" type="button" style="white-space:nowrap;">Invite</button>
+                        </div>
+                        <p id="projectShareStatus" style="font-size:13px; margin-top:6px; min-height:18px;"></p>
+                    </div>
+                    <p class="page-recommended-label" style="margin-top:24px;">Members</p>
+                    <div id="projectShareMembersList" class="project-members-row" style="flex-wrap:wrap;"></div>
                 </div>
 
                 <div id="projectFormScreen" style="display:none;">
@@ -257,10 +278,16 @@
                     <div class="scheduled-input-bar">
                         <button type="button" id="scheduledInputPlus" title="New task">＋</button>
                         <input type="text" id="scheduledQuickInput" placeholder="Schedule a task">
-                        <select id="scheduledQuickFrequency" title="How often">
-                            <option value="daily">Daily</option>
-                            <option value="weekly">Weekly</option>
-                        </select>
+                        <div class="custom-select" id="scheduledFrequencySelect">
+                            <button type="button" class="custom-select-btn" id="scheduledFrequencyBtn">
+                                <span id="scheduledFrequencyLabel">Daily</span>
+                                <span class="custom-select-arrow">▾</span>
+                            </button>
+                            <div class="custom-select-menu" id="scheduledFrequencyMenu">
+                                <div class="custom-select-option selected" data-value="daily">Daily</div>
+                                <div class="custom-select-option" data-value="weekly">Weekly</div>
+                            </div>
+                        </div>
                         <button type="button" id="scheduledQuickSend" class="send-btn" title="Create">➤</button>
                     </div>
 
