@@ -1492,16 +1492,29 @@ function addMemories(facts){
 
 // ---- Projects ----
 // Groups of chats that share custom instructions (e.g. "always answer as
-// a senior React dev"), stored the same way as memories/sessions: plain
-// array in localStorage, synced to the same Firestore user doc.
+// a senior React dev"). Unlike everything else on this page, projects can
+// be SHARED between accounts, so they can't live in localStorage or the
+// private per-user Firestore doc — they're real documents in a top-level
+// `projects` collection, access-controlled by a `members` array (see
+// firestore.rules). `projectsCache` is just an in-memory mirror so the
+// rest of the UI can keep reading getProjects() synchronously like before.
 
-function getProjects(){
-    return JSON.parse(localStorage.getItem("zyntra-projects") || "[]");
+let projectsCache = [];
+
+async function refreshProjectsCache(){
+    if(!isLoggedIn()){ projectsCache = []; return; }
+    try{
+        const uid = firebase.auth().currentUser.uid;
+        const snap = await firebase.firestore().collection("projects").where("members", "array-contains", uid).get();
+        projectsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        projectsCache.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    }catch(err){
+        console.error("Failed to load projects:", err);
+    }
 }
 
-function saveProjects(projects){
-    localStorage.setItem("zyntra-projects", JSON.stringify(projects));
-    scheduleCloudSave();
+function getProjects(){
+    return projectsCache;
 }
 
 const PROJECT_COLORS = ["#7c5cff", "#ff6b8a", "#37c98f", "#ffb545", "#4fb8ff", "#c85cff"];
@@ -1511,37 +1524,58 @@ const PROJECT_COLORS = ["#7c5cff", "#ff6b8a", "#37c98f", "#ffb545", "#4fb8ff", "
 // isn't explicitly "+ New Chat" from inside a project.
 let currentProjectId = null;
 
-function createProject(name, instructions, color){
-    const projects = getProjects();
+async function createProject(name, instructions, color){
+    const uid = firebase.auth().currentUser.uid;
+    const email = (firebase.auth().currentUser.email || "").toLowerCase();
+    const docRef = firebase.firestore().collection("projects").doc();
     const project = {
-        id: Date.now(),
         name: name.trim(),
         instructions: (instructions || "").trim(),
         color: color || PROJECT_COLORS[0],
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        ownerId: uid,
+        members: [uid],
+        memberEmails: email ? [email] : []
     };
-    projects.unshift(project);
-    saveProjects(projects);
-    return project;
+    await docRef.set(project);
+    await refreshProjectsCache();
+    return { id: docRef.id, ...project };
 }
 
-function updateProject(id, changes){
-    const projects = getProjects();
-    const project = projects.find(p => p.id === id);
-    if(project) Object.assign(project, changes);
-    saveProjects(projects);
+async function updateProject(id, changes){
+    await firebase.firestore().collection("projects").doc(id).update(changes);
+    await refreshProjectsCache();
 }
 
-function deleteProject(id){
-    saveProjects(getProjects().filter(p => p.id !== id));
-    // Un-tag any chats that belonged to this project — their history stays,
-    // they just go back to being regular chats.
+async function deleteProject(id){
+    await firebase.firestore().collection("projects").doc(id).delete();
+    await refreshProjectsCache();
+    // Un-tag any of YOUR chats that belonged to this project — their
+    // history stays, they just go back to being regular chats. (Chats
+    // belong to whoever created them, so this only touches your own.)
     const sessions = getSessions();
     let changed = false;
     sessions.forEach(s => {
         if(s.projectId === id){ s.projectId = null; changed = true; }
     });
     if(changed) saveSessions(sessions);
+}
+
+// Invites another Zyntra account (by email) to a project with full
+// access. The actual email→uid lookup and members-list write happen in
+// api/share-project.js via the Admin SDK — a client can never resolve an
+// arbitrary email to a uid itself (see that file's comments).
+async function shareProject(projectId, email){
+    const idToken = await firebase.auth().currentUser.getIdToken();
+    const resp = await fetch("/api/share-project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+        body: JSON.stringify({ projectId, email })
+    });
+    const data = await resp.json();
+    if(!resp.ok) throw new Error(data.error || "Failed to share project.");
+    await refreshProjectsCache();
+    return data;
 }
 
 // ---- Plugins ----
@@ -1739,7 +1773,6 @@ async function pushLocalToCloud(){
             profile: getProfile(),
             sessions: getSessions(),
             memories: getMemories(),
-            projects: getProjects(),
             plugins: getPlugins(),
             scheduledTasks: getScheduledTasks(),
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1760,7 +1793,6 @@ async function pullCloudToLocal(){
             if(data.profile) localStorage.setItem("zyntra-profile", JSON.stringify(data.profile));
             if(Array.isArray(data.sessions)) localStorage.setItem("zyntra-sessions", JSON.stringify(data.sessions));
             if(Array.isArray(data.memories)) localStorage.setItem("zyntra-memories", JSON.stringify(data.memories));
-            if(Array.isArray(data.projects)) localStorage.setItem("zyntra-projects", JSON.stringify(data.projects));
             if(data.plugins) localStorage.setItem("zyntra-plugins", JSON.stringify(data.plugins));
             if(Array.isArray(data.scheduledTasks)) localStorage.setItem("zyntra-scheduled", JSON.stringify(data.scheduledTasks));
         } else {
@@ -1785,7 +1817,12 @@ async function pullCloudToLocal(){
 // since all of those trigger onAuthStateChanged — so there's no separate
 // hook needed in finishSignin.
 firebase.auth().onAuthStateChanged(user => {
-    if(user) pullCloudToLocal();
+    if(user){
+        pullCloudToLocal();
+        refreshProjectsCache();
+    } else {
+        projectsCache = [];
+    }
 });
 
 // Wrap the existing local-save functions (declared earlier in this file)
@@ -2264,6 +2301,7 @@ function showPageView(view){
 function showProjectsScreen(screen){
     document.getElementById("projectsListScreen").style.display = screen === "list" ? "" : "none";
     document.getElementById("projectDetailScreen").style.display = screen === "detail" ? "" : "none";
+    document.getElementById("projectShareScreen").style.display = screen === "share" ? "" : "none";
     document.getElementById("projectFormScreen").style.display = screen === "form" ? "" : "none";
 }
 
@@ -2279,22 +2317,23 @@ function renderProjectsList(filterText){
         return;
     }
 
-    // "Shared with you" is honest, not decorative: Zyntra doesn't have
-    // project sharing yet, so that tab always shows empty rather than
-    // pretending to filter something that doesn't exist.
-    if(projectsActiveFilter === "shared"){
-        list.innerHTML = '<div class="page-empty-state"><div class="page-empty-state-icon">📁</div><p>Project sharing isn\'t available yet</p></div>';
-        return;
-    }
-
+    // Sharing is real now — filter by actual ownership instead of the
+    // old placeholder that always showed "Shared with you" as empty.
+    const uid = firebase.auth().currentUser?.uid;
     let projects = getProjects();
+    if(projectsActiveFilter === "mine") projects = projects.filter(p => p.ownerId === uid);
+    if(projectsActiveFilter === "shared") projects = projects.filter(p => p.ownerId !== uid);
+
     if(filterText){
         const q = filterText.toLowerCase();
         projects = projects.filter(p => p.name.toLowerCase().includes(q));
     }
 
     if(projects.length === 0){
-        list.innerHTML = `<div class="page-empty-state"><div class="page-empty-state-icon">📁</div><p>${filterText ? "No projects match your search" : "No projects yet"}</p></div>`;
+        const emptyText = filterText
+            ? "No projects match your search"
+            : (projectsActiveFilter === "shared" ? "Nothing's been shared with you yet" : "No projects yet");
+        list.innerHTML = `<div class="page-empty-state"><div class="page-empty-state-icon">📁</div><p>${emptyText}</p></div>`;
         return;
     }
 
@@ -2315,7 +2354,8 @@ function renderProjectsList(filterText){
         const count = document.createElement("div");
         count.className = "project-card-count";
         const chatCount = getSessions().filter(s => s.projectId === project.id).length;
-        count.textContent = chatCount + (chatCount === 1 ? " chat" : " chats");
+        const memberCount = (project.members || []).length;
+        count.textContent = chatCount + (chatCount === 1 ? " chat" : " chats") + (memberCount > 1 ? ` · 👥 ${memberCount}` : "");
 
         card.appendChild(dot);
         card.appendChild(name);
@@ -2327,6 +2367,22 @@ function renderProjectsList(filterText){
 
 let projectDetailId = null;
 
+function renderMemberChips(container, emails){
+    container.innerHTML = "";
+    (emails || []).forEach(email => {
+        const chip = document.createElement("div");
+        chip.className = "project-member-chip";
+        const avatar = document.createElement("div");
+        avatar.className = "project-member-avatar";
+        avatar.textContent = (email[0] || "?").toUpperCase();
+        const label = document.createElement("span");
+        label.textContent = email;
+        chip.appendChild(avatar);
+        chip.appendChild(label);
+        container.appendChild(chip);
+    });
+}
+
 function openProjectDetail(id){
     const project = getProjects().find(p => p.id === id);
     if(!project) return;
@@ -2336,9 +2392,61 @@ function openProjectDetail(id){
     document.getElementById("projectDetailColorTag").style.color = project.color;
     document.getElementById("projectDetailName").textContent = project.name;
     document.getElementById("projectDetailInstructions").textContent = project.instructions || "No custom instructions set.";
+    renderMemberChips(document.getElementById("projectMembersRow"), project.memberEmails);
+    // Only the owner can delete or invite others — a member with shared
+    // access shouldn't be able to remove the project out from under the
+    // owner or the other members.
+    const isOwner = project.ownerId === firebase.auth().currentUser?.uid;
+    document.getElementById("projectDeleteBtn").style.display = isOwner ? "" : "none";
+    document.getElementById("projectShareBtn").style.display = isOwner ? "" : "none";
+    document.getElementById("projectEditBtn").style.display = isOwner ? "" : "none";
     renderProjectChatsList(id);
     showProjectsScreen("detail");
 }
+
+function openProjectShare(id){
+    const project = getProjects().find(p => p.id === id);
+    if(!project) return;
+    projectDetailId = id;
+    document.getElementById("projectShareTitle").textContent = `Share "${project.name}"`;
+    document.getElementById("projectShareEmailInput").value = "";
+    document.getElementById("projectShareStatus").textContent = "";
+    renderMemberChips(document.getElementById("projectShareMembersList"), project.memberEmails);
+    showProjectsScreen("share");
+}
+
+async function sendProjectInvite(){
+    const input = document.getElementById("projectShareEmailInput");
+    const status = document.getElementById("projectShareStatus");
+    const email = input.value.trim();
+    if(!email){ status.style.color = "var(--danger)"; status.textContent = "Enter an email address."; return; }
+
+    const btn = document.getElementById("projectShareSendBtn");
+    btn.disabled = true;
+    status.style.color = "var(--text-2)";
+    status.textContent = "Sending invite…";
+    try{
+        const result = await shareProject(projectDetailId, email);
+        status.style.color = "#37c98f";
+        status.textContent = result.alreadyMember ? "They're already in this project." : `✅ ${email} added — they now have full access.`;
+        input.value = "";
+        const project = getProjects().find(p => p.id === projectDetailId);
+        renderMemberChips(document.getElementById("projectShareMembersList"), project?.memberEmails);
+        renderMemberChips(document.getElementById("projectMembersRow"), project?.memberEmails);
+    }catch(err){
+        status.style.color = "var(--danger)";
+        status.textContent = err.message || "Couldn't send that invite.";
+    }finally{
+        btn.disabled = false;
+    }
+}
+
+document.getElementById("projectShareBtn")?.addEventListener("click", () => openProjectShare(projectDetailId));
+document.getElementById("projectShareBackBtn")?.addEventListener("click", () => showProjectsScreen("detail"));
+document.getElementById("projectShareSendBtn")?.addEventListener("click", sendProjectInvite);
+document.getElementById("projectShareEmailInput")?.addEventListener("keydown", (e) => {
+    if(e.key === "Enter") sendProjectInvite();
+});
 
 function renderProjectChatsList(projectId){
     const list = document.getElementById("projectChatsList");
@@ -2397,7 +2505,7 @@ function openProjectForm(editId){
     setTimeout(() => document.getElementById("projectNameInput").focus(), 50);
 }
 
-document.getElementById("navProjects")?.addEventListener("click", () => {
+document.getElementById("navProjects")?.addEventListener("click", async () => {
     if(!isLoggedIn()){
         openModal("signinModal");
         closeSidebarMobile();
@@ -2409,9 +2517,11 @@ document.getElementById("navProjects")?.addEventListener("click", () => {
     document.getElementById("projectsSearchInput").value = "";
     projectsActiveFilter = "all";
     document.querySelectorAll(".page-view-tab").forEach(t => t.classList.toggle("active", t.dataset.projectFilter === "all"));
-    renderProjectsList("");
     showPageView("projects");
     closeSidebarMobile();
+    document.getElementById("projectsList").innerHTML = '<div class="page-empty-state"><div class="page-empty-state-icon">⏳</div><p>Loading projects…</p></div>';
+    await refreshProjectsCache();
+    renderProjectsList("");
 });
 document.querySelectorAll(".page-view-tab").forEach(tab => {
     tab.addEventListener("click", () => {
@@ -2432,17 +2542,25 @@ document.getElementById("projectCancelBtn")?.addEventListener("click", () => {
     showProjectsScreen(projectFormEditId ? "detail" : "list");
     if(!projectFormEditId) renderProjectsList("");
 });
-document.getElementById("projectSaveBtn")?.addEventListener("click", () => {
+document.getElementById("projectSaveBtn")?.addEventListener("click", async () => {
     const name = document.getElementById("projectNameInput").value.trim();
     if(!name){ showToast("Give the project a name first."); return; }
     const instructions = document.getElementById("projectInstructionsInput").value.trim();
-    if(projectFormEditId){
-        updateProject(projectFormEditId, { name, instructions, color: projectFormSelectedColor });
-        openProjectDetail(projectFormEditId);
-    } else {
-        createProject(name, instructions, projectFormSelectedColor);
-        showProjectsScreen("list");
-        renderProjectsList("");
+    const btn = document.getElementById("projectSaveBtn");
+    btn.disabled = true;
+    try{
+        if(projectFormEditId){
+            await updateProject(projectFormEditId, { name, instructions, color: projectFormSelectedColor });
+            openProjectDetail(projectFormEditId);
+        } else {
+            await createProject(name, instructions, projectFormSelectedColor);
+            showProjectsScreen("list");
+            renderProjectsList("");
+        }
+    }catch(err){
+        showToast("Couldn't save the project. Please try again.");
+    }finally{
+        btn.disabled = false;
     }
 });
 document.getElementById("projectEditBtn")?.addEventListener("click", () => openProjectForm(projectDetailId));
@@ -2452,8 +2570,8 @@ document.getElementById("projectDeleteBtn")?.addEventListener("click", () => {
     confirmAction(
         "Delete This Project?",
         `Are you sure you want to delete "${project.name}"? Its chats will stay in your history, just no longer grouped together.`,
-        () => {
-            deleteProject(projectDetailId);
+        async () => {
+            await deleteProject(projectDetailId);
             showProjectsScreen("list");
             renderProjectsList("");
         }
@@ -2672,13 +2790,14 @@ document.getElementById("scheduledFilterBtn")?.addEventListener("click", () => {
     renderScheduledList();
 });
 
+let scheduledQuickFrequency = "daily";
+
 function createScheduledTaskFromQuickBar(){
     const input = document.getElementById("scheduledQuickInput");
     const prompt = input.value.trim();
     if(!prompt){ showToast("Describe what Zyntra should do first."); return; }
     if(!isLoggedIn()){ openModal("signinModal"); return; }
-    const frequency = document.getElementById("scheduledQuickFrequency").value;
-    createScheduledTask(prompt, frequency);
+    createScheduledTask(prompt, scheduledQuickFrequency);
     input.value = "";
     renderScheduledList();
     showToast("🕐 Scheduled task created");
@@ -2687,6 +2806,25 @@ document.getElementById("scheduledInputPlus")?.addEventListener("click", () => d
 document.getElementById("scheduledQuickSend")?.addEventListener("click", createScheduledTaskFromQuickBar);
 document.getElementById("scheduledQuickInput")?.addEventListener("keydown", (e) => {
     if(e.key === "Enter") createScheduledTaskFromQuickBar();
+});
+
+// Custom frequency dropdown (Daily/Weekly) — see the CSS comment on
+// .custom-select for why this isn't a native <select>.
+document.getElementById("scheduledFrequencyBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.getElementById("scheduledFrequencyMenu").classList.toggle("open");
+});
+document.querySelectorAll("#scheduledFrequencyMenu .custom-select-option").forEach(opt => {
+    opt.addEventListener("click", () => {
+        scheduledQuickFrequency = opt.dataset.value;
+        document.getElementById("scheduledFrequencyLabel").textContent = opt.textContent;
+        document.querySelectorAll("#scheduledFrequencyMenu .custom-select-option").forEach(o => o.classList.remove("selected"));
+        opt.classList.add("selected");
+        document.getElementById("scheduledFrequencyMenu").classList.remove("open");
+    });
+});
+document.addEventListener("click", () => {
+    document.getElementById("scheduledFrequencyMenu")?.classList.remove("open");
 });
 
 applyPluginVisibility();
