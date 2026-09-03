@@ -2057,7 +2057,7 @@ flex-direction:column;
 align-items:center;
 justify-content:center;
 text-align:center;
-padding:80px 20px 40px;
+min-height:56vh;
 color:var(--text-2);
 }
 .page-empty-state-icon{
@@ -2105,6 +2105,7 @@ border-radius:999px;
 padding:7px 12px;
 font-size:12.5px;
 cursor:pointer;
+color-scheme:dark; /* makes Chrome/Edge render the native dropdown popup dark too, not just the closed box */
 }
 .scheduled-input-bar #scheduledInputPlus{
 background:none;
