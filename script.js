@@ -2243,49 +2243,75 @@ document.getElementById("searchChatsInput")?.addEventListener("input", (e) => {
 // Projects modal
 // ==========================
 
-function showProjectsView(view){
-    document.getElementById("projectsListView").style.display = view === "list" ? "" : "none";
-    document.getElementById("projectDetailView").style.display = view === "detail" ? "" : "none";
-    document.getElementById("projectFormView").style.display = view === "form" ? "" : "none";
+// ==========================
+// Projects page (full-screen, like AI Chat / Image Generator / Codex)
+// ==========================
+
+// Switches which of the app's full-page views (chat UI vs Projects vs
+// Scheduled) occupies the main content area. Only one is visible at a time.
+function showPageView(view){
+    document.querySelectorAll(".page-view").forEach(el => el.classList.remove("active"));
+    const chatEls = [chatArea, document.getElementById("attachPreview"), document.getElementById("adBanner"), document.querySelector(".chat-input-bar")];
+
+    if(view === "chat"){
+        chatEls.forEach(el => { if(el) el.style.display = ""; });
+        return;
+    }
+    chatEls.forEach(el => { if(el) el.style.display = "none"; });
+    document.getElementById(view + "View").classList.add("active");
 }
 
-function renderProjectsList(){
+function showProjectsScreen(screen){
+    document.getElementById("projectsListScreen").style.display = screen === "list" ? "" : "none";
+    document.getElementById("projectDetailScreen").style.display = screen === "detail" ? "" : "none";
+    document.getElementById("projectFormScreen").style.display = screen === "form" ? "" : "none";
+}
+
+function renderProjectsList(filterText){
     const list = document.getElementById("projectsList");
     if(!list) return;
     list.innerHTML = "";
 
     if(!isLoggedIn()){
-        list.innerHTML = '<p class="search-chats-empty">Sign in to create and sync projects.</p>';
+        list.innerHTML = '<div class="page-empty-state"><div class="page-empty-state-icon">📁</div><p>Sign in to create and sync projects</p></div>';
         return;
     }
 
-    const projects = getProjects();
+    let projects = getProjects();
+    if(filterText){
+        const q = filterText.toLowerCase();
+        projects = projects.filter(p => p.name.toLowerCase().includes(q));
+    }
+
     if(projects.length === 0){
-        list.innerHTML = '<p class="search-chats-empty">No projects yet. Create one to group related chats together.</p>';
+        list.innerHTML = `<div class="page-empty-state"><div class="page-empty-state-icon">📁</div><p>${filterText ? "No projects match your search" : "No projects yet"}</p></div>`;
         return;
     }
 
     projects.forEach(project => {
-        const row = document.createElement("div");
-        row.className = "search-chats-row";
+        const card = document.createElement("div");
+        card.className = "project-card";
 
-        const dot = document.createElement("span");
-        dot.style.cssText = `width:12px;height:12px;border-radius:50%;background:${project.color};flex-shrink:0;`;
+        const dot = document.createElement("div");
+        dot.className = "project-card-dot";
+        dot.style.background = project.color + "26";
+        dot.style.color = project.color;
+        dot.textContent = "📁";
 
-        const title = document.createElement("span");
-        title.className = "search-chats-row-title";
-        title.textContent = project.name;
+        const name = document.createElement("div");
+        name.className = "project-card-name";
+        name.textContent = project.name;
 
-        const count = document.createElement("span");
-        count.style.cssText = "color:#8a8ea8; font-size:12.5px; flex-shrink:0;";
+        const count = document.createElement("div");
+        count.className = "project-card-count";
         const chatCount = getSessions().filter(s => s.projectId === project.id).length;
         count.textContent = chatCount + (chatCount === 1 ? " chat" : " chats");
 
-        row.appendChild(dot);
-        row.appendChild(title);
-        row.appendChild(count);
-        row.addEventListener("click", () => openProjectDetail(project.id));
-        list.appendChild(row);
+        card.appendChild(dot);
+        card.appendChild(name);
+        card.appendChild(count);
+        card.addEventListener("click", () => openProjectDetail(project.id));
+        list.appendChild(card);
     });
 }
 
@@ -2301,7 +2327,7 @@ function openProjectDetail(id){
     document.getElementById("projectDetailName").textContent = project.name;
     document.getElementById("projectDetailInstructions").textContent = project.instructions || "No custom instructions set.";
     renderProjectChatsList(id);
-    showProjectsView("detail");
+    showProjectsScreen("detail");
 }
 
 function renderProjectChatsList(projectId){
@@ -2324,10 +2350,7 @@ function renderProjectChatsList(projectId){
         title.textContent = session.title;
         row.appendChild(icon);
         row.appendChild(title);
-        row.addEventListener("click", () => {
-            closeModal("projectsModal");
-            openSession(session);
-        });
+        row.addEventListener("click", () => openSession(session));
         list.appendChild(row);
     });
 }
@@ -2360,7 +2383,7 @@ function openProjectForm(editId){
     document.getElementById("projectInstructionsInput").value = project ? project.instructions : "";
     projectFormSelectedColor = project ? project.color : PROJECT_COLORS[0];
     renderProjectColorPicker();
-    showProjectsView("form");
+    showProjectsScreen("form");
     setTimeout(() => document.getElementById("projectNameInput").focus(), 50);
 }
 
@@ -2370,17 +2393,24 @@ document.getElementById("navProjects")?.addEventListener("click", () => {
         closeSidebarMobile();
         return;
     }
-    showProjectsView("list");
-    renderProjectsList();
-    openModal("projectsModal");
+    currentProjectId = null;
+    setActiveNav("projects");
+    showProjectsScreen("list");
+    document.getElementById("projectsSearchInput").value = "";
+    renderProjectsList("");
+    showPageView("projects");
     closeSidebarMobile();
 });
-document.getElementById("projectsModalClose")?.addEventListener("click", () => closeModal("projectsModal"));
+document.getElementById("projectsSearchInput")?.addEventListener("input", (e) => renderProjectsList(e.target.value));
 document.getElementById("newProjectBtn")?.addEventListener("click", () => openProjectForm(null));
-document.getElementById("projectBackBtn")?.addEventListener("click", () => { showProjectsView("list"); renderProjectsList(); });
+document.getElementById("projectBackBtn")?.addEventListener("click", () => { showProjectsScreen("list"); renderProjectsList(""); });
+document.getElementById("projectFormBackBtn")?.addEventListener("click", () => {
+    showProjectsScreen(projectFormEditId ? "detail" : "list");
+    if(!projectFormEditId) renderProjectsList("");
+});
 document.getElementById("projectCancelBtn")?.addEventListener("click", () => {
-    showProjectsView(projectFormEditId ? "detail" : "list");
-    if(!projectFormEditId) renderProjectsList();
+    showProjectsScreen(projectFormEditId ? "detail" : "list");
+    if(!projectFormEditId) renderProjectsList("");
 });
 document.getElementById("projectSaveBtn")?.addEventListener("click", () => {
     const name = document.getElementById("projectNameInput").value.trim();
@@ -2391,8 +2421,8 @@ document.getElementById("projectSaveBtn")?.addEventListener("click", () => {
         openProjectDetail(projectFormEditId);
     } else {
         createProject(name, instructions, projectFormSelectedColor);
-        showProjectsView("list");
-        renderProjectsList();
+        showProjectsScreen("list");
+        renderProjectsList("");
     }
 });
 document.getElementById("projectEditBtn")?.addEventListener("click", () => openProjectForm(projectDetailId));
@@ -2404,16 +2434,19 @@ document.getElementById("projectDeleteBtn")?.addEventListener("click", () => {
         `Are you sure you want to delete "${project.name}"? Its chats will stay in your history, just no longer grouped together.`,
         () => {
             deleteProject(projectDetailId);
-            showProjectsView("list");
-            renderProjectsList();
+            showProjectsScreen("list");
+            renderProjectsList("");
         }
     );
 });
 document.getElementById("projectNewChatBtn")?.addEventListener("click", () => {
     currentProjectId = projectDetailId;
-    closeModal("projectsModal");
     resetChatView();
-    openTool("chat");
+    activeChatTool = "chat";
+    applyToolGreeting("chat");
+    userInput.placeholder = TOOL_PLACEHOLDERS.chat;
+    setActiveNav("chat");
+    showPageView("chat");
     showToast("💬 New chat started in this project");
 });
 
@@ -2471,79 +2504,128 @@ document.getElementById("navPlugins")?.addEventListener("click", () => {
 document.getElementById("pluginsModalClose")?.addEventListener("click", () => closeModal("pluginsModal"));
 
 // ==========================
-// Scheduled modal
+// Scheduled page (full-screen)
 // ==========================
 
-function showScheduledView(view){
-    document.getElementById("scheduledListView").style.display = view === "list" ? "" : "none";
-    document.getElementById("scheduledFormView").style.display = view === "form" ? "" : "none";
+const SCHEDULED_RECOMMENDED = [
+    { icon: "🌅", title: "Daily brief", prompt: "Give me a short daily briefing on the topics I care about most", frequency: "daily" },
+    { icon: "📖", title: "Weekend long read", prompt: "Every Saturday, find me one exceptional recent long read based on my interests", frequency: "weekly" },
+    { icon: "💡", title: "Fresh ideas", prompt: "Give me 3 fresh business ideas for a small budget", frequency: "weekly" },
+    { icon: "📈", title: "Weekly recap", prompt: "Summarize the biggest news in tech and AI from this week", frequency: "weekly" }
+];
+
+let scheduledShowActiveOnly = true;
+
+function renderScheduledRecommended(){
+    const wrap = document.getElementById("scheduledRecommendedList");
+    if(!wrap) return;
+    wrap.innerHTML = "";
+    SCHEDULED_RECOMMENDED.forEach(rec => {
+        const row = document.createElement("div");
+        row.className = "scheduled-task-row";
+
+        const icon = document.createElement("span");
+        icon.className = "scheduled-task-icon";
+        icon.textContent = rec.icon;
+
+        const body = document.createElement("div");
+        body.className = "scheduled-task-body";
+        const title = document.createElement("div");
+        title.className = "scheduled-task-title";
+        title.textContent = rec.title;
+        const desc = document.createElement("div");
+        desc.className = "scheduled-task-desc";
+        desc.textContent = rec.prompt;
+        body.appendChild(title);
+        body.appendChild(desc);
+
+        const addBtn = document.createElement("button");
+        addBtn.type = "button";
+        addBtn.className = "scheduled-task-action";
+        addBtn.textContent = "+";
+        addBtn.title = "Add this task";
+        addBtn.addEventListener("click", () => {
+            if(!isLoggedIn()){ openModal("signinModal"); return; }
+            createScheduledTask(rec.prompt, rec.frequency);
+            renderScheduledList();
+            showToast("🕐 Added: " + rec.title);
+        });
+
+        row.appendChild(icon);
+        row.appendChild(body);
+        row.appendChild(addBtn);
+        wrap.appendChild(row);
+    });
 }
 
 function renderScheduledList(){
     const list = document.getElementById("scheduledList");
+    const label = document.getElementById("scheduledTasksLabel");
     if(!list) return;
     list.innerHTML = "";
 
     if(!isLoggedIn()){
-        list.innerHTML = '<p class="search-chats-empty">Sign in to create scheduled tasks.</p>';
+        label.style.display = "none";
         return;
     }
 
-    const tasks = getScheduledTasks();
+    let tasks = getScheduledTasks();
+    if(scheduledShowActiveOnly) tasks = tasks.filter(t => t.active);
+
     if(tasks.length === 0){
-        list.innerHTML = '<p class="search-chats-empty">No scheduled tasks yet.</p>';
+        label.style.display = "none";
         return;
     }
+    label.style.display = "";
 
     tasks.forEach(task => {
         const row = document.createElement("div");
-        row.className = "search-chats-row";
-        row.style.alignItems = "flex-start";
+        row.className = "scheduled-task-row";
 
-        const textWrap = document.createElement("div");
-        textWrap.style.cssText = "flex:1; min-width:0; display:flex; flex-direction:column; gap:4px;";
-        const title = document.createElement("span");
-        title.className = "search-chats-row-title";
-        title.style.whiteSpace = "normal";
+        const icon = document.createElement("span");
+        icon.className = "scheduled-task-icon";
+        icon.textContent = "🕐";
+
+        const body = document.createElement("div");
+        body.className = "scheduled-task-body";
+        const title = document.createElement("div");
+        title.className = "scheduled-task-title";
         title.textContent = task.prompt;
-        const meta = document.createElement("span");
-        meta.style.cssText = "color:#8a8ea8; font-size:12px;";
+        const meta = document.createElement("div");
+        meta.className = "scheduled-task-desc";
         const lastRun = task.lastRunAt ? `Last ran ${timeAgo(task.lastRunAt)}` : "Not run yet";
         meta.textContent = (task.frequency === "daily" ? "Daily" : "Weekly") + " — " + lastRun;
-        textWrap.appendChild(title);
-        textWrap.appendChild(meta);
+        body.appendChild(title);
+        body.appendChild(meta);
         if(task.results && task.results.length){
             const lastResult = task.results[task.results.length - 1];
-            const resultPreview = document.createElement("span");
-            resultPreview.style.cssText = "color:#c8cae0; font-size:12.5px; margin-top:2px;";
-            resultPreview.textContent = "💬 " + (lastResult.reply.length > 90 ? lastResult.reply.slice(0, 90) + "…" : lastResult.reply);
-            textWrap.appendChild(resultPreview);
+            const resultPreview = document.createElement("div");
+            resultPreview.className = "scheduled-task-result";
+            resultPreview.textContent = "💬 " + (lastResult.reply.length > 110 ? lastResult.reply.slice(0, 110) + "…" : lastResult.reply);
+            body.appendChild(resultPreview);
         }
 
         const status = document.createElement("span");
-        status.className = "scheduled-row-status";
+        status.className = "scheduled-task-status";
         status.textContent = task.active ? "Active" : "Paused";
-        status.style.cursor = "pointer";
         status.title = "Click to " + (task.active ? "pause" : "resume");
-        status.addEventListener("click", (e) => {
-            e.stopPropagation();
+        status.addEventListener("click", () => {
             toggleScheduledTask(task.id);
             renderScheduledList();
         });
 
         const deleteBtn = document.createElement("button");
         deleteBtn.type = "button";
-        deleteBtn.className = "search-chats-row-action";
-        deleteBtn.style.opacity = "1";
+        deleteBtn.className = "scheduled-task-action";
         deleteBtn.textContent = "🗑";
         deleteBtn.title = "Delete this task";
-        deleteBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
+        deleteBtn.addEventListener("click", () => {
             deleteScheduledTask(task.id);
             renderScheduledList();
         });
 
-        row.appendChild(textWrap);
+        row.appendChild(icon);
+        row.appendChild(body);
         row.appendChild(status);
         row.appendChild(deleteBtn);
         list.appendChild(row);
@@ -2556,27 +2638,35 @@ document.getElementById("navScheduled")?.addEventListener("click", () => {
         closeSidebarMobile();
         return;
     }
-    showScheduledView("list");
+    currentProjectId = null;
+    setActiveNav("scheduled");
     renderScheduledList();
-    openModal("scheduledModal");
+    renderScheduledRecommended();
+    showPageView("scheduled");
     closeSidebarMobile();
 });
-document.getElementById("scheduledModalClose")?.addEventListener("click", () => closeModal("scheduledModal"));
-document.getElementById("newScheduledBtn")?.addEventListener("click", () => {
-    document.getElementById("scheduledPromptInput").value = "";
-    document.getElementById("scheduledFrequencyInput").value = "daily";
-    showScheduledView("form");
-    setTimeout(() => document.getElementById("scheduledPromptInput").focus(), 50);
+
+document.getElementById("scheduledFilterBtn")?.addEventListener("click", () => {
+    scheduledShowActiveOnly = !scheduledShowActiveOnly;
+    document.getElementById("scheduledFilterLabel").textContent = scheduledShowActiveOnly ? "Active" : "All";
+    renderScheduledList();
 });
-document.getElementById("scheduledCancelBtn")?.addEventListener("click", () => showScheduledView("list"));
-document.getElementById("scheduledSaveBtn")?.addEventListener("click", () => {
-    const prompt = document.getElementById("scheduledPromptInput").value.trim();
+
+function createScheduledTaskFromQuickBar(){
+    const input = document.getElementById("scheduledQuickInput");
+    const prompt = input.value.trim();
     if(!prompt){ showToast("Describe what Zyntra should do first."); return; }
-    const frequency = document.getElementById("scheduledFrequencyInput").value;
+    if(!isLoggedIn()){ openModal("signinModal"); return; }
+    const frequency = document.getElementById("scheduledQuickFrequency").value;
     createScheduledTask(prompt, frequency);
-    showScheduledView("list");
+    input.value = "";
     renderScheduledList();
     showToast("🕐 Scheduled task created");
+}
+document.getElementById("scheduledInputPlus")?.addEventListener("click", () => document.getElementById("scheduledQuickInput").focus());
+document.getElementById("scheduledQuickSend")?.addEventListener("click", createScheduledTaskFromQuickBar);
+document.getElementById("scheduledQuickInput")?.addEventListener("keydown", (e) => {
+    if(e.key === "Enter") createScheduledTaskFromQuickBar();
 });
 
 applyPluginVisibility();
@@ -2698,6 +2788,7 @@ document.getElementById("searchChatsClearBtn")?.addEventListener("click", () => 
 });
 
 function openSession(session){
+    showPageView("chat");
     const type = session.type || "chat";
     if(type === "image" && session.imageUrl){
         openImageSession(session);
@@ -2853,6 +2944,7 @@ document.getElementById("deleteChatBtn")?.addEventListener("click", () => {
 
 document.getElementById("newChatBtn")?.addEventListener("click", () => {
     currentProjectId = null;
+    showPageView("chat");
     resetChatView();
     closeSidebarMobile();
     userInput.focus();
@@ -3575,7 +3667,7 @@ function renderPromptSuggestions(){
 
 function setActiveNav(tool){
     document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
-    const el = document.querySelector(`.nav-item[data-tool="${tool}"]`);
+    const el = document.querySelector(`.nav-item[data-tool="${tool}"]`) || document.querySelector(`.nav-item[data-panel="${tool}"]`);
     if(el) el.classList.add("active");
 }
 
@@ -3633,6 +3725,7 @@ function applyToolGreeting(tool){
 let activeChatTool = "chat";
 
 function openTool(tool, prefix){
+    showPageView("chat");
     if(TOOL_PLACEHOLDERS[tool]){
         // Switching to a different chat mode starts a clean chat.
         // The previous conversation is already saved in history (it was
