@@ -2267,6 +2267,8 @@ function showProjectsScreen(screen){
     document.getElementById("projectFormScreen").style.display = screen === "form" ? "" : "none";
 }
 
+let projectsActiveFilter = "all";
+
 function renderProjectsList(filterText){
     const list = document.getElementById("projectsList");
     if(!list) return;
@@ -2274,6 +2276,14 @@ function renderProjectsList(filterText){
 
     if(!isLoggedIn()){
         list.innerHTML = '<div class="page-empty-state"><div class="page-empty-state-icon">📁</div><p>Sign in to create and sync projects</p></div>';
+        return;
+    }
+
+    // "Shared with you" is honest, not decorative: Zyntra doesn't have
+    // project sharing yet, so that tab always shows empty rather than
+    // pretending to filter something that doesn't exist.
+    if(projectsActiveFilter === "shared"){
+        list.innerHTML = '<div class="page-empty-state"><div class="page-empty-state-icon">📁</div><p>Project sharing isn\'t available yet</p></div>';
         return;
     }
 
@@ -2397,9 +2407,19 @@ document.getElementById("navProjects")?.addEventListener("click", () => {
     setActiveNav("projects");
     showProjectsScreen("list");
     document.getElementById("projectsSearchInput").value = "";
+    projectsActiveFilter = "all";
+    document.querySelectorAll(".page-view-tab").forEach(t => t.classList.toggle("active", t.dataset.projectFilter === "all"));
     renderProjectsList("");
     showPageView("projects");
     closeSidebarMobile();
+});
+document.querySelectorAll(".page-view-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+        projectsActiveFilter = tab.dataset.projectFilter;
+        document.querySelectorAll(".page-view-tab").forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        renderProjectsList(document.getElementById("projectsSearchInput").value);
+    });
 });
 document.getElementById("projectsSearchInput")?.addEventListener("input", (e) => renderProjectsList(e.target.value));
 document.getElementById("newProjectBtn")?.addEventListener("click", () => openProjectForm(null));
