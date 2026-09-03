@@ -1872,6 +1872,300 @@ body.light-mode .search-chats-row:hover{
 background:rgba(10,10,25,.05);
 }
 
+/* ==========================================================
+   Full-page views (Projects, Scheduled) — occupy the main
+   content area like AI Chat/Image Generator/Codex do, instead
+   of floating on top as a modal.
+   ========================================================== */
+.page-view{
+display:none;
+flex:1;
+overflow-y:auto;
+padding:32px clamp(20px, 5vw, 56px) 40px;
+}
+.page-view.active{
+display:block;
+}
+.page-view-inner{
+max-width:920px;
+margin:0 auto;
+}
+.page-view-header{
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:16px;
+flex-wrap:wrap;
+}
+.page-view-title{
+font-size:28px;
+font-weight:800;
+color:var(--text-1);
+margin:0;
+}
+.page-view-subtitle{
+color:var(--text-2);
+font-size:14.5px;
+margin:6px 0 24px;
+}
+.page-view-header-actions{
+display:flex;
+align-items:center;
+gap:12px;
+}
+.page-search-box{
+display:flex;
+align-items:center;
+gap:8px;
+background:var(--glass);
+border:1px solid var(--glass-border);
+border-radius:999px;
+padding:9px 16px;
+color:var(--text-3);
+font-size:13.5px;
+}
+.page-search-box input{
+background:none;
+border:none;
+outline:none;
+color:var(--text-1);
+font-size:13.5px;
+width:170px;
+}
+.page-search-box input::placeholder{ color:var(--text-3); }
+.page-new-btn{
+background:var(--text-1);
+color:#0a0a10;
+border:none;
+border-radius:999px;
+padding:9px 20px;
+font-weight:700;
+font-size:13.5px;
+cursor:pointer;
+white-space:nowrap;
+}
+.page-new-btn:hover{ opacity:.88; }
+.page-secondary-btn{
+background:var(--glass);
+border:1px solid var(--glass-border);
+color:var(--text-1);
+border-radius:999px;
+padding:9px 18px;
+font-size:13.5px;
+cursor:pointer;
+}
+.page-danger-btn{
+background:rgba(255,107,129,.12);
+border:1px solid rgba(255,107,129,.3);
+color:var(--danger);
+border-radius:999px;
+padding:9px 18px;
+font-size:13.5px;
+cursor:pointer;
+}
+.page-filter-btn{
+background:var(--glass);
+border:1px solid var(--glass-border);
+color:var(--text-1);
+border-radius:999px;
+padding:8px 16px;
+font-size:13px;
+font-weight:600;
+cursor:pointer;
+white-space:nowrap;
+}
+.page-back-btn{
+background:none;
+border:none;
+color:var(--text-2);
+font-size:14px;
+font-weight:600;
+cursor:pointer;
+padding:6px 0;
+}
+.page-back-btn:hover{ color:var(--text-1); }
+
+.projects-grid{
+margin-top:28px;
+display:grid;
+grid-template-columns:repeat(auto-fill, minmax(230px, 1fr));
+gap:14px;
+}
+.project-card{
+background:var(--glass);
+border:1px solid var(--glass-border);
+border-radius:var(--r-md);
+padding:18px;
+cursor:pointer;
+transition:.15s;
+}
+.project-card:hover{
+background:var(--glass-hover);
+border-color:var(--glass-border-strong);
+transform:translateY(-1px);
+}
+.project-card-dot{
+width:34px;
+height:34px;
+border-radius:10px;
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:16px;
+margin-bottom:12px;
+}
+.project-card-name{
+font-weight:700;
+color:var(--text-1);
+font-size:15px;
+margin-bottom:4px;
+}
+.project-card-count{
+color:var(--text-3);
+font-size:12.5px;
+}
+
+.page-empty-state{
+display:flex;
+flex-direction:column;
+align-items:center;
+justify-content:center;
+text-align:center;
+padding:80px 20px 40px;
+color:var(--text-2);
+}
+.page-empty-state-icon{
+width:56px;
+height:56px;
+border-radius:14px;
+background:var(--glass-strong);
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:26px;
+margin-bottom:16px;
+}
+.page-empty-state p{
+font-weight:700;
+color:var(--text-1);
+font-size:15px;
+margin:0;
+}
+
+.scheduled-input-bar{
+display:flex;
+align-items:center;
+gap:10px;
+background:var(--glass);
+border:1px solid var(--glass-border);
+border-radius:999px;
+padding:8px 10px 8px 18px;
+margin-bottom:28px;
+}
+.scheduled-input-bar input{
+flex:1;
+background:none;
+border:none;
+outline:none;
+color:var(--text-1);
+font-size:14.5px;
+}
+.scheduled-input-bar input::placeholder{ color:var(--text-3); }
+.scheduled-input-bar select{
+background:var(--glass-strong);
+border:1px solid var(--glass-border);
+color:var(--text-1);
+border-radius:999px;
+padding:7px 12px;
+font-size:12.5px;
+cursor:pointer;
+}
+.scheduled-input-bar #scheduledInputPlus{
+background:none;
+border:none;
+color:var(--text-2);
+font-size:20px;
+cursor:pointer;
+width:28px;
+}
+.scheduled-input-bar .send-btn{
+width:36px;
+height:36px;
+border-radius:50%;
+flex-shrink:0;
+}
+
+.page-recommended-label{
+color:var(--text-2);
+font-weight:700;
+font-size:13px;
+margin:0 0 10px;
+text-transform:uppercase;
+letter-spacing:.03em;
+}
+.scheduled-tasks-list{
+display:flex;
+flex-direction:column;
+gap:2px;
+margin-bottom:28px;
+}
+.scheduled-task-row{
+display:flex;
+align-items:flex-start;
+gap:14px;
+padding:14px 6px;
+border-bottom:1px solid var(--glass-border);
+}
+.scheduled-task-row:last-child{ border-bottom:none; }
+.scheduled-task-icon{
+font-size:20px;
+flex-shrink:0;
+margin-top:1px;
+}
+.scheduled-task-body{
+flex:1;
+min-width:0;
+}
+.scheduled-task-title{
+font-weight:700;
+color:var(--text-1);
+font-size:14.5px;
+}
+.scheduled-task-desc{
+color:var(--text-3);
+font-size:13px;
+margin-top:2px;
+line-height:1.4;
+}
+.scheduled-task-result{
+color:var(--text-2);
+font-size:12.5px;
+margin-top:5px;
+}
+.scheduled-task-action{
+background:none;
+border:1px solid var(--glass-border);
+color:var(--text-1);
+border-radius:50%;
+width:28px;
+height:28px;
+flex-shrink:0;
+cursor:pointer;
+font-size:15px;
+line-height:1;
+}
+.scheduled-task-action:hover{ background:var(--glass-hover); }
+.scheduled-task-status{
+font-size:11px;
+padding:3px 10px;
+border-radius:999px;
+background:var(--glass-strong);
+color:var(--text-2);
+flex-shrink:0;
+white-space:nowrap;
+cursor:pointer;
+}
+
 /* Plugin toggle rows (Plugins modal) */
 .plugin-row{
 display:flex;
