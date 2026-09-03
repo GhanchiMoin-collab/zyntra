@@ -179,6 +179,98 @@
             <p class="input-disclaimer">Zyntra AI can make mistakes. Consider checking important information.</p>
         </div>
 
+        <!-- ================= PROJECTS PAGE ================= -->
+        <div class="page-view" id="projectsView">
+            <div class="page-view-inner">
+
+                <div id="projectsListScreen">
+                    <div class="page-view-header">
+                        <h1 class="page-view-title">Projects</h1>
+                        <div class="page-view-header-actions">
+                            <div class="page-search-box">
+                                <span>🔍</span>
+                                <input type="text" id="projectsSearchInput" placeholder="Search projects">
+                            </div>
+                            <button id="newProjectBtn" type="button" class="page-new-btn">New</button>
+                        </div>
+                    </div>
+                    <div id="projectsList" class="projects-grid"></div>
+                </div>
+
+                <div id="projectDetailScreen" style="display:none;">
+                    <div class="page-view-header">
+                        <button type="button" id="projectBackBtn" class="page-back-btn">← Back</button>
+                    </div>
+                    <span class="tag" id="projectDetailColorTag">PROJECT</span>
+                    <h1 class="page-view-title" id="projectDetailName" style="margin-top:8px;">Project</h1>
+                    <p id="projectDetailInstructions" style="color:var(--text-2); max-width:640px;"></p>
+                    <div style="display:flex; gap:10px; margin:18px 0 24px; flex-wrap:wrap;">
+                        <button id="projectNewChatBtn" type="button" class="page-new-btn">+ New Chat</button>
+                        <button id="projectEditBtn" type="button" class="page-secondary-btn">✏️ Edit</button>
+                        <button id="projectDeleteBtn" type="button" class="page-danger-btn">🗑 Delete</button>
+                    </div>
+                    <div class="history-list" id="projectChatsList" style="max-width:640px;"></div>
+                </div>
+
+                <div id="projectFormScreen" style="display:none;">
+                    <div class="page-view-header">
+                        <button type="button" id="projectFormBackBtn" class="page-back-btn">← Back</button>
+                    </div>
+                    <span class="tag" id="projectFormTag">NEW PROJECT</span>
+                    <h1 class="page-view-title" id="projectFormTitle" style="margin-top:8px;">New Project</h1>
+                    <div class="modal-input-row modal-input-col" style="margin-top:16px; max-width:520px;">
+                        <label class="profile-label">Project name</label>
+                        <input type="text" id="projectNameInput" placeholder="e.g. Zyntra AI, Masjid site, School work">
+
+                        <label class="profile-label">Custom instructions (optional)</label>
+                        <textarea id="projectInstructionsInput" rows="4" placeholder="e.g. Always answer as a senior React developer, use TypeScript, keep explanations short."></textarea>
+
+                        <label class="profile-label">Color</label>
+                        <div id="projectColorPicker" style="display:flex; gap:10px; margin-top:4px;"></div>
+
+                        <div style="display:flex; gap:10px; margin-top:20px;">
+                            <button id="projectSaveBtn" type="button">Save Project</button>
+                            <button id="projectCancelBtn" type="button" style="background:#171d3d; border:1px solid #2b3154;">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- ================= SCHEDULED PAGE ================= -->
+        <div class="page-view" id="scheduledView">
+            <div class="page-view-inner">
+
+                <div id="scheduledListScreen">
+                    <div class="page-view-header">
+                        <h1 class="page-view-title">Scheduled</h1>
+                        <button type="button" id="scheduledFilterBtn" class="page-filter-btn">⏳ <span id="scheduledFilterLabel">Active</span></button>
+                    </div>
+                    <p class="page-view-subtitle">Zyntra will run these automatically and save the result here — even while the app is closed.</p>
+
+                    <div class="scheduled-input-bar">
+                        <button type="button" id="scheduledInputPlus" title="New task">＋</button>
+                        <input type="text" id="scheduledQuickInput" placeholder="Schedule a task">
+                        <select id="scheduledQuickFrequency" title="How often">
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                        </select>
+                        <button type="button" id="scheduledQuickSend" class="send-btn" title="Create">➤</button>
+                    </div>
+
+                    <div id="scheduledTasksWrap">
+                        <p class="page-recommended-label" id="scheduledTasksLabel" style="display:none;">Your tasks</p>
+                        <div id="scheduledList" class="scheduled-tasks-list"></div>
+                    </div>
+
+                    <p class="page-recommended-label">Recommended</p>
+                    <div id="scheduledRecommendedList" class="scheduled-tasks-list"></div>
+                </div>
+
+            </div>
+        </div>
+
     </main>
 </div>
 
@@ -487,54 +579,6 @@
     </div>
 </div>
 
-<!-- ================= PROJECTS MODAL ================= -->
-<div class="modal-overlay" id="projectsModal">
-    <div class="modal-box settings-modal-box">
-        <button class="modal-close" id="projectsModalClose">✕</button>
-
-        <div id="projectsListView">
-            <span class="tag">PROJECTS</span>
-            <h1><span>Projects</span></h1>
-            <p>Group related chats together, each with their own custom instructions.</p>
-            <button id="newProjectBtn" type="button" style="margin:16px 0 20px;">+ New Project</button>
-            <div class="history-list" id="projectsList" style="max-height:50vh;"></div>
-        </div>
-
-        <div id="projectDetailView" style="display:none;">
-            <button type="button" id="projectBackBtn" class="modal-close" style="left:20px; right:auto;">←</button>
-            <span class="tag" id="projectDetailColorTag">PROJECT</span>
-            <h1><span id="projectDetailName">Project</span></h1>
-            <p id="projectDetailInstructions" style="color:#9aa0c0;"></p>
-            <div style="display:flex; gap:10px; margin:16px 0 20px; flex-wrap:wrap;">
-                <button id="projectNewChatBtn" type="button">+ New Chat</button>
-                <button id="projectEditBtn" type="button" style="background:#171d3d; border:1px solid #2b3154;">✏️ Edit</button>
-                <button id="projectDeleteBtn" type="button" style="background:#2a1420; border:1px solid #5a2334; color:#ff8fa8;">🗑 Delete</button>
-            </div>
-            <div class="history-list" id="projectChatsList" style="max-height:40vh;"></div>
-        </div>
-
-        <div id="projectFormView" style="display:none;">
-            <span class="tag" id="projectFormTag">NEW PROJECT</span>
-            <h1><span id="projectFormTitle">New Project</span></h1>
-            <div class="modal-input-row modal-input-col" style="margin-top:16px;">
-                <label class="profile-label">Project name</label>
-                <input type="text" id="projectNameInput" placeholder="e.g. Zyntra AI, Masjid site, School work">
-
-                <label class="profile-label">Custom instructions (optional)</label>
-                <textarea id="projectInstructionsInput" rows="4" placeholder="e.g. Always answer as a senior React developer, use TypeScript, keep explanations short."></textarea>
-
-                <label class="profile-label">Color</label>
-                <div id="projectColorPicker" style="display:flex; gap:10px; margin-top:4px;"></div>
-
-                <div style="display:flex; gap:10px; margin-top:20px;">
-                    <button id="projectSaveBtn" type="button">Save Project</button>
-                    <button id="projectCancelBtn" type="button" style="background:#171d3d; border:1px solid #2b3154;">Cancel</button>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- ================= PLUGINS MODAL ================= -->
 <div class="modal-overlay" id="pluginsModal">
     <div class="modal-box settings-modal-box">
@@ -543,43 +587,6 @@
         <h1><span>Plugins</span></h1>
         <p>Turn Zyntra's built-in capabilities on or off. This is saved to your account and applies everywhere you're signed in.</p>
         <div id="pluginsList" style="margin-top:20px; display:flex; flex-direction:column; gap:14px;"></div>
-    </div>
-</div>
-
-<!-- ================= SCHEDULED MODAL ================= -->
-<div class="modal-overlay" id="scheduledModal">
-    <div class="modal-box settings-modal-box">
-        <button class="modal-close" id="scheduledModalClose">✕</button>
-
-        <div id="scheduledListView">
-            <span class="tag">SCHEDULED</span>
-            <h1><span>Scheduled Tasks</span></h1>
-            <p>Zyntra will run these automatically and save the result here — even while the app is closed.</p>
-            <button id="newScheduledBtn" type="button" style="margin:16px 0 20px;">+ New Scheduled Task</button>
-            <div class="history-list" id="scheduledList" style="max-height:50vh;"></div>
-        </div>
-
-        <div id="scheduledFormView" style="display:none;">
-            <span class="tag">NEW SCHEDULED TASK</span>
-            <h1><span>Schedule a Task</span></h1>
-            <div class="modal-input-row modal-input-col" style="margin-top:16px;">
-                <label class="profile-label">What should Zyntra do?</label>
-                <textarea id="scheduledPromptInput" rows="3" placeholder="e.g. Give me 3 fresh business ideas for a small budget"></textarea>
-
-                <label class="profile-label">Repeat</label>
-                <select id="scheduledFrequencyInput">
-                    <option value="daily">Every day</option>
-                    <option value="weekly">Every week</option>
-                </select>
-
-                <p class="settings-section-hint" style="margin-top:8px;">Runs once a day, at a time we pick automatically — exact-time scheduling isn't available on our current hosting plan yet.</p>
-
-                <div style="display:flex; gap:10px; margin-top:20px;">
-                    <button id="scheduledSaveBtn" type="button">Create Task</button>
-                    <button id="scheduledCancelBtn" type="button" style="background:#171d3d; border:1px solid #2b3154;">Cancel</button>
-                </div>
-            </div>
-        </div>
     </div>
 </div>
 
