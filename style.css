@@ -2097,6 +2097,36 @@ color:var(--text-1);
 font-size:14.5px;
 }
 .scheduled-input-bar input::placeholder{ color:var(--text-3); }
+.project-members-row{
+display:flex;
+gap:8px;
+margin-top:10px;
+}
+.project-member-chip{
+display:flex;
+align-items:center;
+gap:6px;
+background:var(--glass);
+border:1px solid var(--glass-border);
+border-radius:999px;
+padding:5px 12px 5px 6px;
+font-size:12.5px;
+color:var(--text-2);
+}
+.project-member-avatar{
+width:20px;
+height:20px;
+border-radius:50%;
+background:var(--accent-grad);
+color:#fff;
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:10px;
+font-weight:700;
+flex-shrink:0;
+}
+
 .scheduled-input-bar select{
 background:var(--glass-strong);
 border:1px solid var(--glass-border);
@@ -2106,6 +2136,63 @@ padding:7px 12px;
 font-size:12.5px;
 cursor:pointer;
 color-scheme:dark; /* makes Chrome/Edge render the native dropdown popup dark too, not just the closed box */
+}
+
+/* Custom dropdown (replaces native <select> for the Scheduled frequency
+   picker — native select popups render with OS/browser chrome that
+   ignores our dark theme on some platforms, so this is a plain div-based
+   menu we fully control instead). */
+.custom-select{
+position:relative;
+flex-shrink:0;
+}
+.custom-select-btn{
+display:flex;
+align-items:center;
+gap:6px;
+background:var(--glass-strong);
+border:1px solid var(--glass-border);
+color:var(--text-1);
+border-radius:999px;
+padding:7px 12px;
+font-size:12.5px;
+cursor:pointer;
+white-space:nowrap;
+}
+.custom-select-arrow{
+font-size:10px;
+color:var(--text-3);
+}
+.custom-select-menu{
+display:none;
+position:absolute;
+bottom:calc(100% + 8px);
+left:0;
+min-width:120px;
+background:#15151d;
+border:1px solid var(--glass-border-strong);
+border-radius:var(--r-sm);
+padding:6px;
+box-shadow:0 12px 32px rgba(0,0,0,.5);
+z-index:20;
+}
+.custom-select-menu.open{
+display:block;
+}
+.custom-select-option{
+padding:9px 12px;
+border-radius:8px;
+font-size:13px;
+color:var(--text-1);
+cursor:pointer;
+}
+.custom-select-option:hover{
+background:var(--glass-hover);
+}
+.custom-select-option.selected{
+background:var(--accent-grad-soft);
+color:#e3d6ff;
+font-weight:600;
 }
 .scheduled-input-bar #scheduledInputPlus{
 background:none;
