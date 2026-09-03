@@ -1572,7 +1572,16 @@ async function shareProject(projectId, email){
         headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
         body: JSON.stringify({ projectId, email })
     });
-    const data = await resp.json();
+    const rawText = await resp.text();
+    let data;
+    try{
+        data = rawText ? JSON.parse(rawText) : {};
+    }catch(parseErr){
+        // The endpoint returned something that isn't JSON at all (often an
+        // empty body) — almost always means api/share-project.js hasn't
+        // actually been deployed yet, not a real sharing failure.
+        throw new Error("The sharing feature isn't live on the server yet — check that api/share-project.js has been deployed.");
+    }
     if(!resp.ok) throw new Error(data.error || "Failed to share project.");
     await refreshProjectsCache();
     return data;
