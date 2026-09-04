@@ -7,10 +7,61 @@ import { getAdminDb } from "./_lib/firebaseAdmin.js";
 // the ones that are due, and writes the result back so it's there next
 // time they open the app — same idea as ChatGPT's Scheduled tasks.
 
-// Simple, non-streaming, no-tools Groq call — a scheduled task is a single
-// one-shot prompt, not a multi-turn conversation, so this stays deliberately
-// smaller than the full agent loop in chat.js.
-async function runOnePrompt(prompt) {
+export const config = {
+  maxDuration: 60 // web search can take a while across several tasks
+};
+
+// Same Tavily web_search tool as api/chat.js, duplicated here rather than
+// imported — chat.js's TOOLS array also carries Google/memory tools that
+// don't make sense for an unattended background run with no signed-in
+// request context, so this keeps a deliberately smaller, run-specific set.
+const SEARCH_TOOL = {
+  type: "function",
+  function: {
+    name: "web_search",
+    description: "Search the live web for current, up-to-date, or fact-specific information — news, prices, recent events, or anything that may have changed since training. Returns a list of results with title, url, and a text snippet.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "The search query. Keep it short and specific (a few words), like a real search engine query." }
+      },
+      required: ["query"]
+    }
+  }
+};
+
+async function runWebSearch(query) {
+  if (!process.env.TAVILY_API_KEY) {
+    return { error: "Web search isn't configured (missing TAVILY_API_KEY)." };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: process.env.TAVILY_API_KEY,
+        query,
+        max_results: 5,
+        search_depth: "basic"
+      }),
+      signal: controller.signal
+    });
+    const data = await response.json();
+    if (!response.ok) return { error: data?.error || "Search request failed." };
+    return {
+      results: (data.results || []).map(r => ({ title: r.title, url: r.url, snippet: (r.content || "").slice(0, 500) })),
+      answer: data.answer || null
+    };
+  } catch (err) {
+    return { error: err.name === "AbortError" ? "Search timed out." : "Search failed: " + err.message };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function callGroq(messages, useTools) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 25000);
   try {
@@ -24,19 +75,48 @@ async function runOnePrompt(prompt) {
         model: 'openai/gpt-oss-20b',
         temperature: 0.7,
         max_tokens: 1024,
-        messages: [
-          { role: 'system', content: 'You are Zyntra AI, running a scheduled task on the user\'s behalf with no further input from them. Answer the request directly and usefully — no "let me know if you want more" filler, since there is no follow-up turn.' },
-          { role: 'user', content: prompt }
-        ]
+        messages,
+        ...(useTools ? { tools: [SEARCH_TOOL], tool_choice: "auto" } : {})
       }),
       signal: controller.signal
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data?.error?.message || `Groq returned ${response.status}`);
-    return data?.choices?.[0]?.message?.content || "(No response generated.)";
+    return data?.choices?.[0]?.message;
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Small agent loop (max 3 rounds) so a scheduled task can actually search
+// the web when the prompt needs current info ("this week's AI news",
+// "today's top headlines") instead of the model just guessing/making
+// something up, which a plain one-shot call would do.
+async function runOnePrompt(prompt) {
+  const messages = [
+    { role: 'system', content: 'You are Zyntra AI, running a scheduled task on the user\'s behalf with no further input from them — there is no follow-up turn, so don\'t end with "let me know if..." style filler. If the request needs current or time-sensitive information (news, prices, recent events, anything that may have changed), use web_search before answering rather than guessing. Answer directly and usefully.' },
+    { role: 'user', content: prompt }
+  ];
+
+  for (let round = 0; round < 3; round++) {
+    const message = await callGroq(messages, round < 2); // stop offering tools on the last round so it's forced to answer
+    messages.push(message);
+
+    if (!message.tool_calls || message.tool_calls.length === 0) {
+      return message.content || "(No response generated.)";
+    }
+
+    for (const call of message.tool_calls) {
+      let args = {};
+      try { args = JSON.parse(call.function.arguments || "{}"); } catch { /* malformed args, use empty */ }
+      const result = call.function.name === "web_search"
+        ? await runWebSearch(args.query || "")
+        : { error: "Unknown tool." };
+      messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
+    }
+  }
+
+  return "(Ran out of steps before finishing — try simplifying this task.)";
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
