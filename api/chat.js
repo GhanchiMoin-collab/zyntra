@@ -500,6 +500,11 @@ Rules:
         role: "system",
         content: "The user has connected their Google account. You may use send_email, create_calendar_event, list_calendar_events, update_calendar_event, and cancel_calendar_event when they clearly ask you to send an email or manage their schedule — check list_calendar_events before creating something if there's any chance of a conflict, and always state the exact recipient/subject/body or event details back to them and get confirmation first (unless they already gave every detail explicitly), since these are real actions that can't be undone."
       });
+    } else {
+      systemMessages.push({
+        role: "system",
+        content: "The user has NOT connected a Google account, so you do NOT have access to send_email or any calendar tools right now. If the user asks you to send an email, check/create/update/cancel a calendar event, or do anything else that needs Gmail or Google Calendar, do not pretend to do it and do not just say you can't help — clearly tell them their Google account isn't connected yet and that they can connect it from Account Settings \u2192 Connections, then ask them to try again after connecting."
+      });
     }
 
     const fullMessages = [...systemMessages, ...messages];
