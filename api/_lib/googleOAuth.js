@@ -4,12 +4,17 @@ import { getAdminDb } from "./firebaseAdmin.js";
 
 // gmail.send lets Zyntra send email AS the user, from their own address —
 // it can't read their inbox. calendar.events is scoped to managing
-// events only, not the rest of Calendar settings.
+// events only, not the rest of Calendar settings. drive.readonly lets
+// Zyntra search/read the user's existing files (needed since we can't
+// know a file's ID without search); drive.file is separate and only
+// covers files Zyntra itself creates, never the rest of the user's Drive.
 const SCOPES = [
   "openid",
   "email",
   "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/calendar.events"
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/drive.file"
 ];
 
 export function buildOAuth2Client() {
