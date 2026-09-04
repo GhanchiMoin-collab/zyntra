@@ -2320,8 +2320,10 @@ function renderProjectsList(filterText){
     const list = document.getElementById("projectsList");
     if(!list) return;
     list.innerHTML = "";
+    list.classList.remove("is-empty");
 
     if(!isLoggedIn()){
+        list.classList.add("is-empty");
         list.innerHTML = '<div class="page-empty-state"><div class="page-empty-state-icon">📁</div><p>Sign in to create and sync projects</p></div>';
         return;
     }
@@ -2339,6 +2341,7 @@ function renderProjectsList(filterText){
     }
 
     if(projects.length === 0){
+        list.classList.add("is-empty");
         const emptyText = filterText
             ? "No projects match your search"
             : (projectsActiveFilter === "shared" ? "Nothing's been shared with you yet" : "No projects yet");
@@ -2528,6 +2531,7 @@ document.getElementById("navProjects")?.addEventListener("click", async () => {
     document.querySelectorAll(".page-view-tab").forEach(t => t.classList.toggle("active", t.dataset.projectFilter === "all"));
     showPageView("projects");
     closeSidebarMobile();
+    document.getElementById("projectsList").classList.add("is-empty");
     document.getElementById("projectsList").innerHTML = '<div class="page-empty-state"><div class="page-empty-state-icon">⏳</div><p>Loading projects…</p></div>';
     await refreshProjectsCache();
     renderProjectsList("");
