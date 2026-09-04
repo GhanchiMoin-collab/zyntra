@@ -1626,51 +1626,57 @@ const PLUGIN_COMING_SOON = [
     { slug: "atlassian", icon: "🔷", color: "#0052CC", title: "Atlassian Rovo", desc: "Manage Jira and Confluence" },
     { slug: "hubspot", icon: "🧡", color: "#FF7A59", title: "HubSpot", desc: "Insights to action in HubSpot" },
     { slug: "supabase", icon: "⚡", color: "#3ECF8E", title: "Supabase", desc: "Manage and query databases" },
-    { icon: "🎙️", color: "#7C5CFF", title: "Fathom", desc: "Your meeting insights" },
+    { slug: "fathom", icon: "🎙️", color: "#7C5CFF", title: "Fathom", desc: "Your meeting insights" },
     { slug: "mondaydotcom", icon: "🔴", color: "#FF3D57", title: "monday.com", desc: "Manage projects, tasks & CRM" },
     { icon: "🥣", color: "#E8A33D", title: "Granola", desc: "Add your meeting context" },
     { icon: "🎤", color: "#4A4A4A", title: "Plaud", desc: "Retrieve insights from Plaud" },
     { slug: "shopify", icon: "🛍️", color: "#95BF47", title: "Shopify", desc: "Create and manage your store" },
     { icon: "🪟", color: "#1E88E5", title: "Windsor.ai", desc: "Connect 330+ data sources" },
-    { icon: "🔥", color: "#F2545B", title: "Fireflies", desc: "Search meeting transcripts" },
+    { slug: "fireflies", icon: "🔥", color: "#F2545B", title: "Fireflies", desc: "Search meeting transcripts" },
     { slug: "todoist", icon: "✅", color: "#E44332", title: "Todoist", desc: "To-do list, planner & reminders" },
     { slug: "microsoftteams", icon: "👥", color: "#6264A7", title: "Teams", desc: "Summarize Teams and follow up" },
-    { icon: "🔦", color: "#111111", title: "Exa", desc: "Web search for AI agents" },
+    { slug: "interactivebrokers", icon: "📈", color: "#B41E1E", title: "Interactive Brokers", desc: "Analyze global markets" },
+    { slug: "exa", icon: "🔦", color: "#111111", title: "Exa", desc: "Web search for AI agents" },
     { slug: "microsoftsharepoint", icon: "📁", color: "#038387", title: "SharePoint", desc: "Summarize SharePoint content" },
     { slug: "posthog", icon: "📊", color: "#F54E00", title: "PostHog", desc: "Analyze your product data" },
-    { icon: "🔍", color: "#2D6CDF", title: "ZoomInfo", desc: "B2B data and GTM insights" },
+    { slug: "zoominfo", icon: "🔍", color: "#2D6CDF", title: "ZoomInfo", desc: "B2B data and GTM insights" },
     { slug: "linear", icon: "📐", color: "#5E6AD2", title: "Linear", desc: "Plan and build products" },
-    { icon: "▶️", color: "#26C281", title: "vidIQ", desc: "YouTube stats and keywords" },
+    { slug: "vidiq", icon: "▶️", color: "#26C281", title: "vidIQ", desc: "YouTube stats and keywords" },
     { icon: "🔑", color: "#FF6B35", title: "Ubersuggest", desc: "Find keywords and SEO insights" },
     { slug: "wix", icon: "🌐", color: "#0C6EFC", title: "Wix", desc: "Create your own website" },
-    { icon: "🚀", color: "#2E6ADE", title: "Apollo.io", desc: "Find buyers and close deals" },
+    { slug: "apollo", icon: "🚀", color: "#2E6ADE", title: "Apollo.io", desc: "Find buyers and close deals" },
     { slug: "airtable", icon: "🗂️", color: "#FCB400", title: "Airtable", desc: "Add structured data to Zyntra" },
     { slug: "webflow", icon: "🌊", color: "#4353FF", title: "Webflow", desc: "Manage Webflow sites" },
     { icon: "🎬", color: "#FF4785", title: "Higgsfield", desc: "Every image and video model" },
-    { icon: "⚡", color: "#1A1A1A", title: "Superhuman Mail", desc: "Best email + calendar assistant" },
+    { slug: "superhuman", icon: "⚡", color: "#1A1A1A", title: "Superhuman Mail", desc: "Best email + calendar assistant" },
     { slug: "vercel", icon: "▲", color: "#000000", title: "Vercel", desc: "Build and deploy web apps and agents" },
-    { icon: "🏢", color: "#003087", title: "NetSuite", desc: "Connect Zyntra to NetSuite" },
+    { slug: "netsuite", icon: "🏢", color: "#003087", title: "NetSuite", desc: "Connect Zyntra to NetSuite" },
     { slug: "asana", icon: "🔺", color: "#F06A6A", title: "Asana", desc: "Turn chats into actions" },
-    { icon: "💚", color: "#00E599", title: "Neon", desc: "Manage Neon databases" }
+    { slug: "neon", icon: "💚", color: "#00E599", title: "Neon", desc: "Manage Neon databases" }
 ];
 
 // Builds an icon element for a plugin row: a real logo (white, on the
-// brand's color) when `def.slug` is set, falling back to the emoji if
-// there's no slug or the logo fails to load (wrong/missing Simple Icons
-// entry) — never shows a broken image.
+// brand's color) when `def.slug` is set, falling back to a bold colored
+// initial (never a random unrelated emoji) if there's no slug or the
+// logo fails to load — a clean, honest placeholder instead of guessing.
 function buildPluginIconEl(def, className){
     const icon = document.createElement("div");
     icon.className = className || "plugin-row-icon";
     icon.style.background = def.color;
+    const showFallback = () => {
+        icon.innerHTML = "";
+        icon.textContent = def.title.trim().charAt(0).toUpperCase();
+        icon.style.fontWeight = "800";
+    };
     if(def.slug){
         const img = document.createElement("img");
         img.src = `https://cdn.simpleicons.org/${def.slug}/ffffff`;
         img.alt = def.title;
         img.className = "plugin-row-icon-img";
-        img.onerror = () => { icon.innerHTML = ""; icon.textContent = def.icon; };
+        img.onerror = showFallback;
         icon.appendChild(img);
     } else {
-        icon.textContent = def.icon;
+        showFallback();
     }
     return icon;
 }
@@ -2775,6 +2781,7 @@ function renderPluginsList(filterText){
 document.getElementById("navPlugins")?.addEventListener("click", () => {
     setActiveNav("plugins");
     document.getElementById("pluginsSearchInput").value = "";
+    pluginsShowAllComingSoon = false;
     renderPluginsInstalledRow();
     renderPluginsList("");
     renderComingSoonPlugins("");
@@ -2785,6 +2792,8 @@ document.getElementById("pluginsSearchInput")?.addEventListener("input", (e) => 
     renderPluginsList(e.target.value);
     renderComingSoonPlugins(e.target.value);
 });
+
+let pluginsShowAllComingSoon = false;
 
 function renderComingSoonPlugins(filterText){
     const list = document.getElementById("pluginsComingSoonList");
@@ -2797,7 +2806,15 @@ function renderComingSoonPlugins(filterText){
         items = items.filter(d => d.title.toLowerCase().includes(q) || d.desc.toLowerCase().includes(q));
     }
 
-    items.forEach(def => {
+    // Collapsed by default — just the first 6, like ChatGPT's "Popular"
+    // section — with a "See more" row instead of dumping the whole
+    // catalog on screen at once. Searching auto-expands so search results
+    // beyond the first 6 are still reachable.
+    const showAll = pluginsShowAllComingSoon || !!filterText;
+    const visible = showAll ? items : items.slice(0, 6);
+    const hidden = showAll ? [] : items.slice(6);
+
+    visible.forEach(def => {
         const row = document.createElement("div");
         row.className = "plugin-row coming-soon";
 
@@ -2825,6 +2842,24 @@ function renderComingSoonPlugins(filterText){
         row.addEventListener("click", () => showToast(`🔒 ${def.title} isn't connected yet — coming soon`));
         list.appendChild(row);
     });
+
+    if(hidden.length > 0){
+        const seeMore = document.createElement("div");
+        seeMore.className = "plugin-see-more-row";
+        const preview = document.createElement("div");
+        preview.className = "plugin-see-more-icons";
+        hidden.slice(0, 3).forEach(def => preview.appendChild(buildPluginIconEl(def, "plugin-see-more-icon")));
+        const label = document.createElement("span");
+        const names = hidden.slice(0, 2).map(d => d.title).join(", ");
+        label.textContent = `See ${names}, and more`;
+        seeMore.appendChild(preview);
+        seeMore.appendChild(label);
+        seeMore.addEventListener("click", () => {
+            pluginsShowAllComingSoon = true;
+            renderComingSoonPlugins(filterText);
+        });
+        list.appendChild(seeMore);
+    }
 }
 
 // ==========================
