@@ -1592,11 +1592,11 @@ async function shareProject(projectId, email){
 // existing users see no behavior change until they actually flip something.
 
 const PLUGIN_DEFS = [
-    { key: "webSearch", icon: "🔎", title: "Web Search & Research", desc: "Let Zyntra search the web for current information, and show the Research mode toggle for deeper, multi-source answers." },
-    { key: "googleTools", icon: "📧", title: "Google Tools", desc: "Let a connected Google account be used for Gmail and Calendar actions." },
-    { key: "memory", icon: "🧠", title: "Memory", desc: "Let Zyntra remember facts about you across conversations." },
-    { key: "imageGen", icon: "🖼️", title: "Image Generator", desc: "Show the Image Generator tool in the sidebar." },
-    { key: "codexBuilder", icon: "🧑‍💻", title: "Codex", desc: "Show the Codex (coding + website building) tool in the sidebar." }
+    { key: "webSearch", icon: "🔎", color: "#3ea6ff", title: "Web Search & Research", desc: "Let Zyntra search the web for current information, and show the Research mode toggle for deeper, multi-source answers." },
+    { key: "googleTools", icon: "📧", color: "#ea4335", title: "Google Tools", desc: "Let a connected Google account be used for Gmail and Calendar actions." },
+    { key: "memory", icon: "🧠", color: "#a259ff", title: "Memory", desc: "Let Zyntra remember facts about you across conversations." },
+    { key: "imageGen", icon: "🖼️", color: "#37c98f", title: "Image Generator", desc: "Show the Image Generator tool in the sidebar." },
+    { key: "codexBuilder", icon: "🧑‍💻", color: "#ffb545", title: "Codex", desc: "Show the Codex (coding + website building) tool in the sidebar." }
 ];
 
 function getPlugins(){
@@ -2602,23 +2602,77 @@ document.getElementById("projectNewChatBtn")?.addEventListener("click", () => {
 });
 
 // ==========================
-// Plugins modal
+// Plugins page (full-screen marketplace, like Projects/Scheduled)
 // ==========================
 
-function renderPluginsList(){
+function renderPluginsInstalledRow(){
+    const row = document.getElementById("pluginsInstalledRow");
+    const label = document.getElementById("pluginsInstalledLabel");
+    if(!row) return;
+    row.innerHTML = "";
+    const plugins = getPlugins();
+    const installed = PLUGIN_DEFS.filter(def => plugins[def.key]);
+
+    if(installed.length === 0){
+        label.style.display = "none";
+        row.style.display = "none";
+        return;
+    }
+    label.style.display = "";
+    row.style.display = "";
+
+    installed.forEach(def => {
+        const tile = document.createElement("div");
+        tile.className = "plugin-icon-tile";
+        tile.title = def.title;
+        const square = document.createElement("div");
+        square.className = "plugin-icon-tile-square";
+        square.style.background = def.color;
+        square.textContent = def.icon;
+        const label2 = document.createElement("span");
+        label2.className = "label";
+        label2.textContent = def.title;
+        tile.appendChild(square);
+        tile.appendChild(label2);
+        tile.addEventListener("click", () => {
+            const targetRow = document.querySelector(`.plugin-row[data-key="${def.key}"]`);
+            if(targetRow){
+                targetRow.scrollIntoView({ behavior: "smooth", block: "center" });
+                targetRow.classList.add("flash");
+                setTimeout(() => targetRow.classList.remove("flash"), 900);
+            }
+        });
+        row.appendChild(tile);
+    });
+}
+
+function renderPluginsList(filterText){
     const list = document.getElementById("pluginsList");
     if(!list) return;
     list.innerHTML = "";
     const plugins = getPlugins();
 
-    PLUGIN_DEFS.forEach(def => {
+    let defs = PLUGIN_DEFS;
+    if(filterText){
+        const q = filterText.toLowerCase();
+        defs = defs.filter(d => d.title.toLowerCase().includes(q) || d.desc.toLowerCase().includes(q));
+    }
+
+    if(defs.length === 0){
+        list.innerHTML = '<div class="page-empty-state" style="grid-column:1/-1;"><div class="page-empty-state-icon">🧩</div><p>No plugins match your search</p></div>';
+        return;
+    }
+
+    defs.forEach(def => {
         const row = document.createElement("div");
         row.className = "plugin-row";
+        row.dataset.key = def.key;
 
         const left = document.createElement("div");
         left.style.cssText = "display:flex; align-items:flex-start;";
-        const icon = document.createElement("span");
+        const icon = document.createElement("div");
         icon.className = "plugin-row-icon";
+        icon.style.background = def.color;
         icon.textContent = def.icon;
         const textWrap = document.createElement("div");
         const title = document.createElement("div");
@@ -2638,6 +2692,7 @@ function renderPluginsList(){
         toggle.checked = plugins[def.key];
         toggle.addEventListener("change", () => {
             setPlugin(def.key, toggle.checked);
+            renderPluginsInstalledRow();
             showToast((toggle.checked ? "✅ " : "🚫 ") + def.title + (toggle.checked ? " enabled" : " disabled"));
         });
 
@@ -2648,14 +2703,17 @@ function renderPluginsList(){
 }
 
 document.getElementById("navPlugins")?.addEventListener("click", () => {
-    renderPluginsList();
-    openModal("pluginsModal");
+    setActiveNav("plugins");
+    document.getElementById("pluginsSearchInput").value = "";
+    renderPluginsInstalledRow();
+    renderPluginsList("");
+    showPageView("plugins");
     closeSidebarMobile();
 });
-document.getElementById("pluginsModalClose")?.addEventListener("click", () => closeModal("pluginsModal"));
+document.getElementById("pluginsSearchInput")?.addEventListener("input", (e) => renderPluginsList(e.target.value));
 
 // ==========================
-// Scheduled page (full-screen)
+// Scheduled page (full-screen))
 // ==========================
 
 const SCHEDULED_RECOMMENDED = [
