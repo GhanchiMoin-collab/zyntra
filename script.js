@@ -1593,11 +1593,87 @@ async function shareProject(projectId, email){
 
 const PLUGIN_DEFS = [
     { key: "webSearch", icon: "🔎", color: "#3ea6ff", title: "Web Search & Research", desc: "Let Zyntra search the web for current information, and show the Research mode toggle for deeper, multi-source answers." },
-    { key: "googleTools", icon: "📧", color: "#ea4335", title: "Google Tools", desc: "Let a connected Google account be used for Gmail and Calendar actions." },
+    { key: "googleTools", slug: "google", icon: "📧", color: "#ea4335", title: "Google Tools", desc: "Let a connected Google account be used for Gmail and Calendar actions." },
     { key: "memory", icon: "🧠", color: "#a259ff", title: "Memory", desc: "Let Zyntra remember facts about you across conversations." },
     { key: "imageGen", icon: "🖼️", color: "#37c98f", title: "Image Generator", desc: "Show the Image Generator tool in the sidebar." },
     { key: "codexBuilder", icon: "🧑‍💻", color: "#ffb545", title: "Codex", desc: "Show the Codex (coding + website building) tool in the sidebar." }
 ];
+
+// Visual-only "coming soon" catalog — these are NOT connected to
+// anything real yet (no OAuth, no API calls). They exist purely so the
+// Plugins page looks like a real marketplace, same idea as browsing
+// ChatGPT's connector directory before you've installed anything. Every
+// row is clearly labeled "Soon" and clicking one is honest about that —
+// never silently pretend to connect.
+//
+// `slug` is the Simple Icons (simpleicons.org) identifier used to fetch
+// each company's real logo as an SVG, via https://cdn.simpleicons.org —
+// a free, open-source icon library maintained specifically for this kind
+// of "which apps does X integrate with" use case, not a scrape or
+// reproduction of the logo myself. Rendered in white on each brand's own
+// color as the background (set via `color` below), matching how the
+// built-in plugin icons already look. Entries with no confirmed slug, or
+// where the logo fails to load, automatically fall back to the emoji —
+// see buildPluginIconEl().
+const PLUGIN_COMING_SOON = [
+    { slug: "github", icon: "🐙", color: "#24292e", title: "GitHub", desc: "Triage PRs, issues, CI, and publish flows" },
+    { slug: "slack", icon: "💬", color: "#4A154B", title: "Slack", desc: "Read and manage Slack" },
+    { slug: "microsoftoutlook", icon: "📧", color: "#0072C6", title: "Outlook Email", desc: "Triage Outlook inboxes" },
+    { slug: "canva", icon: "🎨", color: "#00C4CC", title: "Canva", desc: "Create, review, edit designs" },
+    { slug: "trello", icon: "📋", color: "#0079BF", title: "Trello", desc: "Get things done in Trello" },
+    { slug: "notion", icon: "📝", color: "#2f2f2f", title: "Notion", desc: "Notion docs and workflows" },
+    { slug: "microsoftoutlook", icon: "📅", color: "#0072C6", title: "Outlook Calendar", desc: "Manage Outlook schedules" },
+    { slug: "atlassian", icon: "🔷", color: "#0052CC", title: "Atlassian Rovo", desc: "Manage Jira and Confluence" },
+    { slug: "hubspot", icon: "🧡", color: "#FF7A59", title: "HubSpot", desc: "Insights to action in HubSpot" },
+    { slug: "supabase", icon: "⚡", color: "#3ECF8E", title: "Supabase", desc: "Manage and query databases" },
+    { icon: "🎙️", color: "#7C5CFF", title: "Fathom", desc: "Your meeting insights" },
+    { slug: "mondaydotcom", icon: "🔴", color: "#FF3D57", title: "monday.com", desc: "Manage projects, tasks & CRM" },
+    { icon: "🥣", color: "#E8A33D", title: "Granola", desc: "Add your meeting context" },
+    { icon: "🎤", color: "#4A4A4A", title: "Plaud", desc: "Retrieve insights from Plaud" },
+    { slug: "shopify", icon: "🛍️", color: "#95BF47", title: "Shopify", desc: "Create and manage your store" },
+    { icon: "🪟", color: "#1E88E5", title: "Windsor.ai", desc: "Connect 330+ data sources" },
+    { icon: "🔥", color: "#F2545B", title: "Fireflies", desc: "Search meeting transcripts" },
+    { slug: "todoist", icon: "✅", color: "#E44332", title: "Todoist", desc: "To-do list, planner & reminders" },
+    { slug: "microsoftteams", icon: "👥", color: "#6264A7", title: "Teams", desc: "Summarize Teams and follow up" },
+    { icon: "🔦", color: "#111111", title: "Exa", desc: "Web search for AI agents" },
+    { slug: "microsoftsharepoint", icon: "📁", color: "#038387", title: "SharePoint", desc: "Summarize SharePoint content" },
+    { slug: "posthog", icon: "📊", color: "#F54E00", title: "PostHog", desc: "Analyze your product data" },
+    { icon: "🔍", color: "#2D6CDF", title: "ZoomInfo", desc: "B2B data and GTM insights" },
+    { slug: "linear", icon: "📐", color: "#5E6AD2", title: "Linear", desc: "Plan and build products" },
+    { icon: "▶️", color: "#26C281", title: "vidIQ", desc: "YouTube stats and keywords" },
+    { icon: "🔑", color: "#FF6B35", title: "Ubersuggest", desc: "Find keywords and SEO insights" },
+    { slug: "wix", icon: "🌐", color: "#0C6EFC", title: "Wix", desc: "Create your own website" },
+    { icon: "🚀", color: "#2E6ADE", title: "Apollo.io", desc: "Find buyers and close deals" },
+    { slug: "airtable", icon: "🗂️", color: "#FCB400", title: "Airtable", desc: "Add structured data to Zyntra" },
+    { slug: "webflow", icon: "🌊", color: "#4353FF", title: "Webflow", desc: "Manage Webflow sites" },
+    { icon: "🎬", color: "#FF4785", title: "Higgsfield", desc: "Every image and video model" },
+    { icon: "⚡", color: "#1A1A1A", title: "Superhuman Mail", desc: "Best email + calendar assistant" },
+    { slug: "vercel", icon: "▲", color: "#000000", title: "Vercel", desc: "Build and deploy web apps and agents" },
+    { icon: "🏢", color: "#003087", title: "NetSuite", desc: "Connect Zyntra to NetSuite" },
+    { slug: "asana", icon: "🔺", color: "#F06A6A", title: "Asana", desc: "Turn chats into actions" },
+    { icon: "💚", color: "#00E599", title: "Neon", desc: "Manage Neon databases" }
+];
+
+// Builds an icon element for a plugin row: a real logo (white, on the
+// brand's color) when `def.slug` is set, falling back to the emoji if
+// there's no slug or the logo fails to load (wrong/missing Simple Icons
+// entry) — never shows a broken image.
+function buildPluginIconEl(def, className){
+    const icon = document.createElement("div");
+    icon.className = className || "plugin-row-icon";
+    icon.style.background = def.color;
+    if(def.slug){
+        const img = document.createElement("img");
+        img.src = `https://cdn.simpleicons.org/${def.slug}/ffffff`;
+        img.alt = def.title;
+        img.className = "plugin-row-icon-img";
+        img.onerror = () => { icon.innerHTML = ""; icon.textContent = def.icon; };
+        icon.appendChild(img);
+    } else {
+        icon.textContent = def.icon;
+    }
+    return icon;
+}
 
 function getPlugins(){
     const saved = JSON.parse(localStorage.getItem("zyntra-plugins") || "{}");
@@ -2625,10 +2701,7 @@ function renderPluginsInstalledRow(){
         const tile = document.createElement("div");
         tile.className = "plugin-icon-tile";
         tile.title = def.title;
-        const square = document.createElement("div");
-        square.className = "plugin-icon-tile-square";
-        square.style.background = def.color;
-        square.textContent = def.icon;
+        const square = buildPluginIconEl(def, "plugin-icon-tile-square");
         const label2 = document.createElement("span");
         label2.className = "label";
         label2.textContent = def.title;
@@ -2670,10 +2743,7 @@ function renderPluginsList(filterText){
 
         const left = document.createElement("div");
         left.style.cssText = "display:flex; align-items:flex-start;";
-        const icon = document.createElement("div");
-        icon.className = "plugin-row-icon";
-        icon.style.background = def.color;
-        icon.textContent = def.icon;
+        const icon = buildPluginIconEl(def);
         const textWrap = document.createElement("div");
         const title = document.createElement("div");
         title.className = "plugin-row-title";
@@ -2707,10 +2777,55 @@ document.getElementById("navPlugins")?.addEventListener("click", () => {
     document.getElementById("pluginsSearchInput").value = "";
     renderPluginsInstalledRow();
     renderPluginsList("");
+    renderComingSoonPlugins("");
     showPageView("plugins");
     closeSidebarMobile();
 });
-document.getElementById("pluginsSearchInput")?.addEventListener("input", (e) => renderPluginsList(e.target.value));
+document.getElementById("pluginsSearchInput")?.addEventListener("input", (e) => {
+    renderPluginsList(e.target.value);
+    renderComingSoonPlugins(e.target.value);
+});
+
+function renderComingSoonPlugins(filterText){
+    const list = document.getElementById("pluginsComingSoonList");
+    if(!list) return;
+    list.innerHTML = "";
+
+    let items = PLUGIN_COMING_SOON;
+    if(filterText){
+        const q = filterText.toLowerCase();
+        items = items.filter(d => d.title.toLowerCase().includes(q) || d.desc.toLowerCase().includes(q));
+    }
+
+    items.forEach(def => {
+        const row = document.createElement("div");
+        row.className = "plugin-row coming-soon";
+
+        const left = document.createElement("div");
+        left.style.cssText = "display:flex; align-items:flex-start;";
+        const icon = buildPluginIconEl(def);
+        const textWrap = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "plugin-row-title";
+        title.textContent = def.title;
+        const desc = document.createElement("div");
+        desc.className = "plugin-row-desc";
+        desc.textContent = def.desc;
+        textWrap.appendChild(title);
+        textWrap.appendChild(desc);
+        left.appendChild(icon);
+        left.appendChild(textWrap);
+
+        const badge = document.createElement("span");
+        badge.className = "plugin-soon-badge";
+        badge.textContent = "Soon";
+
+        row.appendChild(left);
+        row.appendChild(badge);
+        row.addEventListener("click", () => showToast(`🔒 ${def.title} isn't connected yet — coming soon`));
+        list.appendChild(row);
+    });
+}
 
 // ==========================
 // Scheduled page (full-screen))
