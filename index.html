@@ -264,6 +264,28 @@
             </div>
         </div>
 
+        <!-- ================= PLUGINS PAGE ================= -->
+        <div class="page-view" id="pluginsView">
+            <div class="page-view-inner">
+                <div class="page-view-header">
+                    <div>
+                        <h1 class="page-view-title">Plugins</h1>
+                        <p class="page-view-subtitle" style="margin-bottom:0;">Turn Zyntra's built-in capabilities on or off.</p>
+                    </div>
+                    <div class="page-search-box">
+                        <span>🔍</span>
+                        <input type="text" id="pluginsSearchInput" placeholder="Search plugins">
+                    </div>
+                </div>
+
+                <p class="page-recommended-label" style="margin-top:28px;" id="pluginsInstalledLabel">Installed</p>
+                <div id="pluginsInstalledRow" class="plugin-icon-row"></div>
+
+                <p class="page-recommended-label" style="margin-top:28px;">All Plugins</p>
+                <div id="pluginsList" class="plugin-marketplace-list"></div>
+            </div>
+        </div>
+
         <!-- ================= SCHEDULED PAGE ================= -->
         <div class="page-view" id="scheduledView">
             <div class="page-view-inner">
@@ -612,16 +634,6 @@
 </div>
 
 <!-- ================= PLUGINS MODAL ================= -->
-<div class="modal-overlay" id="pluginsModal">
-    <div class="modal-box settings-modal-box">
-        <button class="modal-close" id="pluginsModalClose">✕</button>
-        <span class="tag">PLUGINS</span>
-        <h1><span>Plugins</span></h1>
-        <p>Turn Zyntra's built-in capabilities on or off. This is saved to your account and applies everywhere you're signed in.</p>
-        <div id="pluginsList" style="margin-top:20px; display:flex; flex-direction:column; gap:14px;"></div>
-    </div>
-</div>
-
 <!-- ================= CONTACT MODAL ================= -->
 <div class="modal-overlay" id="contactModal">
     <div class="modal-box">
