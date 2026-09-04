@@ -282,6 +282,121 @@ const TOOLS = [
         return { error: "Failed to cancel the event: " + (err.message || "unknown error") };
       }
     }
+  },
+  {
+    requiresGoogle: true,
+    type: "function",
+    function: {
+      name: "search_drive_files",
+      description: "Search the user's connected Google Drive for files by name or content. Only available once the user has connected Google in Settings. Returns each match's id, name, type, last-modified time, and a link — use the id with read_drive_file to get a file's actual content.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search text — matches against file names and, where Drive supports it, file content. Keep it short and specific." }
+        },
+        required: ["query"]
+      }
+    },
+    async execute({ query }, ctx) {
+      if (!ctx?.googleClient) return { error: "Google Drive isn't connected for this user." };
+      try {
+        const drive = google.drive({ version: "v3", auth: ctx.googleClient });
+        const safeQuery = query.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        const { data } = await drive.files.list({
+          q: `fullText contains '${safeQuery}' or name contains '${safeQuery}'`,
+          fields: "files(id, name, mimeType, modifiedTime, webViewLink)",
+          pageSize: 10
+        });
+        const files = (data.files || []).map(f => ({
+          id: f.id,
+          name: f.name,
+          type: f.mimeType,
+          modified: f.modifiedTime,
+          link: f.webViewLink
+        }));
+        return { files };
+      } catch (err) {
+        console.error("search_drive_files failed:", err);
+        return { error: "Failed to search Drive: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresGoogle: true,
+    type: "function",
+    function: {
+      name: "read_drive_file",
+      description: "Read the text content of a file from the user's connected Google Drive. Works for Google Docs, Google Sheets, and plain text files. Requires the file's id — call search_drive_files first if you don't already have it. Other file types (images, PDFs, etc.) aren't supported yet and return an error with the file's link instead.",
+      parameters: {
+        type: "object",
+        properties: {
+          file_id: { type: "string", description: "The file's id, from search_drive_files." }
+        },
+        required: ["file_id"]
+      }
+    },
+    async execute({ file_id }, ctx) {
+      if (!ctx?.googleClient) return { error: "Google Drive isn't connected for this user." };
+      try {
+        const drive = google.drive({ version: "v3", auth: ctx.googleClient });
+        const meta = await drive.files.get({ fileId: file_id, fields: "id, name, mimeType, webViewLink" });
+        const mimeType = meta.data.mimeType;
+        let content;
+        if (mimeType === "application/vnd.google-apps.document") {
+          const res = await drive.files.export({ fileId: file_id, mimeType: "text/plain" }, { responseType: "text" });
+          content = res.data;
+        } else if (mimeType === "application/vnd.google-apps.spreadsheet") {
+          const res = await drive.files.export({ fileId: file_id, mimeType: "text/csv" }, { responseType: "text" });
+          content = res.data;
+        } else if (mimeType && mimeType.startsWith("text/")) {
+          const res = await drive.files.get({ fileId: file_id, alt: "media" }, { responseType: "text" });
+          content = res.data;
+        } else {
+          return { error: `File type ${mimeType} isn't supported for reading yet.`, name: meta.data.name, link: meta.data.webViewLink };
+        }
+        // Cap content length — a huge doc/sheet could blow past the model's context.
+        const truncated = typeof content === "string" && content.length > 8000;
+        return {
+          name: meta.data.name,
+          content: truncated ? content.slice(0, 8000) : content,
+          truncated
+        };
+      } catch (err) {
+        console.error("read_drive_file failed:", err);
+        return { error: "Failed to read the file: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresGoogle: true,
+    type: "function",
+    function: {
+      name: "create_drive_file",
+      description: "Create a new plain text file in the user's connected Google Drive. Only available once the user has connected Google in Settings. Confirm the file name and content with the user before calling this, unless they already gave you both explicitly.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "File name, including extension if relevant (e.g. 'notes.txt')." },
+          content: { type: "string", description: "Plain text content of the file." }
+        },
+        required: ["name", "content"]
+      }
+    },
+    async execute({ name, content }, ctx) {
+      if (!ctx?.googleClient) return { error: "Google Drive isn't connected for this user." };
+      try {
+        const drive = google.drive({ version: "v3", auth: ctx.googleClient });
+        const { data } = await drive.files.create({
+          requestBody: { name, mimeType: "text/plain" },
+          media: { mimeType: "text/plain", body: content },
+          fields: "id, webViewLink"
+        });
+        return { created: true, fileId: data.id, link: data.webViewLink };
+      } catch (err) {
+        console.error("create_drive_file failed:", err);
+        return { error: "Failed to create the file: " + (err.message || "unknown error") };
+      }
+    }
   }
 
   // Next tools to add here, following the same { function, execute } shape.
@@ -498,12 +613,12 @@ Rules:
     if (googleClient) {
       systemMessages.push({
         role: "system",
-        content: "The user has connected their Google account. You may use send_email, create_calendar_event, list_calendar_events, update_calendar_event, and cancel_calendar_event when they clearly ask you to send an email or manage their schedule — check list_calendar_events before creating something if there's any chance of a conflict, and always state the exact recipient/subject/body or event details back to them and get confirmation first (unless they already gave every detail explicitly), since these are real actions that can't be undone."
+        content: "The user has connected their Google account. You may use send_email, create_calendar_event, list_calendar_events, update_calendar_event, cancel_calendar_event, search_drive_files, read_drive_file, and create_drive_file when they clearly ask you to send an email, manage their schedule, or work with their Drive files — check list_calendar_events before creating something if there's any chance of a conflict, search_drive_files before read_drive_file if you don't already have a file's id, and always state the exact recipient/subject/body, event details, or file name/content back to them and get confirmation first (unless they already gave every detail explicitly), since sending, creating, and modifying are real actions that can't be undone."
       });
     } else {
       systemMessages.push({
         role: "system",
-        content: "The user has NOT connected a Google account, so you do NOT have access to send_email or any calendar tools right now. If the user asks you to send an email, check/create/update/cancel a calendar event, or do anything else that needs Gmail or Google Calendar, do not pretend to do it and do not just say you can't help — clearly tell them their Google account isn't connected yet and that they can connect it from Account Settings \u2192 Connections, then ask them to try again after connecting."
+        content: "The user has NOT connected a Google account, so you do NOT have access to send_email, any calendar tools, or any Drive tools right now. If the user asks you to send an email, manage a calendar event, or search/read/create a Drive file, do not pretend to do it and do not just say you can't help — clearly tell them their Google account isn't connected yet and that they can connect it from Account Settings \u2192 Connections, then ask them to try again after connecting."
       });
     }
 
