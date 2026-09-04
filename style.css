@@ -2017,6 +2017,12 @@ display:grid;
 grid-template-columns:repeat(auto-fill, minmax(230px, 1fr));
 gap:14px;
 }
+.projects-grid.is-empty{
+display:flex;
+align-items:center;
+justify-content:center;
+min-height:calc(100vh - 280px);
+}
 .project-card{
 background:var(--glass);
 border:1px solid var(--glass-border);
