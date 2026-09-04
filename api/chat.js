@@ -790,6 +790,29 @@ Rules:
     // reserved for vision only (it doesn't support tool calling on Groq),
     // so it's kept out of the text fallback chain to avoid competing with
     // image traffic for its quota.
+    // Research mode gets first crack at groq/compound — Groq's own
+    // agentic model with server-managed, built-in web search (no Tavily
+    // round-trip or manual tool loop needed). It has its own separate,
+    // much smaller daily quota (250/day) than the regular chat models, so
+    // it's reserved for Research mode specifically instead of being used
+    // on every normal message — that would burn through it in minutes.
+    // Falls back to the existing gpt-oss + Tavily multi-round research
+    // flow below on any failure (quota exhausted, rate limited, etc.), so
+    // Research mode never breaks — it just becomes the fallback path.
+    let compoundAnswer = null;
+    if (research && !hasImage) {
+      const compoundResult = await callGroq('groq/compound', {
+        temperature: 0.6,
+        max_tokens: 3072,
+        messages: fullMessages
+      }, 40000);
+      if (compoundResult.ok) {
+        compoundAnswer = compoundResult.data?.choices?.[0]?.message?.content || null;
+      } else {
+        console.error('groq/compound unavailable for research mode, falling back to gpt-oss + Tavily:', compoundResult.status, compoundResult.data?.error?.message);
+      }
+    }
+
     const primaryModelChain = hasImage
       ? ['qwen/qwen3.6-27b']
       : ['openai/gpt-oss-20b', 'openai/gpt-oss-120b', 'qwen/qwen3.8-27b'];
@@ -811,6 +834,17 @@ Rules:
 
       const sendEvent = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
       const onDelta = (text) => sendEvent({ type: "content", text });
+
+      // groq/compound already answered above — send it as a single chunk
+      // (it won't animate token-by-token like a real stream, but Research
+      // mode answers already take a while either way) and skip the whole
+      // gpt-oss agent loop entirely for this message.
+      if (compoundAnswer) {
+        onDelta(compoundAnswer);
+        await logUsage();
+        sendEvent({ type: "done", sources: [], memoryWrites: [] });
+        return res.end();
+      }
 
       let streamResult = await runAgentLoop(primaryModelChain, !hasImage, onDelta);
 
@@ -847,6 +881,17 @@ Rules:
       await logUsage();
       sendEvent({ type: "done", sources: zyntra_sources, memoryWrites: zyntra_memory_writes });
       return res.end();
+    }
+
+    // Non-streaming path (lite/image/no-stream callers) — same
+    // compound-first, gpt-oss-fallback logic as the streaming branch above.
+    if (compoundAnswer) {
+      await logUsage();
+      return res.status(200).json({
+        choices: [{ message: { role: 'assistant', content: compoundAnswer }, finish_reason: 'stop' }],
+        zyntra_sources: [],
+        zyntra_memory_writes: []
+      });
     }
 
     let result = await runAgentLoop(primaryModelChain, !hasImage);
