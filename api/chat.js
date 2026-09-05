@@ -165,6 +165,143 @@ const TOOLS = [
     requiresGoogle: true,
     type: "function",
     function: {
+      name: "search_emails",
+      description: "Search the user's connected Gmail inbox. Only available once the user has connected Google in Settings. Uses Gmail's own search syntax (e.g. 'from:someone@example.com', 'subject:invoice', 'newer_than:7d', 'is:unread') — combine terms as needed. Returns each match's id, subject, sender, date, and a short snippet; use the id with read_email to get the full body.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Gmail search query, e.g. 'newer_than:7d' or 'from:boss@company.com is:unread'." },
+          max_results: { type: "number", description: "Max emails to return. Defaults to 10, cap at 20." }
+        },
+        required: ["query"]
+      }
+    },
+    async execute({ query, max_results }, ctx) {
+      if (!ctx?.googleClient) return { error: "Gmail isn't connected for this user." };
+      try {
+        const gmail = google.gmail({ version: "v1", auth: ctx.googleClient });
+        const list = await gmail.users.messages.list({
+          userId: "me",
+          q: query,
+          maxResults: Math.min(max_results || 10, 20)
+        });
+        const messages = list.data.messages || [];
+        const details = await Promise.all(messages.map(async m => {
+          const msg = await gmail.users.messages.get({
+            userId: "me",
+            id: m.id,
+            format: "metadata",
+            metadataHeaders: ["Subject", "From", "Date"]
+          });
+          const headers = msg.data.payload?.headers || [];
+          const get = name => headers.find(h => h.name === name)?.value || "";
+          return {
+            id: m.id,
+            subject: get("Subject"),
+            from: get("From"),
+            date: get("Date"),
+            snippet: msg.data.snippet || ""
+          };
+        }));
+        return { emails: details };
+      } catch (err) {
+        console.error("search_emails failed:", err);
+        return { error: "Failed to search Gmail: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresGoogle: true,
+    type: "function",
+    function: {
+      name: "read_email",
+      description: "Read the full content of a specific email from the user's connected Gmail account. Requires the email's id — call search_emails first if you don't already have it.",
+      parameters: {
+        type: "object",
+        properties: {
+          email_id: { type: "string", description: "The email's id, from search_emails." }
+        },
+        required: ["email_id"]
+      }
+    },
+    async execute({ email_id }, ctx) {
+      if (!ctx?.googleClient) return { error: "Gmail isn't connected for this user." };
+      try {
+        const gmail = google.gmail({ version: "v1", auth: ctx.googleClient });
+        const msg = await gmail.users.messages.get({ userId: "me", id: email_id, format: "full" });
+        const headers = msg.data.payload?.headers || [];
+        const get = name => headers.find(h => h.name === name)?.value || "";
+
+        // Gmail bodies are base64url-encoded, and multipart emails nest
+        // the actual text inside a tree of "parts" — walk it looking for
+        // the first plain-text part rather than assuming a flat structure.
+        function extractPlainText(part) {
+          if (!part) return "";
+          if (part.mimeType === "text/plain" && part.body?.data) {
+            return Buffer.from(part.body.data, "base64url").toString("utf8");
+          }
+          for (const sub of part.parts || []) {
+            const found = extractPlainText(sub);
+            if (found) return found;
+          }
+          return "";
+        }
+        const body = extractPlainText(msg.data.payload) || msg.data.snippet || "";
+        const truncated = body.length > 8000;
+        return {
+          subject: get("Subject"),
+          from: get("From"),
+          to: get("To"),
+          date: get("Date"),
+          body: truncated ? body.slice(0, 8000) : body,
+          truncated
+        };
+      } catch (err) {
+        console.error("read_email failed:", err);
+        return { error: "Failed to read the email: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresGoogle: true,
+    type: "function",
+    function: {
+      name: "create_email_draft",
+      description: "Create a draft email in the user's connected Gmail account — does NOT send it. Confirm the recipient, subject, and body with the user before calling this, unless they already gave you all three explicitly.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Recipient email address." },
+          subject: { type: "string", description: "Email subject line." },
+          body: { type: "string", description: "Plain text email body." }
+        },
+        required: ["to", "subject", "body"]
+      }
+    },
+    async execute({ to, subject, body }, ctx) {
+      if (!ctx?.googleClient) return { error: "Gmail isn't connected for this user." };
+      try {
+        const gmail = google.gmail({ version: "v1", auth: ctx.googleClient });
+        const message = [
+          `To: ${to}`,
+          `Subject: ${subject}`,
+          "Content-Type: text/plain; charset=utf-8",
+          "",
+          body
+        ].join("\n");
+        const raw = Buffer.from(message).toString("base64url");
+        const draft = await gmail.users.drafts.create({ userId: "me", requestBody: { message: { raw } } });
+        return { created: true, draftId: draft.data.id, to, subject };
+      } catch (err) {
+        console.error("create_email_draft failed:", err);
+        return { error: "Failed to create the draft: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresGoogle: true,
+    type: "function",
+    function: {
       name: "create_calendar_event",
       description: "Create an event on the user's connected Google Calendar. Only available once the user has connected Google in Settings. Confirm the title, date/time, and duration with the user before calling this, unless they already gave you all the details explicitly.",
       parameters: {
@@ -771,12 +908,12 @@ Rules:
     if (googleClient) {
       systemMessages.push({
         role: "system",
-        content: "The user has connected their Google account. You may use send_email, create_calendar_event, list_calendar_events, update_calendar_event, cancel_calendar_event, search_drive_files, read_drive_file, and create_drive_file when they clearly ask you to send an email, manage their schedule, or work with their Drive files — check list_calendar_events before creating something if there's any chance of a conflict, search_drive_files before read_drive_file if you don't already have a file's id, and always state the exact recipient/subject/body, event details, or file name/content back to them and get confirmation first (unless they already gave every detail explicitly), since sending, creating, and modifying are real actions that can't be undone."
+        content: "The user has connected their Google account. You may use send_email, search_emails, read_email, create_email_draft, create_calendar_event, list_calendar_events, update_calendar_event, cancel_calendar_event, search_drive_files, read_drive_file, and create_drive_file when they clearly ask you to send/find/read email, manage their schedule, or work with their Drive files — search_emails before read_email if you don't already have an email's id, list_calendar_events before creating something if there's any chance of a conflict, search_drive_files before read_drive_file if you don't already have a file's id, and always state the exact recipient/subject/body, event details, or file name/content back to them and get confirmation first before sending an email, creating a calendar event, or creating a Drive file (unless they already gave every detail explicitly) — reading and searching don't need confirmation, but sending, creating, and modifying are real actions that can't be undone."
       });
     } else {
       systemMessages.push({
         role: "system",
-        content: "The user has NOT connected a Google account, so you do NOT have access to send_email, any calendar tools, or any Drive tools right now. If the user asks you to send an email, manage a calendar event, or search/read/create a Drive file, do not pretend to do it and do not just say you can't help — clearly tell them their Google account isn't connected yet and that they can connect it from Account Settings \u2192 Connections, then ask them to try again after connecting."
+        content: "The user has NOT connected a Google account, so you do NOT have access to send_email, search_emails, read_email, create_email_draft, any calendar tools, or any Drive tools right now. If the user asks you to send/find/read email, manage a calendar event, or search/read/create a Drive file, do not pretend to do it and do not just say you can't help — clearly tell them their Google account isn't connected yet and that they can connect it from the Plugins page \u2192 Connections, then ask them to try again after connecting."
       });
     }
 
@@ -788,7 +925,7 @@ Rules:
     } else {
       systemMessages.push({
         role: "system",
-        content: "The user has NOT connected a GitHub account, so you do NOT have access to any GitHub tools right now. If the user asks about their repos, issues, or pull requests, do not pretend to do it and do not just say you can't help — clearly tell them their GitHub account isn't connected yet and that they can connect it from Account Settings \u2192 Connections, then ask them to try again after connecting."
+        content: "The user has NOT connected a GitHub account, so you do NOT have access to any GitHub tools right now. If the user asks about their repos, issues, or pull requests, do not pretend to do it and do not just say you can't help — clearly tell them their GitHub account isn't connected yet and that they can connect it from the Plugins page \u2192 Connections, then ask them to try again after connecting."
       });
     }
 
