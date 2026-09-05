@@ -7339,3 +7339,24 @@ padding:0 14px 14px;
 .modal-box h1{ font-size:21px; }
 .chat-greeting h1{ font-size:21px; }
 }
+
+.plugin-connect-btn{
+flex-shrink:0;
+padding:8px 16px;
+border-radius:999px;
+border:1px solid #3a4180;
+background:#232a5c;
+color:#eef0ff;
+font-weight:600;
+font-size:13px;
+cursor:pointer;
+white-space:nowrap;
+transition:background .2s, opacity .2s;
+}
+.plugin-connect-btn:hover{
+background:#2c3470;
+}
+.plugin-connect-btn:disabled{
+opacity:.5;
+cursor:default;
+}
