@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { google } from "googleapis";
 import { getAdminDb } from "./firebaseAdmin.js";
+import { signState } from "./oauthState.js";
 
 // gmail.send lets Zyntra send email AS the user, from their own address —
 // it can't read their inbox. calendar.events is scoped to managing
@@ -28,38 +29,13 @@ export function buildOAuth2Client() {
   );
 }
 
-// The OAuth "state" parameter round-trips through Google unmodified, so
-// it's used here to carry a signed, tamper-proof record of which Firebase
-// user started the flow — no server-side session storage needed. Signed
-// with HMAC-SHA256 using a server-only secret; a 10 minute expiry limits
-// how long a captured state value could be replayed.
-export function signState(uid) {
-  const secret = process.env.OAUTH_STATE_SECRET;
-  if (!secret) throw new Error("OAUTH_STATE_SECRET environment variable is not set.");
-  const payload = `${uid}.${Date.now()}`;
-  const sig = crypto.createHmac("sha256", secret).update(payload).digest("hex");
-  return Buffer.from(`${payload}.${sig}`).toString("base64url");
-}
-
-export function verifyState(state) {
-  const secret = process.env.OAUTH_STATE_SECRET;
-  if (!secret) throw new Error("OAUTH_STATE_SECRET environment variable is not set.");
-  const decoded = Buffer.from(state, "base64url").toString("utf8");
-  const [uid, ts, sig] = decoded.split(".");
-  if (!uid || !ts || !sig) throw new Error("Malformed OAuth state.");
-  const expectedSig = crypto.createHmac("sha256", secret).update(`${uid}.${ts}`).digest("hex");
-  if (sig !== expectedSig) throw new Error("OAuth state signature mismatch.");
-  if (Date.now() - Number(ts) > 10 * 60 * 1000) throw new Error("OAuth state expired — please try connecting again.");
-  return uid;
-}
-
 export function getConsentUrl(uid) {
   const client = buildOAuth2Client();
   return client.generateAuthUrl({
     access_type: "offline", // required to get a refresh_token back
     prompt: "consent",      // forces Google to re-issue a refresh_token even on a repeat connect
     scope: SCOPES,
-    state: signState(uid)
+    state: signState("google", uid)
   });
 }
 
