@@ -1781,17 +1781,17 @@ const CONNECTORS = [
 
 const CONNECTOR_PROVIDER_CONFIG = {
     google: {
-        statusUrl: "/api/auth/google-status",
-        startUrl: "/api/auth/google-start",
-        disconnectUrl: "/api/auth/google-disconnect",
-        label: data => data.googleEmail ? `Connected as ${data.googleEmail}` : "Connected",
+        statusUrl: "/api/auth/oauth-status?provider=google",
+        startUrl: "/api/auth/oauth-start?provider=google",
+        disconnectUrl: "/api/auth/oauth-disconnect?provider=google",
+        label: data => data.label ? `Connected as ${data.label}` : "Connected",
         disconnectConfirm: "Zyntra will no longer be able to use Gmail, Google Drive, or Google Calendar on your behalf."
     },
     github: {
-        statusUrl: "/api/auth/github-status",
-        startUrl: "/api/auth/github-start",
-        disconnectUrl: "/api/auth/github-disconnect",
-        label: data => data.githubLogin ? `Connected as @${data.githubLogin}` : "Connected",
+        statusUrl: "/api/auth/oauth-status?provider=github",
+        startUrl: "/api/auth/oauth-start?provider=github",
+        disconnectUrl: "/api/auth/oauth-disconnect?provider=github",
+        label: data => data.label ? `Connected as ${data.label}` : "Connected",
         disconnectConfirm: "Zyntra will no longer be able to read your repos or create issues/PRs on your behalf."
     }
 };
