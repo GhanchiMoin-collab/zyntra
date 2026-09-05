@@ -1324,8 +1324,6 @@ function renderProfileModal(){
     switchSettingsSection("personalization");
     renderPinnedChats();
     renderSettingsMemoryList();
-    refreshGoogleConnectionStatus();
-    refreshGithubConnectionStatus();
 
     const email = localStorage.getItem("zyntra-user");
     const profile = getProfile();
