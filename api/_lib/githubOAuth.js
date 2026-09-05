@@ -8,15 +8,22 @@ import { signState } from "./oauthState.js";
 // separate "issues only" or "PRs only" scope in GitHub's OAuth model.
 const SCOPE = "repo";
 
+// Vercel env var values pasted with an accidental leading/trailing space
+// silently become "+" or "%20" once URL-encoded, producing an invalid
+// client_id GitHub rejects with a 404 — trimming here prevents that
+// entire class of copy-paste bug for both credentials.
+function clientId() { return process.env.GITHUB_CLIENT_ID?.trim(); }
+function clientSecret() { return process.env.GITHUB_CLIENT_SECRET?.trim(); }
+
 function redirectUri(req) {
   const appOrigin = process.env.APP_ORIGIN || `https://${req?.headers?.host || ""}`;
   return `${appOrigin}/api/auth/oauth-callback`;
 }
 
 export function getConsentUrl(uid, req) {
-  if (!process.env.GITHUB_CLIENT_ID) throw new Error("GitHub OAuth environment variables are not fully set.");
+  if (!clientId()) throw new Error("GitHub OAuth environment variables are not fully set.");
   const params = new URLSearchParams({
-    client_id: process.env.GITHUB_CLIENT_ID,
+    client_id: clientId(),
     redirect_uri: redirectUri(req),
     scope: SCOPE,
     state: signState("github", uid)
@@ -25,15 +32,15 @@ export function getConsentUrl(uid, req) {
 }
 
 export async function exchangeCodeForToken(code, req) {
-  if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
+  if (!clientId() || !clientSecret()) {
     throw new Error("GitHub OAuth environment variables are not fully set.");
   }
   const res = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Accept": "application/json" },
     body: JSON.stringify({
-      client_id: process.env.GITHUB_CLIENT_ID,
-      client_secret: process.env.GITHUB_CLIENT_SECRET,
+      client_id: clientId(),
+      client_secret: clientSecret(),
       code,
       redirect_uri: redirectUri(req)
     })
@@ -48,8 +55,8 @@ export async function refreshAccessToken(refresh_token) {
     method: "POST",
     headers: { "Content-Type": "application/json", "Accept": "application/json" },
     body: JSON.stringify({
-      client_id: process.env.GITHUB_CLIENT_ID,
-      client_secret: process.env.GITHUB_CLIENT_SECRET,
+      client_id: clientId(),
+      client_secret: clientSecret(),
       grant_type: "refresh_token",
       refresh_token
     })
@@ -92,9 +99,9 @@ export async function deleteStoredGithubTokens(uid) {
 // requires Basic-auth as the OAuth app itself to do this, not the
 // user's token.
 export async function revokeGithubToken(access_token) {
-  if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) return;
-  const basic = Buffer.from(`${process.env.GITHUB_CLIENT_ID}:${process.env.GITHUB_CLIENT_SECRET}`).toString("base64");
-  await fetch(`https://api.github.com/applications/${process.env.GITHUB_CLIENT_ID}/token`, {
+  if (!clientId() || !clientSecret()) return;
+  const basic = Buffer.from(`${clientId()}:${clientSecret()}`).toString("base64");
+  await fetch(`https://api.github.com/applications/${clientId()}/token`, {
     method: "DELETE",
     headers: {
       "Authorization": `Basic ${basic}`,
