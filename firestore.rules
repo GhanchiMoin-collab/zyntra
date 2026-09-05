@@ -12,5 +12,8 @@ service cloud.firestore {
     match /oauth_tokens/{userId} {
       allow read, write: if false;
     }
+    match /github_oauth_tokens/{userId} {
+      allow read, write: if false;
+    }
   }
 }
