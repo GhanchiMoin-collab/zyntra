@@ -1773,7 +1773,7 @@ function toggleScheduledTask(id){
 // /api/auth/*, keyed to the signed-in Firebase user.
 
 const CONNECTORS = [
-    { key: "gmail", provider: "google", slug: "gmail", color: "#EA4335", title: "Gmail", desc: "Read and manage Gmail" },
+    { key: "gmail", provider: "google", slug: "gmail", color: "#EA4335", title: "Gmail", desc: "Search, read, send email & drafts" },
     { key: "google-drive", provider: "google", slug: "googledrive", color: "#0F9D58", title: "Google Drive", desc: "Drive, Docs, Sheets or Slides" },
     { key: "google-calendar", provider: "google", slug: "googlecalendar", color: "#1A73E8", title: "Google Calendar", desc: "Manage Google Calendar events" },
     { key: "github", provider: "github", slug: "github", color: "#24292e", title: "GitHub", desc: "Repos, issues, and pull requests" }
