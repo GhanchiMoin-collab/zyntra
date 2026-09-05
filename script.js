@@ -1325,6 +1325,7 @@ function renderProfileModal(){
     renderPinnedChats();
     renderSettingsMemoryList();
     refreshGoogleConnectionStatus();
+    refreshGithubConnectionStatus();
 
     const email = localStorage.getItem("zyntra-user");
     const profile = getProfile();
@@ -1593,7 +1594,8 @@ async function shareProject(projectId, email){
 
 const PLUGIN_DEFS = [
     { key: "webSearch", icon: "🔎", color: "#3ea6ff", title: "Web Search & Research", desc: "Let Zyntra search the web for current information, and show the Research mode toggle for deeper, multi-source answers." },
-    { key: "googleTools", slug: "google", icon: "📧", color: "#ea4335", title: "Google Tools", desc: "Let a connected Google account be used for Gmail and Calendar actions." },
+    { key: "googleTools", slug: "google", icon: "📧", color: "#ea4335", title: "Google Tools", desc: "Let a connected Google account be used for Gmail, Calendar, and Drive actions." },
+    { key: "githubTools", slug: "github", icon: "🐙", color: "#24292e", title: "GitHub Tools", desc: "Let a connected GitHub account be used to read repos and manage issues/PRs." },
     { key: "memory", icon: "🧠", color: "#a259ff", title: "Memory", desc: "Let Zyntra remember facts about you across conversations." },
     { key: "imageGen", icon: "🖼️", color: "#37c98f", title: "Image Generator", desc: "Show the Image Generator tool in the sidebar." },
     { key: "codexBuilder", icon: "🧑‍💻", color: "#ffb545", title: "Codex", desc: "Show the Codex (coding + website building) tool in the sidebar." }
@@ -1616,7 +1618,6 @@ const PLUGIN_DEFS = [
 // where the logo fails to load, automatically fall back to the emoji —
 // see buildPluginIconEl().
 const PLUGIN_COMING_SOON = [
-    { slug: "github", icon: "🐙", color: "#24292e", title: "GitHub", desc: "Triage PRs, issues, CI, and publish flows" },
     { slug: "slack", icon: "💬", color: "#4A154B", title: "Slack", desc: "Read and manage Slack" },
     { slug: "microsoftoutlook", icon: "📧", color: "#0072C6", title: "Outlook Email", desc: "Triage Outlook inboxes" },
     { slug: "canva", icon: "🎨", color: "#00C4CC", title: "Canva", desc: "Create, review, edit designs" },
@@ -1717,6 +1718,9 @@ function applyPluginVisibility(){
 
     const googleCard = document.getElementById("googleConnectionCard");
     if(googleCard) googleCard.style.display = plugins.googleTools ? "" : "none";
+
+    const githubCard = document.getElementById("githubConnectionCard");
+    if(githubCard) githubCard.style.display = plugins.githubTools ? "" : "none";
 }
 
 // ---- Scheduled Tasks ----
@@ -1844,6 +1848,92 @@ document.getElementById("googleConnectBtn")?.addEventListener("click", async () 
         window.history.replaceState({}, "", window.location.pathname);
     } else if(params.has("google_error")){
         showToast("⚠️ Google connection failed: " + params.get("google_error"));
+        window.history.replaceState({}, "", window.location.pathname);
+    }
+})();
+
+// ---- GitHub connection (repos / issues / PRs) ----
+// Same pattern as Google above — the access token never touches this
+// browser, it's stored server-side keyed to the signed-in Firebase user.
+
+async function refreshGithubConnectionStatus(){
+    const statusEl = document.getElementById("githubConnectionStatus");
+    const btn = document.getElementById("githubConnectBtn");
+    if(!statusEl || !btn || !firebase.auth().currentUser) return;
+
+    statusEl.textContent = "Checking…";
+    try{
+        const idToken = await firebase.auth().currentUser.getIdToken();
+        const res = await fetch("/api/auth/github-status", {
+            headers: { "Authorization": "Bearer " + idToken }
+        });
+        const data = await res.json();
+        if(data.connected){
+            statusEl.textContent = data.githubLogin ? `Connected as @${data.githubLogin}` : "Connected";
+            btn.textContent = "Disconnect";
+            btn.dataset.connected = "true";
+        } else {
+            statusEl.textContent = "Not connected";
+            btn.textContent = "Connect";
+            btn.dataset.connected = "false";
+        }
+    }catch(err){
+        console.error("Couldn't check GitHub connection status:", err);
+        statusEl.textContent = "Couldn't check status — try again later.";
+    }
+}
+
+document.getElementById("githubConnectBtn")?.addEventListener("click", async () => {
+    if(!firebase.auth().currentUser) return;
+    const btn = document.getElementById("githubConnectBtn");
+
+    if(btn.dataset.connected === "true"){
+        confirmAction(
+            "Disconnect GitHub?",
+            "Zyntra will no longer be able to read your repos or create issues/PRs on your behalf.",
+            async () => {
+                try{
+                    const idToken = await firebase.auth().currentUser.getIdToken();
+                    await fetch("/api/auth/github-disconnect", {
+                        method: "POST",
+                        headers: { "Authorization": "Bearer " + idToken }
+                    });
+                    showToast("GitHub disconnected.");
+                    refreshGithubConnectionStatus();
+                }catch(err){
+                    console.error("Disconnect failed:", err);
+                    showToast("Couldn't disconnect. Please try again.");
+                }
+            }
+        );
+        return;
+    }
+
+    try{
+        btn.disabled = true;
+        const idToken = await firebase.auth().currentUser.getIdToken();
+        const res = await fetch("/api/auth/github-start", {
+            headers: { "Authorization": "Bearer " + idToken }
+        });
+        const data = await res.json();
+        if(!res.ok || !data.url) throw new Error(data.error || "Couldn't start GitHub connection.");
+        window.location.href = data.url; // full navigation — this leaves the app to GitHub's consent screen
+    }catch(err){
+        console.error("Connect failed:", err);
+        showToast(err.message || "Couldn't connect GitHub. Please try again.");
+        btn.disabled = false;
+    }
+});
+
+// GitHub redirects back to "/" with one of these query params after the
+// user finishes (or cancels) the consent screen — check once on load.
+(function handleGithubRedirectResult(){
+    const params = new URLSearchParams(window.location.search);
+    if(params.has("github_connected")){
+        showToast("✅ GitHub connected!");
+        window.history.replaceState({}, "", window.location.pathname);
+    } else if(params.has("github_error")){
+        showToast("⚠️ GitHub connection failed: " + params.get("github_error"));
         window.history.replaceState({}, "", window.location.pathname);
     }
 })();
