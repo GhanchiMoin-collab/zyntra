@@ -1835,7 +1835,9 @@ async function handleConnectorClick(connector){
             config.disconnectConfirm,
             async () => {
                 try{
-                    const idToken = await firebase.auth().currentUser.getIdToken();
+                    const user = await getCurrentFirebaseUser();
+                    if(!user) { showToast("Please sign in first."); return; }
+                    const idToken = await user.getIdToken();
                     await fetch(config.disconnectUrl, {
                         method: "POST",
                         headers: { "Authorization": "Bearer " + idToken }
@@ -1852,7 +1854,9 @@ async function handleConnectorClick(connector){
     }
 
     try{
-        const idToken = await firebase.auth().currentUser.getIdToken();
+        const user = await getCurrentFirebaseUser();
+        if(!user) { showToast("Please sign in first, then try connecting again."); return; }
+        const idToken = await user.getIdToken();
         const res = await fetch(config.startUrl, {
             headers: { "Authorization": "Bearer " + idToken }
         });
@@ -1995,6 +1999,22 @@ firebase.auth().onAuthStateChanged(user => {
         projectsCache = [];
     }
 });
+
+// firebase.auth().currentUser can briefly be null right after a sign-in
+// completes, before Firebase's internal state has fully settled — so
+// anything that needs "the signed-in user, right now" should await this
+// instead of reading .currentUser directly, which can otherwise throw
+// "Cannot read properties of null" in that narrow window.
+function getCurrentFirebaseUser(){
+    if(firebase.auth().currentUser) return Promise.resolve(firebase.auth().currentUser);
+    return new Promise((resolve) => {
+        const unsubscribe = firebase.auth().onAuthStateChanged(user => {
+            unsubscribe();
+            resolve(user);
+        });
+        setTimeout(() => { unsubscribe(); resolve(firebase.auth().currentUser); }, 3000);
+    });
+}
 
 // Wrap the existing local-save functions (declared earlier in this file)
 // so every place that already calls them also schedules a cloud save,
