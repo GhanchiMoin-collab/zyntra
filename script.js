@@ -1765,55 +1765,85 @@ function toggleScheduledTask(id){
     saveScheduledTasks(tasks);
 }
 
-// ---- Google connection (Gmail / Calendar) ----
-// The refresh token itself never touches this browser — it's stored
-// server-side by /api/auth/*, keyed to the signed-in Firebase user. This
-// section only handles the connect/disconnect UI and status display.
+// ---- Connections (Gmail, Google Drive, Google Calendar, GitHub) ----
+// Rendered as individual rows in the Plugins page, ChatGPT-connector
+// style — but Gmail/Drive/Calendar all share ONE underlying Google OAuth
+// connection (one grant covers all three scopes), so all three rows
+// reflect the same status and connecting/disconnecting any one of them
+// connects/disconnects all three. GitHub is fully separate. The actual
+// token never touches this browser — it's stored server-side by
+// /api/auth/*, keyed to the signed-in Firebase user.
 
-async function refreshGoogleConnectionStatus(){
-    const statusEl = document.getElementById("googleConnectionStatus");
-    const btn = document.getElementById("googleConnectBtn");
-    if(!statusEl || !btn || !firebase.auth().currentUser) return;
+const CONNECTORS = [
+    { key: "gmail", provider: "google", slug: "gmail", color: "#EA4335", title: "Gmail", desc: "Read and manage Gmail" },
+    { key: "google-drive", provider: "google", slug: "googledrive", color: "#0F9D58", title: "Google Drive", desc: "Drive, Docs, Sheets or Slides" },
+    { key: "google-calendar", provider: "google", slug: "googlecalendar", color: "#1A73E8", title: "Google Calendar", desc: "Manage Google Calendar events" },
+    { key: "github", provider: "github", slug: "github", color: "#24292e", title: "GitHub", desc: "Repos, issues, and pull requests" }
+];
 
-    statusEl.textContent = "Checking…";
+const CONNECTOR_PROVIDER_CONFIG = {
+    google: {
+        statusUrl: "/api/auth/google-status",
+        startUrl: "/api/auth/google-start",
+        disconnectUrl: "/api/auth/google-disconnect",
+        label: data => data.googleEmail ? `Connected as ${data.googleEmail}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to use Gmail, Google Drive, or Google Calendar on your behalf."
+    },
+    github: {
+        statusUrl: "/api/auth/github-status",
+        startUrl: "/api/auth/github-start",
+        disconnectUrl: "/api/auth/github-disconnect",
+        label: data => data.githubLogin ? `Connected as @${data.githubLogin}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to read your repos or create issues/PRs on your behalf."
+    }
+};
+
+// Cache of the last known status per provider, so all rows for that
+// provider (e.g. the 3 Google rows) render consistently without each
+// firing its own network request.
+let connectorStatusCache = {};
+
+async function fetchConnectorStatus(provider){
+    if(!firebase.auth().currentUser) return { connected: false, error: true };
     try{
         const idToken = await firebase.auth().currentUser.getIdToken();
-        const res = await fetch("/api/auth/google-status", {
+        const res = await fetch(CONNECTOR_PROVIDER_CONFIG[provider].statusUrl, {
             headers: { "Authorization": "Bearer " + idToken }
         });
         const data = await res.json();
-        if(data.connected){
-            statusEl.textContent = data.googleEmail ? `Connected as ${data.googleEmail}` : "Connected";
-            btn.textContent = "Disconnect";
-            btn.dataset.connected = "true";
-        } else {
-            statusEl.textContent = "Not connected";
-            btn.textContent = "Connect";
-            btn.dataset.connected = "false";
-        }
+        return { ...data, error: false };
     }catch(err){
-        console.error("Couldn't check Google connection status:", err);
-        statusEl.textContent = "Couldn't check status — try again later.";
+        console.error(`Couldn't check ${provider} connection status:`, err);
+        return { connected: false, error: true };
     }
 }
 
-document.getElementById("googleConnectBtn")?.addEventListener("click", async () => {
-    if(!firebase.auth().currentUser) return;
-    const btn = document.getElementById("googleConnectBtn");
+async function refreshAllConnectorStatuses(){
+    const providers = [...new Set(CONNECTORS.map(c => c.provider))];
+    await Promise.all(providers.map(async provider => {
+        connectorStatusCache[provider] = await fetchConnectorStatus(provider);
+    }));
+    renderPluginsConnectionsList();
+}
 
-    if(btn.dataset.connected === "true"){
+async function handleConnectorClick(connector){
+    const provider = connector.provider;
+    const config = CONNECTOR_PROVIDER_CONFIG[provider];
+    const status = connectorStatusCache[provider];
+
+    if(status?.connected){
         confirmAction(
-            "Disconnect Google?",
-            "Zyntra will no longer be able to send emails or create calendar events on your behalf.",
+            `Disconnect ${provider === "google" ? "Google" : "GitHub"}?`,
+            config.disconnectConfirm,
             async () => {
                 try{
                     const idToken = await firebase.auth().currentUser.getIdToken();
-                    await fetch("/api/auth/google-disconnect", {
+                    await fetch(config.disconnectUrl, {
                         method: "POST",
                         headers: { "Authorization": "Bearer " + idToken }
                     });
-                    showToast("Google disconnected.");
-                    refreshGoogleConnectionStatus();
+                    showToast(`${provider === "google" ? "Google" : "GitHub"} disconnected.`);
+                    refreshAllConnectorStatuses();
                 }catch(err){
                     console.error("Disconnect failed:", err);
                     showToast("Couldn't disconnect. Please try again.");
@@ -1824,24 +1854,22 @@ document.getElementById("googleConnectBtn")?.addEventListener("click", async () 
     }
 
     try{
-        btn.disabled = true;
         const idToken = await firebase.auth().currentUser.getIdToken();
-        const res = await fetch("/api/auth/google-start", {
+        const res = await fetch(config.startUrl, {
             headers: { "Authorization": "Bearer " + idToken }
         });
         const data = await res.json();
-        if(!res.ok || !data.url) throw new Error(data.error || "Couldn't start Google connection.");
-        window.location.href = data.url; // full navigation — this leaves the app to Google's consent screen
+        if(!res.ok || !data.url) throw new Error(data.error || `Couldn't start ${provider} connection.`);
+        window.location.href = data.url; // full navigation — leaves the app to the provider's consent screen
     }catch(err){
         console.error("Connect failed:", err);
-        showToast(err.message || "Couldn't connect Google. Please try again.");
-        btn.disabled = false;
+        showToast(err.message || `Couldn't connect ${provider}. Please try again.`);
     }
-});
+}
 
-// Google redirects back to "/" with one of these query params after the
-// user finishes (or cancels) the consent screen — check once on load.
-(function handleGoogleRedirectResult(){
+// Google/GitHub redirect back to "/" with one of these query params after
+// the user finishes (or cancels) the consent screen — check once on load.
+(function handleConnectorRedirectResult(){
     const params = new URLSearchParams(window.location.search);
     if(params.has("google_connected")){
         showToast("✅ Google connected!");
@@ -1849,87 +1877,7 @@ document.getElementById("googleConnectBtn")?.addEventListener("click", async () 
     } else if(params.has("google_error")){
         showToast("⚠️ Google connection failed: " + params.get("google_error"));
         window.history.replaceState({}, "", window.location.pathname);
-    }
-})();
-
-// ---- GitHub connection (repos / issues / PRs) ----
-// Same pattern as Google above — the access token never touches this
-// browser, it's stored server-side keyed to the signed-in Firebase user.
-
-async function refreshGithubConnectionStatus(){
-    const statusEl = document.getElementById("githubConnectionStatus");
-    const btn = document.getElementById("githubConnectBtn");
-    if(!statusEl || !btn || !firebase.auth().currentUser) return;
-
-    statusEl.textContent = "Checking…";
-    try{
-        const idToken = await firebase.auth().currentUser.getIdToken();
-        const res = await fetch("/api/auth/github-status", {
-            headers: { "Authorization": "Bearer " + idToken }
-        });
-        const data = await res.json();
-        if(data.connected){
-            statusEl.textContent = data.githubLogin ? `Connected as @${data.githubLogin}` : "Connected";
-            btn.textContent = "Disconnect";
-            btn.dataset.connected = "true";
-        } else {
-            statusEl.textContent = "Not connected";
-            btn.textContent = "Connect";
-            btn.dataset.connected = "false";
-        }
-    }catch(err){
-        console.error("Couldn't check GitHub connection status:", err);
-        statusEl.textContent = "Couldn't check status — try again later.";
-    }
-}
-
-document.getElementById("githubConnectBtn")?.addEventListener("click", async () => {
-    if(!firebase.auth().currentUser) return;
-    const btn = document.getElementById("githubConnectBtn");
-
-    if(btn.dataset.connected === "true"){
-        confirmAction(
-            "Disconnect GitHub?",
-            "Zyntra will no longer be able to read your repos or create issues/PRs on your behalf.",
-            async () => {
-                try{
-                    const idToken = await firebase.auth().currentUser.getIdToken();
-                    await fetch("/api/auth/github-disconnect", {
-                        method: "POST",
-                        headers: { "Authorization": "Bearer " + idToken }
-                    });
-                    showToast("GitHub disconnected.");
-                    refreshGithubConnectionStatus();
-                }catch(err){
-                    console.error("Disconnect failed:", err);
-                    showToast("Couldn't disconnect. Please try again.");
-                }
-            }
-        );
-        return;
-    }
-
-    try{
-        btn.disabled = true;
-        const idToken = await firebase.auth().currentUser.getIdToken();
-        const res = await fetch("/api/auth/github-start", {
-            headers: { "Authorization": "Bearer " + idToken }
-        });
-        const data = await res.json();
-        if(!res.ok || !data.url) throw new Error(data.error || "Couldn't start GitHub connection.");
-        window.location.href = data.url; // full navigation — this leaves the app to GitHub's consent screen
-    }catch(err){
-        console.error("Connect failed:", err);
-        showToast(err.message || "Couldn't connect GitHub. Please try again.");
-        btn.disabled = false;
-    }
-});
-
-// GitHub redirects back to "/" with one of these query params after the
-// user finishes (or cancels) the consent screen — check once on load.
-(function handleGithubRedirectResult(){
-    const params = new URLSearchParams(window.location.search);
-    if(params.has("github_connected")){
+    } else if(params.has("github_connected")){
         showToast("✅ GitHub connected!");
         window.history.replaceState({}, "", window.location.pathname);
     } else if(params.has("github_error")){
@@ -1937,6 +1885,50 @@ document.getElementById("githubConnectBtn")?.addEventListener("click", async () 
         window.history.replaceState({}, "", window.location.pathname);
     }
 })();
+
+function renderPluginsConnectionsList(){
+    const list = document.getElementById("pluginsConnectionsList");
+    if(!list) return;
+    list.innerHTML = "";
+
+    CONNECTORS.forEach(connector => {
+        const status = connectorStatusCache[connector.provider];
+        const connected = status?.connected;
+
+        const row = document.createElement("div");
+        row.className = "plugin-row";
+
+        const left = document.createElement("div");
+        left.style.cssText = "display:flex; align-items:flex-start;";
+        const icon = buildPluginIconEl(connector);
+        const textWrap = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "plugin-row-title";
+        title.textContent = connector.title;
+        const desc = document.createElement("div");
+        desc.className = "plugin-row-desc";
+        desc.textContent = status === undefined ? "Checking…" : (connected ? CONNECTOR_PROVIDER_CONFIG[connector.provider].label(status) : connector.desc);
+        textWrap.appendChild(title);
+        textWrap.appendChild(desc);
+        left.appendChild(icon);
+        left.appendChild(textWrap);
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "plugin-connect-btn";
+        btn.textContent = connected ? "Disconnect" : "+";
+        btn.title = connected ? "Disconnect" : "Connect";
+        btn.disabled = status === undefined;
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            handleConnectorClick(connector);
+        });
+
+        row.appendChild(left);
+        row.appendChild(btn);
+        list.appendChild(row);
+    });
+}
 
 // Debounced so rapid local writes (e.g. several messages in a row)
 // collapse into one Firestore write instead of one per message.
@@ -2872,6 +2864,8 @@ document.getElementById("navPlugins")?.addEventListener("click", () => {
     setActiveNav("plugins");
     document.getElementById("pluginsSearchInput").value = "";
     pluginsShowAllComingSoon = false;
+    renderPluginsConnectionsList();
+    refreshAllConnectorStatuses();
     renderPluginsInstalledRow();
     renderPluginsList("");
     renderComingSoonPlugins("");
