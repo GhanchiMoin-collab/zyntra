@@ -3,16 +3,21 @@ import { google } from "googleapis";
 import { getAdminDb } from "./firebaseAdmin.js";
 import { signState } from "./oauthState.js";
 
-// gmail.send lets Zyntra send email AS the user, from their own address —
-// it can't read their inbox. calendar.events is scoped to managing
-// events only, not the rest of Calendar settings. drive.readonly lets
-// Zyntra search/read the user's existing files (needed since we can't
-// know a file's ID without search); drive.file is separate and only
-// covers files Zyntra itself creates, never the rest of the user's Drive.
+// gmail.send lets Zyntra send email AS the user, from their own address.
+// gmail.readonly lets Zyntra search and read the user's existing messages.
+// gmail.compose covers creating (and updating) drafts — Google has no
+// narrower scope for "drafts only, never send". calendar.events is
+// scoped to managing events only, not the rest of Calendar settings.
+// drive.readonly lets Zyntra search/read the user's existing files
+// (needed since we can't know a file's ID without search); drive.file is
+// separate and only covers files Zyntra itself creates, never the rest
+// of the user's Drive.
 const SCOPES = [
   "openid",
   "email",
   "https://www.googleapis.com/auth/gmail.send",
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.compose",
   "https://www.googleapis.com/auth/calendar.events",
   "https://www.googleapis.com/auth/drive.readonly",
   "https://www.googleapis.com/auth/drive.file"
