@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import { getAdminAuth, getAdminDb, increment } from "./_lib/firebaseAdmin.js";
 import { getAuthorizedClientForUser } from "./_lib/googleOAuth.js";
+import { getGithubAccessTokenForUser } from "./_lib/githubOAuth.js";
 
 // Vercel's default serverless timeout (10s on Hobby) isn't enough for a
 // real web search — the model may call a tool, wait on the result, then
@@ -17,6 +18,25 @@ export const config = {
 // when the model asks for it). Add new tools here — e.g. Gmail/Calendar
 // actions — and they'll automatically be available to the agent loop
 // below with no other code changes needed.
+
+// Small helper for GitHub's REST API — every GitHub tool goes through
+// this so auth headers and error handling stay in one place.
+async function githubApi(token, path, method = "GET", body) {
+  const res = await fetch(`https://api.github.com${path}`, {
+    method,
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/vnd.github+json",
+      ...(body ? { "Content-Type": "application/json" } : {})
+    },
+    ...(body ? { body: JSON.stringify(body) } : {})
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.message || `GitHub API error (${res.status})`);
+  }
+  return data;
+}
 
 const TOOLS = [
   {
@@ -397,6 +417,142 @@ const TOOLS = [
         return { error: "Failed to create the file: " + (err.message || "unknown error") };
       }
     }
+  },
+  {
+    requiresGithub: true,
+    type: "function",
+    function: {
+      name: "list_github_repos",
+      description: "List the user's GitHub repositories (their own repos plus ones they collaborate on). Only available once the user has connected GitHub in Settings. Use this to find a repo's full name (owner/repo) before calling other GitHub tools.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Optional — filter repos by name substring." }
+        }
+      }
+    },
+    async execute({ query }, ctx) {
+      if (!ctx?.githubToken) return { error: "GitHub isn't connected for this user." };
+      try {
+        const data = await githubApi(ctx.githubToken, "/user/repos?per_page=30&sort=updated");
+        let repos = data.map(r => ({ full_name: r.full_name, private: r.private, description: r.description, url: r.html_url, updated: r.updated_at }));
+        if (query) repos = repos.filter(r => r.full_name.toLowerCase().includes(query.toLowerCase()));
+        return { repos: repos.slice(0, 15) };
+      } catch (err) {
+        console.error("list_github_repos failed:", err);
+        return { error: "Failed to list repositories: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresGithub: true,
+    type: "function",
+    function: {
+      name: "list_github_issues",
+      description: "List open issues on a GitHub repository the user has access to. Requires the repo's full name (owner/repo) — use list_github_repos first if you don't have it.",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: "Repository full name, e.g. 'octocat/hello-world'." },
+          state: { type: "string", enum: ["open", "closed", "all"], description: "Defaults to open." }
+        },
+        required: ["repo"]
+      }
+    },
+    async execute({ repo, state }, ctx) {
+      if (!ctx?.githubToken) return { error: "GitHub isn't connected for this user." };
+      try {
+        const data = await githubApi(ctx.githubToken, `/repos/${repo}/issues?state=${state || "open"}&per_page=20`);
+        const issues = data.filter(i => !i.pull_request).map(i => ({ number: i.number, title: i.title, state: i.state, url: i.html_url, updated: i.updated_at }));
+        return { issues };
+      } catch (err) {
+        console.error("list_github_issues failed:", err);
+        return { error: "Failed to list issues: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresGithub: true,
+    type: "function",
+    function: {
+      name: "create_github_issue",
+      description: "Create a new issue on a GitHub repository the user has access to. Confirm the repo, title, and body with the user before calling this, unless they already gave every detail explicitly, since this is a real action visible to everyone with repo access.",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: "Repository full name, e.g. 'octocat/hello-world'." },
+          title: { type: "string", description: "Issue title." },
+          body: { type: "string", description: "Issue description/body. Optional." }
+        },
+        required: ["repo", "title"]
+      }
+    },
+    async execute({ repo, title, body }, ctx) {
+      if (!ctx?.githubToken) return { error: "GitHub isn't connected for this user." };
+      try {
+        const data = await githubApi(ctx.githubToken, `/repos/${repo}/issues`, "POST", { title, body: body || "" });
+        return { created: true, number: data.number, url: data.html_url };
+      } catch (err) {
+        console.error("create_github_issue failed:", err);
+        return { error: "Failed to create the issue: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresGithub: true,
+    type: "function",
+    function: {
+      name: "list_github_pull_requests",
+      description: "List open pull requests on a GitHub repository the user has access to. Requires the repo's full name (owner/repo).",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: "Repository full name, e.g. 'octocat/hello-world'." },
+          state: { type: "string", enum: ["open", "closed", "all"], description: "Defaults to open." }
+        },
+        required: ["repo"]
+      }
+    },
+    async execute({ repo, state }, ctx) {
+      if (!ctx?.githubToken) return { error: "GitHub isn't connected for this user." };
+      try {
+        const data = await githubApi(ctx.githubToken, `/repos/${repo}/pulls?state=${state || "open"}&per_page=20`);
+        const prs = data.map(p => ({ number: p.number, title: p.title, state: p.state, url: p.html_url, branch: p.head?.ref, updated: p.updated_at }));
+        return { pull_requests: prs };
+      } catch (err) {
+        console.error("list_github_pull_requests failed:", err);
+        return { error: "Failed to list pull requests: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresGithub: true,
+    type: "function",
+    function: {
+      name: "create_github_pull_request",
+      description: "Create a new pull request on a GitHub repository the user has access to. Confirm repo, title, base branch, and head branch with the user before calling this, unless they already gave every detail explicitly, since this is a real, visible action.",
+      parameters: {
+        type: "object",
+        properties: {
+          repo: { type: "string", description: "Repository full name, e.g. 'octocat/hello-world'." },
+          title: { type: "string", description: "PR title." },
+          head: { type: "string", description: "The branch with the changes, e.g. 'feature-branch'." },
+          base: { type: "string", description: "The branch to merge into, e.g. 'main'." },
+          body: { type: "string", description: "PR description. Optional." }
+        },
+        required: ["repo", "title", "head", "base"]
+      }
+    },
+    async execute({ repo, title, head, base, body }, ctx) {
+      if (!ctx?.githubToken) return { error: "GitHub isn't connected for this user." };
+      try {
+        const data = await githubApi(ctx.githubToken, `/repos/${repo}/pulls`, "POST", { title, head, base, body: body || "" });
+        return { created: true, number: data.number, url: data.html_url };
+      } catch (err) {
+        console.error("create_github_pull_request failed:", err);
+        return { error: "Failed to create the pull request: " + (err.message || "unknown error") };
+      }
+    }
   }
 
   // Next tools to add here, following the same { function, execute } shape.
@@ -513,6 +669,7 @@ export default async function handler(req, res) {
     // Gmail/Calendar tools aren't offered this request; plain chat is
     // completely unaffected.
     let googleClient = null;
+    let githubToken = null;
     let uid = null; // trusted user id, used below for server-side usage tracking
     try {
       const authHeader = req.headers.authorization || "";
@@ -521,9 +678,10 @@ export default async function handler(req, res) {
         const decoded = await getAdminAuth().verifyIdToken(idToken);
         uid = decoded.uid;
         googleClient = await getAuthorizedClientForUser(decoded.uid);
+        githubToken = await getGithubAccessTokenForUser(decoded.uid);
       }
     } catch (err) {
-      console.error("Auth/Google lookup failed (continuing without Google tools):", err.message);
+      console.error("Auth/Google/GitHub lookup failed (continuing without those tools):", err.message);
     }
 
     // ---- Usage tracking ----
@@ -619,6 +777,18 @@ Rules:
       systemMessages.push({
         role: "system",
         content: "The user has NOT connected a Google account, so you do NOT have access to send_email, any calendar tools, or any Drive tools right now. If the user asks you to send an email, manage a calendar event, or search/read/create a Drive file, do not pretend to do it and do not just say you can't help — clearly tell them their Google account isn't connected yet and that they can connect it from Account Settings \u2192 Connections, then ask them to try again after connecting."
+      });
+    }
+
+    if (githubToken) {
+      systemMessages.push({
+        role: "system",
+        content: "The user has connected their GitHub account. You may use list_github_repos, list_github_issues, create_github_issue, list_github_pull_requests, and create_github_pull_request when they clearly ask about their repos, issues, or PRs — use list_github_repos first if you don't already have a repo's exact owner/repo name, and always state back the exact repo, title, and body/branches before creating an issue or PR and get confirmation first (unless they already gave every detail explicitly), since these are real, visible actions."
+      });
+    } else {
+      systemMessages.push({
+        role: "system",
+        content: "The user has NOT connected a GitHub account, so you do NOT have access to any GitHub tools right now. If the user asks about their repos, issues, or pull requests, do not pretend to do it and do not just say you can't help — clearly tell them their GitHub account isn't connected yet and that they can connect it from Account Settings \u2192 Connections, then ask them to try again after connecting."
       });
     }
 
@@ -858,7 +1028,7 @@ Rules:
           messages: conversation
         };
         if (includeTools) {
-          const availableTools = TOOLS.filter(t => !t.requiresGoogle || !!googleClient);
+          const availableTools = TOOLS.filter(t => (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken));
           body.tools = availableTools.map(({ function: fn }) => ({ type: "function", function: fn }));
           body.tool_choice = (round === 0 && (forceSearch || research) && !hasImage) ? { type: "function", function: { name: "web_search" } } : "auto";
         }
@@ -884,7 +1054,7 @@ Rules:
         // results, and loop back so it can use them in its next reply.
         conversation = [...conversation, message];
         for (const call of toolCalls) {
-          const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient });
+          const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient, githubToken });
           conversation.push({
             role: "tool",
             tool_call_id: call.id,
