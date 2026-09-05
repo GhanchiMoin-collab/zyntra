@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { getAdminDb } from "./firebaseAdmin.js";
+import { signState } from "./oauthState.js";
 
 // "repo" grants read/write on repos, issues, and pull requests (including
 // private repos the user has access to) — the narrowest single GitHub
@@ -9,29 +10,7 @@ const SCOPE = "repo";
 
 function redirectUri(req) {
   const appOrigin = process.env.APP_ORIGIN || `https://${req?.headers?.host || ""}`;
-  return `${appOrigin}/api/auth/github-callback`;
-}
-
-// Same signed-state pattern as Google OAuth — carries the Firebase uid
-// through GitHub's redirect without needing server-side session storage.
-export function signState(uid) {
-  const secret = process.env.OAUTH_STATE_SECRET;
-  if (!secret) throw new Error("OAUTH_STATE_SECRET environment variable is not set.");
-  const payload = `${uid}.${Date.now()}`;
-  const sig = crypto.createHmac("sha256", secret).update(payload).digest("hex");
-  return Buffer.from(`${payload}.${sig}`).toString("base64url");
-}
-
-export function verifyState(state) {
-  const secret = process.env.OAUTH_STATE_SECRET;
-  if (!secret) throw new Error("OAUTH_STATE_SECRET environment variable is not set.");
-  const decoded = Buffer.from(state, "base64url").toString("utf8");
-  const [uid, ts, sig] = decoded.split(".");
-  if (!uid || !ts || !sig) throw new Error("Malformed OAuth state.");
-  const expectedSig = crypto.createHmac("sha256", secret).update(`${uid}.${ts}`).digest("hex");
-  if (sig !== expectedSig) throw new Error("OAuth state signature mismatch.");
-  if (Date.now() - Number(ts) > 10 * 60 * 1000) throw new Error("OAuth state expired — please try connecting again.");
-  return uid;
+  return `${appOrigin}/api/auth/oauth-callback`;
 }
 
 export function getConsentUrl(uid, req) {
@@ -40,7 +19,7 @@ export function getConsentUrl(uid, req) {
     client_id: process.env.GITHUB_CLIENT_ID,
     redirect_uri: redirectUri(req),
     scope: SCOPE,
-    state: signState(uid)
+    state: signState("github", uid)
   });
   return `https://github.com/login/oauth/authorize?${params.toString()}`;
 }
