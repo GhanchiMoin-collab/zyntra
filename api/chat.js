@@ -3,6 +3,7 @@ import { getAdminAuth, getAdminDb, increment } from "./_lib/firebaseAdmin.js";
 import { getAuthorizedClientForUser } from "./_lib/googleOAuth.js";
 import { getGithubAccessTokenForUser } from "./_lib/githubOAuth.js";
 import { getSlackAccessTokenForUser } from "./_lib/slackOAuth.js";
+import { getDiscordConnectionForUser, botToken as discordBotToken } from "./_lib/discordOAuth.js";
 
 // Vercel's default serverless timeout (10s on Hobby) isn't enough for a
 // real web search — the model may call a tool, wait on the result, then
@@ -53,6 +54,24 @@ async function slackApi(token, method, params = {}) {
   });
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || `Slack API error (${method})`);
+  return data;
+}
+
+// Discord's bot API — unlike the other integrations, this always uses
+// the one shared bot token (from env), never a per-user token, since
+// only the bot (now a member of the user's chosen server) can read or
+// send channel messages.
+async function discordApi(path, method = "GET", body) {
+  const res = await fetch(`https://discord.com/api/v10${path}`, {
+    method,
+    headers: {
+      "Authorization": `Bot ${discordBotToken()}`,
+      ...(body ? { "Content-Type": "application/json" } : {})
+    },
+    ...(body ? { body: JSON.stringify(body) } : {})
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || `Discord API error (${res.status})`);
   return data;
 }
 
@@ -847,6 +866,84 @@ const TOOLS = [
         return { error: "Failed to list Slack users: " + (err.message || "unknown error") };
       }
     }
+  },
+  {
+    requiresDiscord: true,
+    type: "function",
+    function: {
+      name: "list_discord_channels",
+      description: "List text channels in the Discord server the user connected. Only available once the user has connected Discord in Settings and added the bot to a server. Use this to find a channel's id before calling other Discord tools.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Optional — filter channels by name substring." }
+        }
+      }
+    },
+    async execute({ query }, ctx) {
+      if (!ctx?.discordConnection) return { error: "Discord isn't connected for this user." };
+      try {
+        const channels = await discordApi(`/guilds/${ctx.discordConnection.guildId}/channels`);
+        let textChannels = channels.filter(c => c.type === 0).map(c => ({ id: c.id, name: c.name }));
+        if (query) textChannels = textChannels.filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
+        return { channels: textChannels.slice(0, 30) };
+      } catch (err) {
+        console.error("list_discord_channels failed:", err);
+        return { error: "Failed to list Discord channels: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresDiscord: true,
+    type: "function",
+    function: {
+      name: "read_discord_messages",
+      description: "Read recent messages from a Discord text channel. Requires the channel's id — use list_discord_channels first if you don't already have it.",
+      parameters: {
+        type: "object",
+        properties: {
+          channel_id: { type: "string", description: "Channel id, from list_discord_channels." },
+          limit: { type: "number", description: "Max messages to return. Defaults to 20, cap at 50." }
+        },
+        required: ["channel_id"]
+      }
+    },
+    async execute({ channel_id, limit }, ctx) {
+      if (!ctx?.discordConnection) return { error: "Discord isn't connected for this user." };
+      try {
+        const messages = await discordApi(`/channels/${channel_id}/messages?limit=${Math.min(limit || 20, 50)}`);
+        return { messages: messages.map(m => ({ author: m.author?.username, content: m.content, timestamp: m.timestamp })) };
+      } catch (err) {
+        console.error("read_discord_messages failed:", err);
+        return { error: "Failed to read Discord messages: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresDiscord: true,
+    type: "function",
+    function: {
+      name: "send_discord_message",
+      description: "Send a message to a Discord text channel on the user's behalf (posted as the Zyntra bot). Confirm the channel and exact message text with the user before calling this, unless they already gave you both explicitly, since this is a real, visible action.",
+      parameters: {
+        type: "object",
+        properties: {
+          channel_id: { type: "string", description: "Channel id, from list_discord_channels." },
+          content: { type: "string", description: "Message text to send." }
+        },
+        required: ["channel_id", "content"]
+      }
+    },
+    async execute({ channel_id, content }, ctx) {
+      if (!ctx?.discordConnection) return { error: "Discord isn't connected for this user." };
+      try {
+        const msg = await discordApi(`/channels/${channel_id}/messages`, "POST", { content });
+        return { sent: true, id: msg.id };
+      } catch (err) {
+        console.error("send_discord_message failed:", err);
+        return { error: "Failed to send the Discord message: " + (err.message || "unknown error") };
+      }
+    }
   }
 
   // Next tools to add here, following the same { function, execute } shape.
@@ -965,6 +1062,7 @@ export default async function handler(req, res) {
     let googleClient = null;
     let githubToken = null;
     let slackToken = null;
+    let discordConnection = null;
     let uid = null; // trusted user id, used below for server-side usage tracking
     try {
       const authHeader = req.headers.authorization || "";
@@ -975,9 +1073,10 @@ export default async function handler(req, res) {
         googleClient = await getAuthorizedClientForUser(decoded.uid);
         githubToken = await getGithubAccessTokenForUser(decoded.uid);
         slackToken = await getSlackAccessTokenForUser(decoded.uid);
+        discordConnection = await getDiscordConnectionForUser(decoded.uid);
       }
     } catch (err) {
-      console.error("Auth/Google/GitHub/Slack lookup failed (continuing without those tools):", err.message);
+      console.error("Auth/Google/GitHub/Slack/Discord lookup failed (continuing without those tools):", err.message);
     }
 
     // ---- Usage tracking ----
@@ -1097,6 +1196,18 @@ Rules:
       systemMessages.push({
         role: "system",
         content: "The user has NOT connected a Slack account, so you do NOT have access to any Slack tools right now. If the user asks about their Slack channels, messages, or workspace, do not pretend to do it and do not just say you can't help — clearly tell them their Slack account isn't connected yet and that they can connect it from the Plugins page \u2192 Connections, then ask them to try again after connecting."
+      });
+    }
+
+    if (discordConnection) {
+      systemMessages.push({
+        role: "system",
+        content: `The user has connected their Discord account and added the Zyntra bot to their server "${discordConnection.guildName || "their server"}". You may use list_discord_channels, read_discord_messages, and send_discord_message when they clearly ask about that Discord server — use list_discord_channels first if you don't already have a channel's exact id, and always state back the exact channel and message text before sending and get confirmation first (unless they already gave every detail explicitly), since sending a message is a real, visible action other people will see. This only works within the one server they added the bot to, not any other Discord server.`
+      });
+    } else {
+      systemMessages.push({
+        role: "system",
+        content: "The user has NOT connected Discord (or hasn't added the bot to a server yet), so you do NOT have access to any Discord tools right now. If the user asks about a Discord server or messages, do not pretend to do it and do not just say you can't help — clearly tell them they need to connect Discord and add the bot to a server from the Plugins page \u2192 Connections, then ask them to try again after connecting."
       });
     }
 
@@ -1336,7 +1447,7 @@ Rules:
           messages: conversation
         };
         if (includeTools) {
-          const availableTools = TOOLS.filter(t => (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken) && (!t.requiresSlack || !!slackToken));
+          const availableTools = TOOLS.filter(t => (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken) && (!t.requiresSlack || !!slackToken) && (!t.requiresDiscord || !!discordConnection));
           body.tools = availableTools.map(({ function: fn }) => ({ type: "function", function: fn }));
           body.tool_choice = (round === 0 && (forceSearch || research) && !hasImage) ? { type: "function", function: { name: "web_search" } } : "auto";
         }
@@ -1362,7 +1473,7 @@ Rules:
         // results, and loop back so it can use them in its next reply.
         conversation = [...conversation, message];
         for (const call of toolCalls) {
-          const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient, githubToken, slackToken });
+          const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient, githubToken, slackToken, discordConnection });
           conversation.push({
             role: "tool",
             tool_call_id: call.id,
