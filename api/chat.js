@@ -4,6 +4,7 @@ import { getAuthorizedClientForUser } from "./_lib/googleOAuth.js";
 import { getGithubAccessTokenForUser } from "./_lib/githubOAuth.js";
 import { getSlackAccessTokenForUser } from "./_lib/slackOAuth.js";
 import { getDiscordConnectionForUser, botToken as discordBotToken } from "./_lib/discordOAuth.js";
+import { getNotionAccessTokenForUser } from "./_lib/notionOAuth.js";
 
 // Vercel's default serverless timeout (10s on Hobby) isn't enough for a
 // real web search — the model may call a tool, wait on the result, then
@@ -73,6 +74,36 @@ async function discordApi(path, method = "GET", body) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || `Discord API error (${res.status})`);
   return data;
+}
+
+// Small helper for Notion's REST API — every Notion tool goes through
+// this so auth headers, the required API version header, and error
+// handling stay in one place.
+async function notionApi(token, path, method = "GET", body) {
+  const res = await fetch(`https://api.notion.com/v1${path}`, {
+    method,
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Notion-Version": "2022-06-28",
+      ...(body ? { "Content-Type": "application/json" } : {})
+    },
+    ...(body ? { body: JSON.stringify(body) } : {})
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || `Notion API error (${res.status})`);
+  return data;
+}
+
+// Notion's page titles live in different places depending on whether
+// it's a plain page or a database row — this normalizes both cases.
+function extractNotionTitle(page) {
+  const props = page.properties || {};
+  for (const key in props) {
+    if (props[key].type === "title") {
+      return (props[key].title || []).map(t => t.plain_text).join("") || "Untitled";
+    }
+  }
+  return "Untitled";
 }
 
 const TOOLS = [
@@ -944,6 +975,108 @@ const TOOLS = [
         return { error: "Failed to send the Discord message: " + (err.message || "unknown error") };
       }
     }
+  },
+  {
+    requiresNotion: true,
+    type: "function",
+    function: {
+      name: "search_notion",
+      description: "Search the user's connected Notion workspace for pages and databases by title. Only available once the user has connected Notion in Settings. Returns each match's id, title, type, and url — use the id with read_notion_page to get a page's content.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search text — matches page/database titles." }
+        },
+        required: ["query"]
+      }
+    },
+    async execute({ query }, ctx) {
+      if (!ctx?.notionToken) return { error: "Notion isn't connected for this user." };
+      try {
+        const data = await notionApi(ctx.notionToken, "/search", "POST", { query, page_size: 10 });
+        const results = (data.results || []).map(r => ({
+          id: r.id,
+          title: r.object === "page" ? extractNotionTitle(r) : (r.title?.[0]?.plain_text || "Untitled database"),
+          type: r.object,
+          url: r.url
+        }));
+        return { results };
+      } catch (err) {
+        console.error("search_notion failed:", err);
+        return { error: "Failed to search Notion: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresNotion: true,
+    type: "function",
+    function: {
+      name: "read_notion_page",
+      description: "Read the content of a specific Notion page. Requires the page's id — call search_notion first if you don't already have it. Returns the page title and its content as plain text (only common block types are supported; unsupported blocks are skipped).",
+      parameters: {
+        type: "object",
+        properties: {
+          page_id: { type: "string", description: "The page's id, from search_notion." }
+        },
+        required: ["page_id"]
+      }
+    },
+    async execute({ page_id }, ctx) {
+      if (!ctx?.notionToken) return { error: "Notion isn't connected for this user." };
+      try {
+        const page = await notionApi(ctx.notionToken, `/pages/${page_id}`);
+        const blocks = await notionApi(ctx.notionToken, `/blocks/${page_id}/children?page_size=100`);
+        const lines = (blocks.results || []).map(b => {
+          const rich = b[b.type]?.rich_text;
+          return Array.isArray(rich) ? rich.map(t => t.plain_text).join("") : "";
+        }).filter(Boolean);
+        const content = lines.join("\n");
+        const truncated = content.length > 8000;
+        return {
+          title: extractNotionTitle(page),
+          content: truncated ? content.slice(0, 8000) : content,
+          truncated
+        };
+      } catch (err) {
+        console.error("read_notion_page failed:", err);
+        return { error: "Failed to read the Notion page: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresNotion: true,
+    type: "function",
+    function: {
+      name: "create_notion_page",
+      description: "Create a new Notion page as a sub-page of an existing page the user has access to. Requires the parent page's id — call search_notion first if you don't already have it. Confirm the parent page, title, and content with the user before calling this, unless they already gave you all three explicitly.",
+      parameters: {
+        type: "object",
+        properties: {
+          parent_page_id: { type: "string", description: "The id of the page to create this new page inside, from search_notion." },
+          title: { type: "string", description: "Title of the new page." },
+          content: { type: "string", description: "Plain text content for the new page's body. Optional." }
+        },
+        required: ["parent_page_id", "title"]
+      }
+    },
+    async execute({ parent_page_id, title, content }, ctx) {
+      if (!ctx?.notionToken) return { error: "Notion isn't connected for this user." };
+      try {
+        const page = await notionApi(ctx.notionToken, "/pages", "POST", {
+          parent: { page_id: parent_page_id },
+          properties: { title: { title: [{ text: { content: title } }] } },
+          children: content ? [{
+            object: "block",
+            type: "paragraph",
+            paragraph: { rich_text: [{ type: "text", text: { content } }] }
+          }] : []
+        });
+        return { created: true, pageId: page.id, url: page.url };
+      } catch (err) {
+        console.error("create_notion_page failed:", err);
+        return { error: "Failed to create the Notion page: " + (err.message || "unknown error") };
+      }
+    }
   }
 
   // Next tools to add here, following the same { function, execute } shape.
@@ -1063,6 +1196,7 @@ export default async function handler(req, res) {
     let githubToken = null;
     let slackToken = null;
     let discordConnection = null;
+    let notionToken = null;
     let uid = null; // trusted user id, used below for server-side usage tracking
     try {
       const authHeader = req.headers.authorization || "";
@@ -1074,9 +1208,10 @@ export default async function handler(req, res) {
         githubToken = await getGithubAccessTokenForUser(decoded.uid);
         slackToken = await getSlackAccessTokenForUser(decoded.uid);
         discordConnection = await getDiscordConnectionForUser(decoded.uid);
+        notionToken = await getNotionAccessTokenForUser(decoded.uid);
       }
     } catch (err) {
-      console.error("Auth/Google/GitHub/Slack/Discord lookup failed (continuing without those tools):", err.message);
+      console.error("Auth/Google/GitHub/Slack/Discord/Notion lookup failed (continuing without those tools):", err.message);
     }
 
     // ---- Usage tracking ----
@@ -1208,6 +1343,18 @@ Rules:
       systemMessages.push({
         role: "system",
         content: "The user has NOT connected Discord (or hasn't added the bot to a server yet), so you do NOT have access to any Discord tools right now. If the user asks about a Discord server or messages, do not pretend to do it and do not just say you can't help — clearly tell them they need to connect Discord and add the bot to a server from the Plugins page \u2192 Connections, then ask them to try again after connecting."
+      });
+    }
+
+    if (notionToken) {
+      systemMessages.push({
+        role: "system",
+        content: "The user has connected their Notion account. You may use search_notion, read_notion_page, and create_notion_page when they clearly ask about their Notion pages or docs — use search_notion first if you don't already have a page's exact id, and always state back the exact parent page, title, and content before creating a new page and get confirmation first (unless they already gave every detail explicitly), since creating a page is a real action. Note: only common block types (paragraphs, headings, lists) are read — some Notion content types aren't supported yet."
+      });
+    } else {
+      systemMessages.push({
+        role: "system",
+        content: "The user has NOT connected a Notion account, so you do NOT have access to any Notion tools right now. If the user asks about their Notion pages or docs, do not pretend to do it and do not just say you can't help — clearly tell them their Notion account isn't connected yet and that they can connect it from the Plugins page \u2192 Connections, then ask them to try again after connecting."
       });
     }
 
@@ -1447,7 +1594,7 @@ Rules:
           messages: conversation
         };
         if (includeTools) {
-          const availableTools = TOOLS.filter(t => (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken) && (!t.requiresSlack || !!slackToken) && (!t.requiresDiscord || !!discordConnection));
+          const availableTools = TOOLS.filter(t => (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken) && (!t.requiresSlack || !!slackToken) && (!t.requiresDiscord || !!discordConnection) && (!t.requiresNotion || !!notionToken));
           body.tools = availableTools.map(({ function: fn }) => ({ type: "function", function: fn }));
           body.tool_choice = (round === 0 && (forceSearch || research) && !hasImage) ? { type: "function", function: { name: "web_search" } } : "auto";
         }
@@ -1473,7 +1620,7 @@ Rules:
         // results, and loop back so it can use them in its next reply.
         conversation = [...conversation, message];
         for (const call of toolCalls) {
-          const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient, githubToken, slackToken, discordConnection });
+          const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient, githubToken, slackToken, discordConnection, notionToken });
           conversation.push({
             role: "tool",
             tool_call_id: call.id,
