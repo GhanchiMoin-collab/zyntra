@@ -2,6 +2,7 @@ import { google } from "googleapis";
 import { getAdminAuth, getAdminDb, increment } from "./_lib/firebaseAdmin.js";
 import { getAuthorizedClientForUser } from "./_lib/googleOAuth.js";
 import { getGithubAccessTokenForUser } from "./_lib/githubOAuth.js";
+import { getSlackAccessTokenForUser } from "./_lib/slackOAuth.js";
 
 // Vercel's default serverless timeout (10s on Hobby) isn't enough for a
 // real web search — the model may call a tool, wait on the result, then
@@ -35,6 +36,23 @@ async function githubApi(token, path, method = "GET", body) {
   if (!res.ok) {
     throw new Error(data.message || `GitHub API error (${res.status})`);
   }
+  return data;
+}
+
+// Slack's Web API always responds with HTTP 200, even for errors — the
+// actual result is in the JSON body's "ok" field, so error handling here
+// differs from githubApi's HTTP-status-based approach.
+async function slackApi(token, method, params = {}) {
+  const res = await fetch(`https://slack.com/api/${method}`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json; charset=utf-8"
+    },
+    body: JSON.stringify(params)
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || `Slack API error (${method})`);
   return data;
 }
 
@@ -690,6 +708,145 @@ const TOOLS = [
         return { error: "Failed to create the pull request: " + (err.message || "unknown error") };
       }
     }
+  },
+  {
+    requiresSlack: true,
+    type: "function",
+    function: {
+      name: "list_slack_channels",
+      description: "List the user's Slack channels (public and private ones they're a member of). Only available once the user has connected Slack in Settings. Use this to find a channel's id before calling other Slack tools.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Optional — filter channels by name substring." }
+        }
+      }
+    },
+    async execute({ query }, ctx) {
+      if (!ctx?.slackToken) return { error: "Slack isn't connected for this user." };
+      try {
+        const data = await slackApi(ctx.slackToken, "conversations.list", { types: "public_channel,private_channel", limit: 100 });
+        let channels = (data.channels || []).map(c => ({ id: c.id, name: c.name, is_private: c.is_private, member_count: c.num_members }));
+        if (query) channels = channels.filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
+        return { channels: channels.slice(0, 30) };
+      } catch (err) {
+        console.error("list_slack_channels failed:", err);
+        return { error: "Failed to list Slack channels: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresSlack: true,
+    type: "function",
+    function: {
+      name: "read_slack_messages",
+      description: "Read recent messages from a Slack channel the user has access to. Requires the channel's id — use list_slack_channels first if you don't already have it.",
+      parameters: {
+        type: "object",
+        properties: {
+          channel_id: { type: "string", description: "Channel id, from list_slack_channels." },
+          limit: { type: "number", description: "Max messages to return. Defaults to 20, cap at 50." }
+        },
+        required: ["channel_id"]
+      }
+    },
+    async execute({ channel_id, limit }, ctx) {
+      if (!ctx?.slackToken) return { error: "Slack isn't connected for this user." };
+      try {
+        const data = await slackApi(ctx.slackToken, "conversations.history", { channel: channel_id, limit: Math.min(limit || 20, 50) });
+        const messages = (data.messages || []).map(m => ({ user: m.user, text: m.text, ts: m.ts }));
+        return { messages };
+      } catch (err) {
+        console.error("read_slack_messages failed:", err);
+        return { error: "Failed to read Slack messages: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresSlack: true,
+    type: "function",
+    function: {
+      name: "send_slack_message",
+      description: "Send a message to a Slack channel on the user's behalf. Confirm the channel and exact message text with the user before calling this, unless they already gave you both explicitly, since this is a real, visible action.",
+      parameters: {
+        type: "object",
+        properties: {
+          channel_id: { type: "string", description: "Channel id, from list_slack_channels." },
+          text: { type: "string", description: "Message text to send." }
+        },
+        required: ["channel_id", "text"]
+      }
+    },
+    async execute({ channel_id, text }, ctx) {
+      if (!ctx?.slackToken) return { error: "Slack isn't connected for this user." };
+      try {
+        const data = await slackApi(ctx.slackToken, "chat.postMessage", { channel: channel_id, text });
+        return { sent: true, ts: data.ts };
+      } catch (err) {
+        console.error("send_slack_message failed:", err);
+        return { error: "Failed to send the Slack message: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresSlack: true,
+    type: "function",
+    function: {
+      name: "search_slack_messages",
+      description: "Search the user's Slack workspace for messages matching a query, across channels, DMs, and group DMs they have access to. Only available once the user has connected Slack in Settings.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search text. Supports Slack search syntax, e.g. 'from:@someone budget'." }
+        },
+        required: ["query"]
+      }
+    },
+    async execute({ query }, ctx) {
+      if (!ctx?.slackToken) return { error: "Slack isn't connected for this user." };
+      try {
+        const data = await slackApi(ctx.slackToken, "search.messages", { query });
+        const matches = (data.messages?.matches || []).slice(0, 15).map(m => ({
+          channel: m.channel?.name,
+          user: m.username,
+          text: m.text,
+          ts: m.ts,
+          permalink: m.permalink
+        }));
+        return { results: matches };
+      } catch (err) {
+        console.error("search_slack_messages failed:", err);
+        return { error: "Failed to search Slack: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresSlack: true,
+    type: "function",
+    function: {
+      name: "list_slack_users",
+      description: "List people in the user's connected Slack workspace. Useful for resolving a name to a Slack user id before mentioning someone.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Optional — filter by name substring." }
+        }
+      }
+    },
+    async execute({ query }, ctx) {
+      if (!ctx?.slackToken) return { error: "Slack isn't connected for this user." };
+      try {
+        const data = await slackApi(ctx.slackToken, "users.list", { limit: 100 });
+        let users = (data.members || [])
+          .filter(u => !u.deleted && !u.is_bot)
+          .map(u => ({ id: u.id, name: u.real_name || u.name, display_name: u.profile?.display_name }));
+        if (query) users = users.filter(u => u.name.toLowerCase().includes(query.toLowerCase()));
+        return { users: users.slice(0, 30) };
+      } catch (err) {
+        console.error("list_slack_users failed:", err);
+        return { error: "Failed to list Slack users: " + (err.message || "unknown error") };
+      }
+    }
   }
 
   // Next tools to add here, following the same { function, execute } shape.
@@ -807,6 +964,7 @@ export default async function handler(req, res) {
     // completely unaffected.
     let googleClient = null;
     let githubToken = null;
+    let slackToken = null;
     let uid = null; // trusted user id, used below for server-side usage tracking
     try {
       const authHeader = req.headers.authorization || "";
@@ -816,9 +974,10 @@ export default async function handler(req, res) {
         uid = decoded.uid;
         googleClient = await getAuthorizedClientForUser(decoded.uid);
         githubToken = await getGithubAccessTokenForUser(decoded.uid);
+        slackToken = await getSlackAccessTokenForUser(decoded.uid);
       }
     } catch (err) {
-      console.error("Auth/Google/GitHub lookup failed (continuing without those tools):", err.message);
+      console.error("Auth/Google/GitHub/Slack lookup failed (continuing without those tools):", err.message);
     }
 
     // ---- Usage tracking ----
@@ -926,6 +1085,18 @@ Rules:
       systemMessages.push({
         role: "system",
         content: "The user has NOT connected a GitHub account, so you do NOT have access to any GitHub tools right now. If the user asks about their repos, issues, or pull requests, do not pretend to do it and do not just say you can't help — clearly tell them their GitHub account isn't connected yet and that they can connect it from the Plugins page \u2192 Connections, then ask them to try again after connecting."
+      });
+    }
+
+    if (slackToken) {
+      systemMessages.push({
+        role: "system",
+        content: "The user has connected their Slack account. You may use list_slack_channels, read_slack_messages, send_slack_message, search_slack_messages, and list_slack_users when they clearly ask about their Slack workspace — use list_slack_channels first if you don't already have a channel's exact id, and always state back the exact channel and message text before sending and get confirmation first (unless they already gave every detail explicitly), since sending a message is a real, visible action other people will see."
+      });
+    } else {
+      systemMessages.push({
+        role: "system",
+        content: "The user has NOT connected a Slack account, so you do NOT have access to any Slack tools right now. If the user asks about their Slack channels, messages, or workspace, do not pretend to do it and do not just say you can't help — clearly tell them their Slack account isn't connected yet and that they can connect it from the Plugins page \u2192 Connections, then ask them to try again after connecting."
       });
     }
 
@@ -1165,7 +1336,7 @@ Rules:
           messages: conversation
         };
         if (includeTools) {
-          const availableTools = TOOLS.filter(t => (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken));
+          const availableTools = TOOLS.filter(t => (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken) && (!t.requiresSlack || !!slackToken));
           body.tools = availableTools.map(({ function: fn }) => ({ type: "function", function: fn }));
           body.tool_choice = (round === 0 && (forceSearch || research) && !hasImage) ? { type: "function", function: { name: "web_search" } } : "auto";
         }
@@ -1191,7 +1362,7 @@ Rules:
         // results, and loop back so it can use them in its next reply.
         conversation = [...conversation, message];
         for (const call of toolCalls) {
-          const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient, githubToken });
+          const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient, githubToken, slackToken });
           conversation.push({
             role: "tool",
             tool_call_id: call.id,
