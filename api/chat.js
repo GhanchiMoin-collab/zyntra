@@ -6,6 +6,7 @@ import { getSlackAccessTokenForUser } from "./_lib/slackOAuth.js";
 import { getDiscordConnectionForUser, botToken as discordBotToken } from "./_lib/discordOAuth.js";
 import { getNotionAccessTokenForUser } from "./_lib/notionOAuth.js";
 import { getTrelloAccessTokenForUser } from "./_lib/trelloOAuth.js";
+import { getOutlookAccessTokenForUser } from "./_lib/outlookOAuth.js";
 
 // Vercel's default serverless timeout (10s on Hobby) isn't enough for a
 // real web search — the model may call a tool, wait on the result, then
@@ -114,6 +115,23 @@ async function trelloApi(token, path, method = "GET", extraParams = {}) {
   const res = await fetch(`https://api.trello.com/1${path}?${params.toString()}`, { method });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || `Trello API error (${res.status})`);
+  return data;
+}
+
+// Small helper for Microsoft Graph — every Outlook tool goes through
+// this so auth headers and error handling stay in one place.
+async function graphApi(token, path, method = "GET", body) {
+  const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    method,
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      ...(body ? { "Content-Type": "application/json" } : {})
+    },
+    ...(body ? { body: JSON.stringify(body) } : {})
+  });
+  if (res.status === 204) return {}; // Graph returns no body on some successful actions (e.g. send mail)
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error?.message || `Microsoft Graph API error (${res.status})`);
   return data;
 }
 
@@ -1195,6 +1213,142 @@ const TOOLS = [
         return { error: "Failed to create the Trello card: " + (err.message || "unknown error") };
       }
     }
+  },
+  {
+    requiresOutlook: true,
+    type: "function",
+    function: {
+      name: "search_outlook_emails",
+      description: "Search the user's connected Outlook inbox. Only available once the user has connected Outlook in Settings. Uses simple keyword search across subject/body/sender. Returns each match's id, subject, sender, date, and a short preview; use the id with read_outlook_email to get the full body.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search text — matches subject, body, and sender." },
+          max_results: { type: "number", description: "Max emails to return. Defaults to 10, cap at 20." }
+        },
+        required: ["query"]
+      }
+    },
+    async execute({ query, max_results }, ctx) {
+      if (!ctx?.outlookToken) return { error: "Outlook isn't connected for this user." };
+      try {
+        const params = new URLSearchParams({
+          "$search": `"${query}"`,
+          "$top": String(Math.min(max_results || 10, 20)),
+          "$select": "id,subject,from,receivedDateTime,bodyPreview"
+        });
+        const data = await graphApi(ctx.outlookToken, `/me/messages?${params.toString()}`);
+        const emails = (data.value || []).map(m => ({
+          id: m.id,
+          subject: m.subject,
+          from: m.from?.emailAddress?.address,
+          date: m.receivedDateTime,
+          preview: m.bodyPreview
+        }));
+        return { emails };
+      } catch (err) {
+        console.error("search_outlook_emails failed:", err);
+        return { error: "Failed to search Outlook: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresOutlook: true,
+    type: "function",
+    function: {
+      name: "read_outlook_email",
+      description: "Read the full content of a specific email from the user's connected Outlook account. Requires the email's id — call search_outlook_emails first if you don't already have it.",
+      parameters: {
+        type: "object",
+        properties: {
+          email_id: { type: "string", description: "The email's id, from search_outlook_emails." }
+        },
+        required: ["email_id"]
+      }
+    },
+    async execute({ email_id }, ctx) {
+      if (!ctx?.outlookToken) return { error: "Outlook isn't connected for this user." };
+      try {
+        const msg = await graphApi(ctx.outlookToken, `/me/messages/${email_id}?$select=subject,from,toRecipients,receivedDateTime,body`);
+        const bodyText = (msg.body?.content || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        const truncated = bodyText.length > 8000;
+        return {
+          subject: msg.subject,
+          from: msg.from?.emailAddress?.address,
+          to: (msg.toRecipients || []).map(r => r.emailAddress?.address).join(", "),
+          date: msg.receivedDateTime,
+          body: truncated ? bodyText.slice(0, 8000) : bodyText,
+          truncated
+        };
+      } catch (err) {
+        console.error("read_outlook_email failed:", err);
+        return { error: "Failed to read the email: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresOutlook: true,
+    type: "function",
+    function: {
+      name: "send_outlook_email",
+      description: "Send an email from the user's connected Outlook account. Confirm the recipient, subject, and body with the user before calling this, unless they already gave you all three explicitly, since this is a real action that can't be undone.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Recipient email address." },
+          subject: { type: "string", description: "Email subject line." },
+          body: { type: "string", description: "Plain text email body." }
+        },
+        required: ["to", "subject", "body"]
+      }
+    },
+    async execute({ to, subject, body }, ctx) {
+      if (!ctx?.outlookToken) return { error: "Outlook isn't connected for this user." };
+      try {
+        await graphApi(ctx.outlookToken, "/me/sendMail", "POST", {
+          message: {
+            subject,
+            body: { contentType: "Text", content: body },
+            toRecipients: [{ emailAddress: { address: to } }]
+          }
+        });
+        return { sent: true, to, subject };
+      } catch (err) {
+        console.error("send_outlook_email failed:", err);
+        return { error: "Failed to send email: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresOutlook: true,
+    type: "function",
+    function: {
+      name: "create_outlook_draft",
+      description: "Create a draft email in the user's connected Outlook account — does NOT send it. Confirm the recipient, subject, and body with the user before calling this, unless they already gave you all three explicitly.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Recipient email address." },
+          subject: { type: "string", description: "Email subject line." },
+          body: { type: "string", description: "Plain text email body." }
+        },
+        required: ["to", "subject", "body"]
+      }
+    },
+    async execute({ to, subject, body }, ctx) {
+      if (!ctx?.outlookToken) return { error: "Outlook isn't connected for this user." };
+      try {
+        const draft = await graphApi(ctx.outlookToken, "/me/messages", "POST", {
+          subject,
+          body: { contentType: "Text", content: body },
+          toRecipients: [{ emailAddress: { address: to } }]
+        });
+        return { created: true, draftId: draft.id, to, subject };
+      } catch (err) {
+        console.error("create_outlook_draft failed:", err);
+        return { error: "Failed to create the draft: " + (err.message || "unknown error") };
+      }
+    }
   }
 
   // Next tools to add here, following the same { function, execute } shape.
@@ -1316,6 +1470,7 @@ export default async function handler(req, res) {
     let discordConnection = null;
     let notionToken = null;
     let trelloToken = null;
+    let outlookToken = null;
     let uid = null; // trusted user id, used below for server-side usage tracking
     try {
       const authHeader = req.headers.authorization || "";
@@ -1329,6 +1484,7 @@ export default async function handler(req, res) {
         discordConnection = await getDiscordConnectionForUser(decoded.uid);
         notionToken = await getNotionAccessTokenForUser(decoded.uid);
         trelloToken = await getTrelloAccessTokenForUser(decoded.uid);
+        outlookToken = await getOutlookAccessTokenForUser(decoded.uid);
       }
     } catch (err) {
       console.error("Auth/Google/GitHub/Slack/Discord/Notion/Trello lookup failed (continuing without those tools):", err.message);
@@ -1487,6 +1643,18 @@ Rules:
       systemMessages.push({
         role: "system",
         content: "The user has NOT connected a Trello account, so you do NOT have access to any Trello tools right now. If the user asks about their Trello boards or cards, do not pretend to do it and do not just say you can't help — clearly tell them their Trello account isn't connected yet and that they can connect it from the Plugins page \u2192 Connections, then ask them to try again after connecting."
+      });
+    }
+
+    if (outlookToken) {
+      systemMessages.push({
+        role: "system",
+        content: "The user has connected their Outlook account. You may use search_outlook_emails, read_outlook_email, send_outlook_email, and create_outlook_draft when they clearly ask you to find, read, send, or draft email — search_outlook_emails before read_outlook_email if you don't already have an email's id, and always state the exact recipient/subject/body back to them and get confirmation first before sending (unless they already gave every detail explicitly) — reading and searching don't need confirmation, but sending is a real action that can't be undone."
+      });
+    } else {
+      systemMessages.push({
+        role: "system",
+        content: "The user has NOT connected an Outlook account, so you do NOT have access to send_outlook_email, search_outlook_emails, read_outlook_email, or create_outlook_draft right now. If the user asks you to find, read, or send Outlook email, do not pretend to do it and do not just say you can't help — clearly tell them their Outlook account isn't connected yet and that they can connect it from the Plugins page \u2192 Connections, then ask them to try again after connecting."
       });
     }
 
@@ -1726,7 +1894,7 @@ Rules:
           messages: conversation
         };
         if (includeTools) {
-          const availableTools = TOOLS.filter(t => (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken) && (!t.requiresSlack || !!slackToken) && (!t.requiresDiscord || !!discordConnection) && (!t.requiresNotion || !!notionToken) && (!t.requiresTrello || !!trelloToken));
+          const availableTools = TOOLS.filter(t => (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken) && (!t.requiresSlack || !!slackToken) && (!t.requiresDiscord || !!discordConnection) && (!t.requiresNotion || !!notionToken) && (!t.requiresTrello || !!trelloToken) && (!t.requiresOutlook || !!outlookToken));
           body.tools = availableTools.map(({ function: fn }) => ({ type: "function", function: fn }));
           body.tool_choice = (round === 0 && (forceSearch || research) && !hasImage) ? { type: "function", function: { name: "web_search" } } : "auto";
         }
@@ -1752,7 +1920,7 @@ Rules:
         // results, and loop back so it can use them in its next reply.
         conversation = [...conversation, message];
         for (const call of toolCalls) {
-          const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient, githubToken, slackToken, discordConnection, notionToken, trelloToken });
+          const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient, githubToken, slackToken, discordConnection, notionToken, trelloToken, outlookToken });
           conversation.push({
             role: "tool",
             tool_call_id: call.id,
