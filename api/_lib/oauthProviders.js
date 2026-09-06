@@ -22,6 +22,15 @@ import {
   deleteStoredSlackTokens,
   revokeSlackToken
 } from "./slackOAuth.js";
+import {
+  getConsentUrl as discordConsentUrl,
+  exchangeCodeForToken as discordExchangeCodeForToken,
+  saveDiscordTokens,
+  getStoredDiscordTokens,
+  deleteStoredDiscordTokens,
+  revokeDiscordToken,
+  botToken as discordBotToken
+} from "./discordOAuth.js";
 
 // Each provider needs exactly 4 things: a consent URL, a way to turn an
 // auth code into stored tokens + a display label, a status check, and a
@@ -106,6 +115,42 @@ export const PROVIDERS = {
         await revokeSlackToken(stored.access_token);
       }
       await deleteStoredSlackTokens(uid);
+    }
+  },
+  discord: {
+    getConsentUrl: (uid, req) => discordConsentUrl(uid, req),
+    async handleCallback(code, req, uid) {
+      const tokenData = await discordExchangeCodeForToken(code, req);
+      if (!tokenData.guild) {
+        // Scope includes "bot", so a successful auth without a chosen
+        // server means the user cancelled the server picker — the token
+        // alone isn't useful for anything Zyntra can do.
+        throw new Error("no_server_selected");
+      }
+      let identity = null;
+      try {
+        const userRes = await fetch("https://discord.com/api/users/@me", {
+          headers: { "Authorization": `Bearer ${tokenData.access_token}` }
+        });
+        identity = await userRes.json();
+      } catch {
+        // Non-fatal — the connection still works without a displayed username.
+      }
+      await saveDiscordTokens(uid, tokenData, identity);
+    },
+    async getStatus(uid) {
+      const stored = await getStoredDiscordTokens(uid);
+      return { connected: !!(stored && stored.guild_id && discordBotToken()), label: stored?.guild_name ? `${stored.guild_name} server` : null };
+    },
+    async disconnect(uid) {
+      const stored = await getStoredDiscordTokens(uid);
+      if (stored?.access_token) {
+        await revokeDiscordToken(stored.access_token);
+      }
+      await deleteStoredDiscordTokens(uid);
+      // Note: this revokes the user's own OAuth grant, but does not
+      // remove the bot from their server — Discord has no API for that;
+      // the user removes the bot manually from Server Settings if wanted.
     }
   }
 
