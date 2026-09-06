@@ -1595,6 +1595,7 @@ const PLUGIN_DEFS = [
     { key: "googleTools", slug: "google", icon: "📧", color: "#ea4335", title: "Google Tools", desc: "Let a connected Google account be used for Gmail, Calendar, and Drive actions." },
     { key: "githubTools", slug: "github", icon: "🐙", color: "#24292e", title: "GitHub Tools", desc: "Let a connected GitHub account be used to read repos and manage issues/PRs." },
     { key: "slackTools", slug: "slack", icon: "💬", color: "#4A154B", title: "Slack Tools", desc: "Let a connected Slack account be used to read channels and send messages." },
+    { key: "discordTools", slug: "discord", icon: "🎮", color: "#5865F2", title: "Discord Tools", desc: "Let a connected Discord account be used to read and send messages in a server." },
     { key: "memory", icon: "🧠", color: "#a259ff", title: "Memory", desc: "Let Zyntra remember facts about you across conversations." },
     { key: "imageGen", icon: "🖼️", color: "#37c98f", title: "Image Generator", desc: "Show the Image Generator tool in the sidebar." },
     { key: "codexBuilder", icon: "🧑‍💻", color: "#ffb545", title: "Codex", desc: "Show the Codex (coding + website building) tool in the sidebar." }
@@ -1722,6 +1723,9 @@ function applyPluginVisibility(){
 
     const slackCard = document.getElementById("slackConnectionCard");
     if(slackCard) slackCard.style.display = plugins.slackTools ? "" : "none";
+
+    const discordCard = document.getElementById("discordConnectionCard");
+    if(discordCard) discordCard.style.display = plugins.discordTools ? "" : "none";
 }
 
 // ---- Scheduled Tasks ----
@@ -1780,7 +1784,8 @@ const CONNECTORS = [
     { key: "google-drive", provider: "google", slug: "googledrive", color: "#0F9D58", title: "Google Drive", desc: "Drive, Docs, Sheets or Slides" },
     { key: "google-calendar", provider: "google", slug: "googlecalendar", color: "#1A73E8", title: "Google Calendar", desc: "Manage Google Calendar events" },
     { key: "github", provider: "github", slug: "github", color: "#24292e", title: "GitHub", desc: "Repos, issues, and pull requests" },
-    { key: "slack", provider: "slack", slug: "slack", color: "#4A154B", title: "Slack", desc: "Channels, messages, and search" }
+    { key: "slack", provider: "slack", slug: "slack", color: "#4A154B", title: "Slack", desc: "Channels, messages, and search" },
+    { key: "discord", provider: "discord", slug: "discord", color: "#5865F2", title: "Discord", desc: "Read and send messages in a server" }
 ];
 
 const CONNECTOR_PROVIDER_CONFIG = {
@@ -1804,6 +1809,13 @@ const CONNECTOR_PROVIDER_CONFIG = {
         disconnectUrl: "/api/auth/oauth-disconnect?provider=slack",
         label: data => data.label ? `Connected to ${data.label}` : "Connected",
         disconnectConfirm: "Zyntra will no longer be able to read or send Slack messages on your behalf."
+    },
+    discord: {
+        statusUrl: "/api/auth/oauth-status?provider=discord",
+        startUrl: "/api/auth/oauth-start?provider=discord",
+        disconnectUrl: "/api/auth/oauth-disconnect?provider=discord",
+        label: data => data.label ? `Connected to ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to read or send messages in your Discord server on your behalf. The bot stays in your server until you remove it yourself from Discord."
     }
 };
 
