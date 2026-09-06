@@ -1598,6 +1598,7 @@ const PLUGIN_DEFS = [
     { key: "discordTools", slug: "discord", icon: "🎮", color: "#5865F2", title: "Discord Tools", desc: "Let a connected Discord account be used to read and send messages in a server." },
     { key: "notionTools", slug: "notion", icon: "📝", color: "#000000", title: "Notion Tools", desc: "Let a connected Notion account be used to search, read, and create pages." },
     { key: "trelloTools", slug: "trello", icon: "📋", color: "#0079BF", title: "Trello Tools", desc: "Let a connected Trello account be used to read and create cards." },
+    { key: "outlookTools", slug: "microsoftoutlook", icon: "📧", color: "#0072C6", title: "Outlook Tools", desc: "Let a connected Outlook account be used to search, read, and send email." },
     { key: "memory", icon: "🧠", color: "#a259ff", title: "Memory", desc: "Let Zyntra remember facts about you across conversations." },
     { key: "imageGen", icon: "🖼️", color: "#37c98f", title: "Image Generator", desc: "Show the Image Generator tool in the sidebar." },
     { key: "codexBuilder", icon: "🧑‍💻", color: "#ffb545", title: "Codex", desc: "Show the Codex (coding + website building) tool in the sidebar." }
@@ -1620,7 +1621,6 @@ const PLUGIN_DEFS = [
 // where the logo fails to load, automatically fall back to the emoji —
 // see buildPluginIconEl().
 const PLUGIN_COMING_SOON = [
-    { slug: "microsoftoutlook", icon: "📧", color: "#0072C6", title: "Outlook Email", desc: "Triage Outlook inboxes" },
     { slug: "canva", icon: "🎨", color: "#00C4CC", title: "Canva", desc: "Create, review, edit designs" },
     { slug: "microsoftoutlook", icon: "📅", color: "#0072C6", title: "Outlook Calendar", desc: "Manage Outlook schedules" },
     { slug: "atlassian", icon: "🔷", color: "#0052CC", title: "Atlassian Rovo", desc: "Manage Jira and Confluence" },
@@ -1732,6 +1732,9 @@ function applyPluginVisibility(){
 
     const trelloCard = document.getElementById("trelloConnectionCard");
     if(trelloCard) trelloCard.style.display = plugins.trelloTools ? "" : "none";
+
+    const outlookCard = document.getElementById("outlookConnectionCard");
+    if(outlookCard) outlookCard.style.display = plugins.outlookTools ? "" : "none";
 }
 
 // ---- Scheduled Tasks ----
@@ -1793,7 +1796,8 @@ const CONNECTORS = [
     { key: "slack", provider: "slack", slug: "slack", color: "#4A154B", title: "Slack", desc: "Channels, messages, and search" },
     { key: "discord", provider: "discord", slug: "discord", color: "#5865F2", title: "Discord", desc: "Read and send messages in a server" },
     { key: "notion", provider: "notion", slug: "notion", color: "#000000", title: "Notion", desc: "Search, read, and create pages" },
-    { key: "trello", provider: "trello", slug: "trello", color: "#0079BF", title: "Trello", desc: "Boards, lists, and cards" }
+    { key: "trello", provider: "trello", slug: "trello", color: "#0079BF", title: "Trello", desc: "Boards, lists, and cards" },
+    { key: "outlook", provider: "outlook", slug: "microsoftoutlook", color: "#0072C6", title: "Outlook", desc: "Search, read, send email & drafts" }
 ];
 
 const CONNECTOR_PROVIDER_CONFIG = {
@@ -1838,6 +1842,13 @@ const CONNECTOR_PROVIDER_CONFIG = {
         disconnectUrl: "/api/auth/oauth-disconnect?provider=trello",
         label: data => data.label ? `Connected as ${data.label}` : "Connected",
         disconnectConfirm: "Zyntra will no longer be able to read or create cards on your Trello boards."
+    },
+    outlook: {
+        statusUrl: "/api/auth/oauth-status?provider=outlook",
+        startUrl: "/api/auth/oauth-start?provider=outlook",
+        disconnectUrl: "/api/auth/oauth-disconnect?provider=outlook",
+        label: data => data.label ? `Connected as ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to search, read, or send Outlook email on your behalf. You can also remove Zyntra's access directly from your Microsoft account's app permissions page."
     }
 };
 
