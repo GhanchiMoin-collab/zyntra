@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Connecting Trello…</title>
+  <style>
+    body { background:#0b0f24; color:#eef0ff; font-family:sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
+  </style>
+</head>
+<body>
+  <p>Connecting your Trello account…</p>
+  <script>
+    // Trello puts the token in the URL fragment (#token=...), which the
+    // browser never sends to a server — so this page has to read it here,
+    // in JavaScript, and forward it on as a normal query parameter.
+    var hashParams = new URLSearchParams(window.location.hash.substring(1));
+    var token = hashParams.get("token");
+    var state = new URLSearchParams(window.location.search).get("state");
+
+    if (token && state) {
+      // From here on it looks like any other provider's redirect —
+      // oauth-callback.js treats this "code" as the Trello token itself.
+      window.location.href = "/api/auth/oauth-callback?code=" + encodeURIComponent(token) + "&state=" + encodeURIComponent(state);
+    } else {
+      window.location.href = "/?trello_error=missing_token";
+    }
+  </script>
+</body>
+</html>
