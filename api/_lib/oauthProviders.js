@@ -31,6 +31,13 @@ import {
   revokeDiscordToken,
   botToken as discordBotToken
 } from "./discordOAuth.js";
+import {
+  getConsentUrl as notionConsentUrl,
+  exchangeCodeForToken as notionExchangeCodeForToken,
+  saveNotionTokens,
+  getStoredNotionTokens,
+  deleteStoredNotionTokens
+} from "./notionOAuth.js";
 
 // Each provider needs exactly 4 things: a consent URL, a way to turn an
 // auth code into stored tokens + a display label, a status check, and a
@@ -151,6 +158,22 @@ export const PROVIDERS = {
       // Note: this revokes the user's own OAuth grant, but does not
       // remove the bot from their server — Discord has no API for that;
       // the user removes the bot manually from Server Settings if wanted.
+    }
+  },
+  notion: {
+    getConsentUrl: (uid, req) => notionConsentUrl(uid, req),
+    async handleCallback(code, req, uid) {
+      const tokenData = await notionExchangeCodeForToken(code, req);
+      await saveNotionTokens(uid, tokenData);
+    },
+    async getStatus(uid) {
+      const stored = await getStoredNotionTokens(uid);
+      return { connected: !!(stored && stored.access_token), label: stored?.workspace_name || null };
+    },
+    async disconnect(uid) {
+      // Notion has no server-side revoke API — see notionOAuth.js for
+      // why this only removes our stored copy, not Notion-side access.
+      await deleteStoredNotionTokens(uid);
     }
   }
 
