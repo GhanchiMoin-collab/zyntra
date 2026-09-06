@@ -14,6 +14,14 @@ import {
   deleteStoredGithubTokens,
   revokeGithubToken
 } from "./githubOAuth.js";
+import {
+  getConsentUrl as slackConsentUrl,
+  exchangeCodeForToken as slackExchangeCodeForToken,
+  saveSlackTokens,
+  getStoredSlackTokens,
+  deleteStoredSlackTokens,
+  revokeSlackToken
+} from "./slackOAuth.js";
 
 // Each provider needs exactly 4 things: a consent URL, a way to turn an
 // auth code into stored tokens + a display label, a status check, and a
@@ -79,6 +87,25 @@ export const PROVIDERS = {
         await revokeGithubToken(stored.access_token);
       }
       await deleteStoredGithubTokens(uid);
+    }
+  },
+  slack: {
+    getConsentUrl: (uid, req) => slackConsentUrl(uid, req),
+    async handleCallback(code, req, uid) {
+      const tokenData = await slackExchangeCodeForToken(code, req);
+      const label = tokenData.team?.name ? `${tokenData.team.name}` : null;
+      await saveSlackTokens(uid, tokenData, label);
+    },
+    async getStatus(uid) {
+      const stored = await getStoredSlackTokens(uid);
+      return { connected: !!(stored && stored.access_token), label: stored?.team_name ? `${stored.team_name} workspace` : null };
+    },
+    async disconnect(uid) {
+      const stored = await getStoredSlackTokens(uid);
+      if (stored?.access_token) {
+        await revokeSlackToken(stored.access_token);
+      }
+      await deleteStoredSlackTokens(uid);
     }
   }
 
