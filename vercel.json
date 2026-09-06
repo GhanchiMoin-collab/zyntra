@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/trello-bridge.html", "destination": "/trello-bridge.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "crons": [
