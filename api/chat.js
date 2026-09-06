@@ -5,6 +5,7 @@ import { getGithubAccessTokenForUser } from "./_lib/githubOAuth.js";
 import { getSlackAccessTokenForUser } from "./_lib/slackOAuth.js";
 import { getDiscordConnectionForUser, botToken as discordBotToken } from "./_lib/discordOAuth.js";
 import { getNotionAccessTokenForUser } from "./_lib/notionOAuth.js";
+import { getTrelloAccessTokenForUser } from "./_lib/trelloOAuth.js";
 
 // Vercel's default serverless timeout (10s on Hobby) isn't enough for a
 // real web search — the model may call a tool, wait on the result, then
@@ -104,6 +105,16 @@ function extractNotionTitle(page) {
     }
   }
   return "Untitled";
+}
+
+// Trello authenticates every request via key+token query params rather
+// than a header, so this helper just appends them consistently.
+async function trelloApi(token, path, method = "GET", extraParams = {}) {
+  const params = new URLSearchParams({ key: process.env.TRELLO_API_KEY?.trim(), token, ...extraParams });
+  const res = await fetch(`https://api.trello.com/1${path}?${params.toString()}`, { method });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || `Trello API error (${res.status})`);
+  return data;
 }
 
 const TOOLS = [
@@ -1077,6 +1088,113 @@ const TOOLS = [
         return { error: "Failed to create the Notion page: " + (err.message || "unknown error") };
       }
     }
+  },
+  {
+    requiresTrello: true,
+    type: "function",
+    function: {
+      name: "list_trello_boards",
+      description: "List the user's Trello boards. Only available once the user has connected Trello in Settings. Use this to find a board's id before calling other Trello tools.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Optional — filter boards by name substring." }
+        }
+      }
+    },
+    async execute({ query }, ctx) {
+      if (!ctx?.trelloToken) return { error: "Trello isn't connected for this user." };
+      try {
+        const data = await trelloApi(ctx.trelloToken, "/members/me/boards", "GET", { fields: "name,url" });
+        let boards = data.map(b => ({ id: b.id, name: b.name, url: b.url }));
+        if (query) boards = boards.filter(b => b.name.toLowerCase().includes(query.toLowerCase()));
+        return { boards: boards.slice(0, 30) };
+      } catch (err) {
+        console.error("list_trello_boards failed:", err);
+        return { error: "Failed to list Trello boards: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresTrello: true,
+    type: "function",
+    function: {
+      name: "list_trello_lists",
+      description: "List the lists (columns) on a Trello board. Requires the board's id — use list_trello_boards first if you don't already have it. Use this to find a list's id before calling list_trello_cards or create_trello_card.",
+      parameters: {
+        type: "object",
+        properties: {
+          board_id: { type: "string", description: "Board id, from list_trello_boards." }
+        },
+        required: ["board_id"]
+      }
+    },
+    async execute({ board_id }, ctx) {
+      if (!ctx?.trelloToken) return { error: "Trello isn't connected for this user." };
+      try {
+        const data = await trelloApi(ctx.trelloToken, `/boards/${board_id}/lists`, "GET", { fields: "name" });
+        return { lists: data.map(l => ({ id: l.id, name: l.name })) };
+      } catch (err) {
+        console.error("list_trello_lists failed:", err);
+        return { error: "Failed to list Trello lists: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresTrello: true,
+    type: "function",
+    function: {
+      name: "list_trello_cards",
+      description: "List cards in a Trello list. Requires the list's id — use list_trello_lists first if you don't already have it.",
+      parameters: {
+        type: "object",
+        properties: {
+          list_id: { type: "string", description: "List id, from list_trello_lists." }
+        },
+        required: ["list_id"]
+      }
+    },
+    async execute({ list_id }, ctx) {
+      if (!ctx?.trelloToken) return { error: "Trello isn't connected for this user." };
+      try {
+        const data = await trelloApi(ctx.trelloToken, `/lists/${list_id}/cards`, "GET", { fields: "name,desc,due,url" });
+        return { cards: data.map(c => ({ id: c.id, name: c.name, description: c.desc, due: c.due, url: c.url })) };
+      } catch (err) {
+        console.error("list_trello_cards failed:", err);
+        return { error: "Failed to list Trello cards: " + (err.message || "unknown error") };
+      }
+    }
+  },
+  {
+    requiresTrello: true,
+    type: "function",
+    function: {
+      name: "create_trello_card",
+      description: "Create a new card in a Trello list. Requires the list's id — use list_trello_lists first if you don't already have it. Confirm the list, card name, and description with the user before calling this, unless they already gave you all the details explicitly.",
+      parameters: {
+        type: "object",
+        properties: {
+          list_id: { type: "string", description: "List id, from list_trello_lists." },
+          name: { type: "string", description: "Card title." },
+          description: { type: "string", description: "Card description. Optional." },
+          due: { type: "string", description: "Due date in ISO 8601 format, e.g. '2026-12-31'. Optional." }
+        },
+        required: ["list_id", "name"]
+      }
+    },
+    async execute({ list_id, name, description, due }, ctx) {
+      if (!ctx?.trelloToken) return { error: "Trello isn't connected for this user." };
+      try {
+        const params = { idList: list_id, name };
+        if (description) params.desc = description;
+        if (due) params.due = due;
+        const card = await trelloApi(ctx.trelloToken, "/cards", "POST", params);
+        return { created: true, cardId: card.id, url: card.url };
+      } catch (err) {
+        console.error("create_trello_card failed:", err);
+        return { error: "Failed to create the Trello card: " + (err.message || "unknown error") };
+      }
+    }
   }
 
   // Next tools to add here, following the same { function, execute } shape.
@@ -1197,6 +1315,7 @@ export default async function handler(req, res) {
     let slackToken = null;
     let discordConnection = null;
     let notionToken = null;
+    let trelloToken = null;
     let uid = null; // trusted user id, used below for server-side usage tracking
     try {
       const authHeader = req.headers.authorization || "";
@@ -1209,9 +1328,10 @@ export default async function handler(req, res) {
         slackToken = await getSlackAccessTokenForUser(decoded.uid);
         discordConnection = await getDiscordConnectionForUser(decoded.uid);
         notionToken = await getNotionAccessTokenForUser(decoded.uid);
+        trelloToken = await getTrelloAccessTokenForUser(decoded.uid);
       }
     } catch (err) {
-      console.error("Auth/Google/GitHub/Slack/Discord/Notion lookup failed (continuing without those tools):", err.message);
+      console.error("Auth/Google/GitHub/Slack/Discord/Notion/Trello lookup failed (continuing without those tools):", err.message);
     }
 
     // ---- Usage tracking ----
@@ -1355,6 +1475,18 @@ Rules:
       systemMessages.push({
         role: "system",
         content: "The user has NOT connected a Notion account, so you do NOT have access to any Notion tools right now. If the user asks about their Notion pages or docs, do not pretend to do it and do not just say you can't help — clearly tell them their Notion account isn't connected yet and that they can connect it from the Plugins page \u2192 Connections, then ask them to try again after connecting."
+      });
+    }
+
+    if (trelloToken) {
+      systemMessages.push({
+        role: "system",
+        content: "The user has connected their Trello account. You may use list_trello_boards, list_trello_lists, list_trello_cards, and create_trello_card when they clearly ask about their Trello boards or tasks — use list_trello_boards then list_trello_lists first if you don't already have a list's exact id, and always state back the exact list, card name, and description before creating a card and get confirmation first (unless they already gave every detail explicitly), since creating a card is a real, visible action."
+      });
+    } else {
+      systemMessages.push({
+        role: "system",
+        content: "The user has NOT connected a Trello account, so you do NOT have access to any Trello tools right now. If the user asks about their Trello boards or cards, do not pretend to do it and do not just say you can't help — clearly tell them their Trello account isn't connected yet and that they can connect it from the Plugins page \u2192 Connections, then ask them to try again after connecting."
       });
     }
 
@@ -1594,7 +1726,7 @@ Rules:
           messages: conversation
         };
         if (includeTools) {
-          const availableTools = TOOLS.filter(t => (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken) && (!t.requiresSlack || !!slackToken) && (!t.requiresDiscord || !!discordConnection) && (!t.requiresNotion || !!notionToken));
+          const availableTools = TOOLS.filter(t => (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken) && (!t.requiresSlack || !!slackToken) && (!t.requiresDiscord || !!discordConnection) && (!t.requiresNotion || !!notionToken) && (!t.requiresTrello || !!trelloToken));
           body.tools = availableTools.map(({ function: fn }) => ({ type: "function", function: fn }));
           body.tool_choice = (round === 0 && (forceSearch || research) && !hasImage) ? { type: "function", function: { name: "web_search" } } : "auto";
         }
@@ -1620,7 +1752,7 @@ Rules:
         // results, and loop back so it can use them in its next reply.
         conversation = [...conversation, message];
         for (const call of toolCalls) {
-          const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient, githubToken, slackToken, discordConnection, notionToken });
+          const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient, githubToken, slackToken, discordConnection, notionToken, trelloToken });
           conversation.push({
             role: "tool",
             tool_call_id: call.id,
