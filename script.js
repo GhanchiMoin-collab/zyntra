@@ -1594,6 +1594,7 @@ const PLUGIN_DEFS = [
     { key: "webSearch", icon: "🔎", color: "#3ea6ff", title: "Web Search & Research", desc: "Let Zyntra search the web for current information, and show the Research mode toggle for deeper, multi-source answers." },
     { key: "googleTools", slug: "google", icon: "📧", color: "#ea4335", title: "Google Tools", desc: "Let a connected Google account be used for Gmail, Calendar, and Drive actions." },
     { key: "githubTools", slug: "github", icon: "🐙", color: "#24292e", title: "GitHub Tools", desc: "Let a connected GitHub account be used to read repos and manage issues/PRs." },
+    { key: "slackTools", slug: "slack", icon: "💬", color: "#4A154B", title: "Slack Tools", desc: "Let a connected Slack account be used to read channels and send messages." },
     { key: "memory", icon: "🧠", color: "#a259ff", title: "Memory", desc: "Let Zyntra remember facts about you across conversations." },
     { key: "imageGen", icon: "🖼️", color: "#37c98f", title: "Image Generator", desc: "Show the Image Generator tool in the sidebar." },
     { key: "codexBuilder", icon: "🧑‍💻", color: "#ffb545", title: "Codex", desc: "Show the Codex (coding + website building) tool in the sidebar." }
@@ -1616,7 +1617,6 @@ const PLUGIN_DEFS = [
 // where the logo fails to load, automatically fall back to the emoji —
 // see buildPluginIconEl().
 const PLUGIN_COMING_SOON = [
-    { slug: "slack", icon: "💬", color: "#4A154B", title: "Slack", desc: "Read and manage Slack" },
     { slug: "microsoftoutlook", icon: "📧", color: "#0072C6", title: "Outlook Email", desc: "Triage Outlook inboxes" },
     { slug: "canva", icon: "🎨", color: "#00C4CC", title: "Canva", desc: "Create, review, edit designs" },
     { slug: "trello", icon: "📋", color: "#0079BF", title: "Trello", desc: "Get things done in Trello" },
@@ -1719,6 +1719,9 @@ function applyPluginVisibility(){
 
     const githubCard = document.getElementById("githubConnectionCard");
     if(githubCard) githubCard.style.display = plugins.githubTools ? "" : "none";
+
+    const slackCard = document.getElementById("slackConnectionCard");
+    if(slackCard) slackCard.style.display = plugins.slackTools ? "" : "none";
 }
 
 // ---- Scheduled Tasks ----
@@ -1776,7 +1779,8 @@ const CONNECTORS = [
     { key: "gmail", provider: "google", slug: "gmail", color: "#EA4335", title: "Gmail", desc: "Search, read, send email & drafts" },
     { key: "google-drive", provider: "google", slug: "googledrive", color: "#0F9D58", title: "Google Drive", desc: "Drive, Docs, Sheets or Slides" },
     { key: "google-calendar", provider: "google", slug: "googlecalendar", color: "#1A73E8", title: "Google Calendar", desc: "Manage Google Calendar events" },
-    { key: "github", provider: "github", slug: "github", color: "#24292e", title: "GitHub", desc: "Repos, issues, and pull requests" }
+    { key: "github", provider: "github", slug: "github", color: "#24292e", title: "GitHub", desc: "Repos, issues, and pull requests" },
+    { key: "slack", provider: "slack", slug: "slack", color: "#4A154B", title: "Slack", desc: "Channels, messages, and search" }
 ];
 
 const CONNECTOR_PROVIDER_CONFIG = {
@@ -1793,6 +1797,13 @@ const CONNECTOR_PROVIDER_CONFIG = {
         disconnectUrl: "/api/auth/oauth-disconnect?provider=github",
         label: data => data.label ? `Connected as ${data.label}` : "Connected",
         disconnectConfirm: "Zyntra will no longer be able to read your repos or create issues/PRs on your behalf."
+    },
+    slack: {
+        statusUrl: "/api/auth/oauth-status?provider=slack",
+        startUrl: "/api/auth/oauth-start?provider=slack",
+        disconnectUrl: "/api/auth/oauth-disconnect?provider=slack",
+        label: data => data.label ? `Connected to ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to read or send Slack messages on your behalf."
     }
 };
 
