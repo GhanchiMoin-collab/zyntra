@@ -1596,6 +1596,7 @@ const PLUGIN_DEFS = [
     { key: "githubTools", slug: "github", icon: "🐙", color: "#24292e", title: "GitHub Tools", desc: "Let a connected GitHub account be used to read repos and manage issues/PRs." },
     { key: "slackTools", slug: "slack", icon: "💬", color: "#4A154B", title: "Slack Tools", desc: "Let a connected Slack account be used to read channels and send messages." },
     { key: "discordTools", slug: "discord", icon: "🎮", color: "#5865F2", title: "Discord Tools", desc: "Let a connected Discord account be used to read and send messages in a server." },
+    { key: "notionTools", slug: "notion", icon: "📝", color: "#000000", title: "Notion Tools", desc: "Let a connected Notion account be used to search, read, and create pages." },
     { key: "memory", icon: "🧠", color: "#a259ff", title: "Memory", desc: "Let Zyntra remember facts about you across conversations." },
     { key: "imageGen", icon: "🖼️", color: "#37c98f", title: "Image Generator", desc: "Show the Image Generator tool in the sidebar." },
     { key: "codexBuilder", icon: "🧑‍💻", color: "#ffb545", title: "Codex", desc: "Show the Codex (coding + website building) tool in the sidebar." }
@@ -1621,7 +1622,6 @@ const PLUGIN_COMING_SOON = [
     { slug: "microsoftoutlook", icon: "📧", color: "#0072C6", title: "Outlook Email", desc: "Triage Outlook inboxes" },
     { slug: "canva", icon: "🎨", color: "#00C4CC", title: "Canva", desc: "Create, review, edit designs" },
     { slug: "trello", icon: "📋", color: "#0079BF", title: "Trello", desc: "Get things done in Trello" },
-    { slug: "notion", icon: "📝", color: "#2f2f2f", title: "Notion", desc: "Notion docs and workflows" },
     { slug: "microsoftoutlook", icon: "📅", color: "#0072C6", title: "Outlook Calendar", desc: "Manage Outlook schedules" },
     { slug: "atlassian", icon: "🔷", color: "#0052CC", title: "Atlassian Rovo", desc: "Manage Jira and Confluence" },
     { slug: "hubspot", icon: "🧡", color: "#FF7A59", title: "HubSpot", desc: "Insights to action in HubSpot" },
@@ -1726,6 +1726,9 @@ function applyPluginVisibility(){
 
     const discordCard = document.getElementById("discordConnectionCard");
     if(discordCard) discordCard.style.display = plugins.discordTools ? "" : "none";
+
+    const notionCard = document.getElementById("notionConnectionCard");
+    if(notionCard) notionCard.style.display = plugins.notionTools ? "" : "none";
 }
 
 // ---- Scheduled Tasks ----
@@ -1785,7 +1788,8 @@ const CONNECTORS = [
     { key: "google-calendar", provider: "google", slug: "googlecalendar", color: "#1A73E8", title: "Google Calendar", desc: "Manage Google Calendar events" },
     { key: "github", provider: "github", slug: "github", color: "#24292e", title: "GitHub", desc: "Repos, issues, and pull requests" },
     { key: "slack", provider: "slack", slug: "slack", color: "#4A154B", title: "Slack", desc: "Channels, messages, and search" },
-    { key: "discord", provider: "discord", slug: "discord", color: "#5865F2", title: "Discord", desc: "Read and send messages in a server" }
+    { key: "discord", provider: "discord", slug: "discord", color: "#5865F2", title: "Discord", desc: "Read and send messages in a server" },
+    { key: "notion", provider: "notion", slug: "notion", color: "#000000", title: "Notion", desc: "Search, read, and create pages" }
 ];
 
 const CONNECTOR_PROVIDER_CONFIG = {
@@ -1816,6 +1820,13 @@ const CONNECTOR_PROVIDER_CONFIG = {
         disconnectUrl: "/api/auth/oauth-disconnect?provider=discord",
         label: data => data.label ? `Connected to ${data.label}` : "Connected",
         disconnectConfirm: "Zyntra will no longer be able to read or send messages in your Discord server on your behalf. The bot stays in your server until you remove it yourself from Discord."
+    },
+    notion: {
+        statusUrl: "/api/auth/oauth-status?provider=notion",
+        startUrl: "/api/auth/oauth-start?provider=notion",
+        disconnectUrl: "/api/auth/oauth-disconnect?provider=notion",
+        label: data => data.label ? `Connected to ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to search, read, or create pages in your Notion workspace. You can also remove Zyntra's access directly from Notion's own Settings → Connections."
     }
 };
 
