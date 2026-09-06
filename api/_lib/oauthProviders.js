@@ -38,6 +38,14 @@ import {
   getStoredNotionTokens,
   deleteStoredNotionTokens
 } from "./notionOAuth.js";
+import {
+  getConsentUrl as trelloConsentUrl,
+  exchangeCodeForToken as trelloExchangeCodeForToken,
+  saveTrelloTokens,
+  getStoredTrelloTokens,
+  deleteStoredTrelloTokens,
+  revokeTrelloToken
+} from "./trelloOAuth.js";
 
 // Each provider needs exactly 4 things: a consent URL, a way to turn an
 // auth code into stored tokens + a display label, a status check, and a
@@ -174,6 +182,27 @@ export const PROVIDERS = {
       // Notion has no server-side revoke API — see notionOAuth.js for
       // why this only removes our stored copy, not Notion-side access.
       await deleteStoredNotionTokens(uid);
+    }
+  },
+  trello: {
+    getConsentUrl: (uid, req) => trelloConsentUrl(uid, req),
+    async handleCallback(code, req, uid) {
+      // "code" here is the Trello token itself, forwarded by
+      // trello-bridge.html — see trelloOAuth.js for why there's no
+      // actual exchange step, unlike every other provider.
+      const tokenData = await trelloExchangeCodeForToken(code);
+      await saveTrelloTokens(uid, tokenData);
+    },
+    async getStatus(uid) {
+      const stored = await getStoredTrelloTokens(uid);
+      return { connected: !!(stored && stored.access_token), label: stored?.username ? `@${stored.username}` : null };
+    },
+    async disconnect(uid) {
+      const stored = await getStoredTrelloTokens(uid);
+      if (stored?.access_token) {
+        await revokeTrelloToken(stored.access_token);
+      }
+      await deleteStoredTrelloTokens(uid);
     }
   }
 
