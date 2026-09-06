@@ -1925,22 +1925,28 @@ async function handleConnectorClick(connector){
     }
 }
 
-// Google/GitHub redirect back to "/" with one of these query params after
-// the user finishes (or cancels) the consent screen — check once on load.
+// Every provider's oauth-callback redirects back to "/" with either
+// "<provider>_connected=1" or "<provider>_error=<reason>" — generic so
+// a newly added provider never needs a matching change here.
 (function handleConnectorRedirectResult(){
     const params = new URLSearchParams(window.location.search);
-    if(params.has("google_connected")){
-        showToast("✅ Google connected!");
-        window.history.replaceState({}, "", window.location.pathname);
-    } else if(params.has("google_error")){
-        showToast("⚠️ Google connection failed: " + params.get("google_error"));
-        window.history.replaceState({}, "", window.location.pathname);
-    } else if(params.has("github_connected")){
-        showToast("✅ GitHub connected!");
-        window.history.replaceState({}, "", window.location.pathname);
-    } else if(params.has("github_error")){
-        showToast("⚠️ GitHub connection failed: " + params.get("github_error"));
-        window.history.replaceState({}, "", window.location.pathname);
+    const providerNames = { google: "Google", github: "GitHub", slack: "Slack", discord: "Discord", notion: "Notion", trello: "Trello", outlook: "Outlook" };
+
+    for (const key of params.keys()) {
+        const connectedMatch = key.match(/^(\w+)_connected$/);
+        const errorMatch = key.match(/^(\w+)_error$/);
+        if (connectedMatch) {
+            const label = providerNames[connectedMatch[1]] || connectedMatch[1];
+            showToast(`✅ ${label} connected!`);
+            window.history.replaceState({}, "", window.location.pathname);
+            break;
+        }
+        if (errorMatch) {
+            const label = providerNames[errorMatch[1]] || errorMatch[1];
+            showToast(`⚠️ ${label} connection failed: ` + params.get(key));
+            window.history.replaceState({}, "", window.location.pathname);
+            break;
+        }
     }
 })();
 
