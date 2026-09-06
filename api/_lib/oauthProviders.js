@@ -46,6 +46,13 @@ import {
   deleteStoredTrelloTokens,
   revokeTrelloToken
 } from "./trelloOAuth.js";
+import {
+  getConsentUrl as outlookConsentUrl,
+  exchangeCodeForToken as outlookExchangeCodeForToken,
+  saveOutlookTokens,
+  getStoredOutlookTokens,
+  deleteOutlookAccess
+} from "./outlookOAuth.js";
 
 // Each provider needs exactly 4 things: a consent URL, a way to turn an
 // auth code into stored tokens + a display label, a status check, and a
@@ -203,6 +210,38 @@ export const PROVIDERS = {
         await revokeTrelloToken(stored.access_token);
       }
       await deleteStoredTrelloTokens(uid);
+    }
+  },
+  outlook: {
+    getConsentUrl: (uid, req) => outlookConsentUrl(uid, req),
+    async handleCallback(code, req, uid) {
+      const tokenData = await outlookExchangeCodeForToken(code, req);
+      if (!tokenData.refresh_token) {
+        // prompt=consent in getConsentUrl should prevent this, but guard
+        // anyway rather than silently storing a connection that can't
+        // refresh itself once the short-lived access token expires.
+        throw new Error("no_refresh_token");
+      }
+      let email = null;
+      try {
+        const meRes = await fetch("https://graph.microsoft.com/v1.0/me", {
+          headers: { "Authorization": `Bearer ${tokenData.access_token}` }
+        });
+        const me = await meRes.json();
+        email = me.mail || me.userPrincipalName || null;
+      } catch {
+        // Non-fatal — the connection still works without a displayed email.
+      }
+      await saveOutlookTokens(uid, tokenData, email);
+    },
+    async getStatus(uid) {
+      const stored = await getStoredOutlookTokens(uid);
+      return { connected: !!(stored && stored.refresh_token), label: stored?.email || null };
+    },
+    async disconnect(uid) {
+      // See outlookOAuth.js for why this only removes our stored copy —
+      // Microsoft has no simple per-app token revoke API like the others.
+      await deleteOutlookAccess(uid);
     }
   }
 
