@@ -282,14 +282,30 @@
                 <p class="page-view-subtitle" style="margin-top:4px;">Connect your own accounts so Zyntra can take real actions in them.</p>
                 <div id="pluginsConnectionsList" class="plugin-marketplace-list"></div>
 
-                <p class="page-recommended-label" style="margin-top:28px;" id="pluginsInstalledLabel">Installed</p>
-                <div id="pluginsInstalledRow" class="plugin-icon-row"></div>
+                <p class="page-recommended-label" style="margin-top:28px;">Capabilities</p>
+                <p class="page-view-subtitle" style="margin-top:4px;">Turn Zyntra's built-in capabilities on or off.</p>
+                <div id="pluginsCapabilitiesList" class="plugin-marketplace-list"></div>
+            </div>
+        </div>
 
-                <p class="page-recommended-label" style="margin-top:28px;">All Plugins</p>
-                <div id="pluginsList" class="plugin-marketplace-list"></div>
+        <!-- ================= PLUGIN DETAIL PAGE ================= -->
+        <div class="page-view" id="pluginDetailView">
+            <div class="page-view-inner">
+                <button id="pluginDetailBackBtn" type="button" style="background:none; border:none; color:#9aa0c0; font-size:14px; cursor:pointer; padding:0; margin-bottom:18px; display:flex; align-items:center; gap:6px;">← Back to Plugins</button>
 
-                <p class="page-recommended-label" style="margin-top:28px;">Popular</p>
-                <div id="pluginsComingSoonList" class="plugin-marketplace-list"></div>
+                <div style="display:flex; align-items:center; gap:18px; flex-wrap:wrap;">
+                    <div id="pluginDetailIcon" style="flex-shrink:0;"></div>
+                    <div style="flex:1; min-width:200px;">
+                        <h1 id="pluginDetailTitle" class="page-view-title" style="margin-bottom:4px;"></h1>
+                        <p id="pluginDetailSubtitle" class="page-view-subtitle" style="margin:0;"></p>
+                    </div>
+                    <button id="pluginDetailActionBtn" type="button" class="plugin-connect-btn" style="padding:10px 22px; font-size:14px;"></button>
+                </div>
+
+                <p class="page-recommended-label" style="margin-top:32px;">What this can do</p>
+                <ul id="pluginDetailCapabilities" style="margin:12px 0 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:10px;"></ul>
+
+                <p id="pluginDetailStatus" style="margin-top:24px; color:#9aa0c0; font-size:13px;"></p>
             </div>
         </div>
 
