@@ -1604,56 +1604,6 @@ const PLUGIN_DEFS = [
     { key: "codexBuilder", icon: "🧑‍💻", color: "#ffb545", title: "Codex", desc: "Show the Codex (coding + website building) tool in the sidebar." }
 ];
 
-// Visual-only "coming soon" catalog — these are NOT connected to
-// anything real yet (no OAuth, no API calls). They exist purely so the
-// Plugins page looks like a real marketplace, same idea as browsing
-// ChatGPT's connector directory before you've installed anything. Every
-// row is clearly labeled "Soon" and clicking one is honest about that —
-// never silently pretend to connect.
-//
-// `slug` is the Simple Icons (simpleicons.org) identifier used to fetch
-// each company's real logo as an SVG, via https://cdn.simpleicons.org —
-// a free, open-source icon library maintained specifically for this kind
-// of "which apps does X integrate with" use case, not a scrape or
-// reproduction of the logo myself. Rendered in white on each brand's own
-// color as the background (set via `color` below), matching how the
-// built-in plugin icons already look. Entries with no confirmed slug, or
-// where the logo fails to load, automatically fall back to the emoji —
-// see buildPluginIconEl().
-const PLUGIN_COMING_SOON = [
-    { slug: "canva", icon: "🎨", color: "#00C4CC", title: "Canva", desc: "Create, review, edit designs" },
-    { slug: "microsoftoutlook", icon: "📅", color: "#0072C6", title: "Outlook Calendar", desc: "Manage Outlook schedules" },
-    { slug: "atlassian", icon: "🔷", color: "#0052CC", title: "Atlassian Rovo", desc: "Manage Jira and Confluence" },
-    { slug: "hubspot", icon: "🧡", color: "#FF7A59", title: "HubSpot", desc: "Insights to action in HubSpot" },
-    { slug: "supabase", icon: "⚡", color: "#3ECF8E", title: "Supabase", desc: "Manage and query databases" },
-    { slug: "fathom", icon: "🎙️", color: "#7C5CFF", title: "Fathom", desc: "Your meeting insights" },
-    { slug: "mondaydotcom", icon: "🔴", color: "#FF3D57", title: "monday.com", desc: "Manage projects, tasks & CRM" },
-    { icon: "🥣", color: "#E8A33D", title: "Granola", desc: "Add your meeting context" },
-    { icon: "🎤", color: "#4A4A4A", title: "Plaud", desc: "Retrieve insights from Plaud" },
-    { slug: "shopify", icon: "🛍️", color: "#95BF47", title: "Shopify", desc: "Create and manage your store" },
-    { icon: "🪟", color: "#1E88E5", title: "Windsor.ai", desc: "Connect 330+ data sources" },
-    { slug: "fireflies", icon: "🔥", color: "#F2545B", title: "Fireflies", desc: "Search meeting transcripts" },
-    { slug: "todoist", icon: "✅", color: "#E44332", title: "Todoist", desc: "To-do list, planner & reminders" },
-    { slug: "microsoftteams", icon: "👥", color: "#6264A7", title: "Teams", desc: "Summarize Teams and follow up" },
-    { slug: "interactivebrokers", icon: "📈", color: "#B41E1E", title: "Interactive Brokers", desc: "Analyze global markets" },
-    { slug: "exa", icon: "🔦", color: "#111111", title: "Exa", desc: "Web search for AI agents" },
-    { slug: "microsoftsharepoint", icon: "📁", color: "#038387", title: "SharePoint", desc: "Summarize SharePoint content" },
-    { slug: "posthog", icon: "📊", color: "#F54E00", title: "PostHog", desc: "Analyze your product data" },
-    { slug: "zoominfo", icon: "🔍", color: "#2D6CDF", title: "ZoomInfo", desc: "B2B data and GTM insights" },
-    { slug: "linear", icon: "📐", color: "#5E6AD2", title: "Linear", desc: "Plan and build products" },
-    { slug: "vidiq", icon: "▶️", color: "#26C281", title: "vidIQ", desc: "YouTube stats and keywords" },
-    { icon: "🔑", color: "#FF6B35", title: "Ubersuggest", desc: "Find keywords and SEO insights" },
-    { slug: "wix", icon: "🌐", color: "#0C6EFC", title: "Wix", desc: "Create your own website" },
-    { slug: "apollo", icon: "🚀", color: "#2E6ADE", title: "Apollo.io", desc: "Find buyers and close deals" },
-    { slug: "airtable", icon: "🗂️", color: "#FCB400", title: "Airtable", desc: "Add structured data to Zyntra" },
-    { slug: "webflow", icon: "🌊", color: "#4353FF", title: "Webflow", desc: "Manage Webflow sites" },
-    { icon: "🎬", color: "#FF4785", title: "Higgsfield", desc: "Every image and video model" },
-    { slug: "superhuman", icon: "⚡", color: "#1A1A1A", title: "Superhuman Mail", desc: "Best email + calendar assistant" },
-    { slug: "vercel", icon: "▲", color: "#000000", title: "Vercel", desc: "Build and deploy web apps and agents" },
-    { slug: "netsuite", icon: "🏢", color: "#003087", title: "NetSuite", desc: "Connect Zyntra to NetSuite" },
-    { slug: "asana", icon: "🔺", color: "#F06A6A", title: "Asana", desc: "Turn chats into actions" },
-    { slug: "neon", icon: "💚", color: "#00E599", title: "Neon", desc: "Manage Neon databases" }
-];
 
 // Builds an icon element for a plugin row: a real logo (white, on the
 // brand's color) when `def.slug` is set, falling back to a bold colored
@@ -1852,6 +1802,32 @@ const CONNECTOR_PROVIDER_CONFIG = {
     }
 };
 
+// Plain-English capability lists shown on each plugin/connector's detail
+// page — keyed by CONNECTORS' `key` (for connections) and PLUGIN_DEFS'
+// `key` (for built-in capabilities).
+const PLUGIN_CAPABILITIES = {
+    gmail: ["Search your inbox", "Read full email content", "Send emails on your behalf", "Create drafts without sending"],
+    "google-drive": ["Search your files", "Read file content (Docs, Sheets, text files)", "Create new files"],
+    "google-calendar": ["View upcoming events", "Create new events", "Update or cancel existing events"],
+    github: ["List your repositories", "View issues and pull requests", "Create new issues", "Create new pull requests"],
+    slack: ["List channels (public and private)", "Read recent messages", "Send messages", "Search your workspace", "Look up teammates"],
+    discord: ["List channels in your connected server", "Read recent messages", "Send messages"],
+    notion: ["Search your workspace", "Read page content", "Create new pages"],
+    trello: ["List your boards and lists", "View cards", "Create new cards"],
+    outlook: ["Search your inbox", "Read full email content", "Send emails on your behalf", "Create drafts without sending"],
+    webSearch: ["Search the web for current information", "Multi-source Research mode for deeper, longer answers"],
+    googleTools: ["Lets the AI use your connected Google account for Gmail, Drive, and Calendar actions"],
+    githubTools: ["Lets the AI use your connected GitHub account to read repos and manage issues/PRs"],
+    slackTools: ["Lets the AI use your connected Slack account to read channels and send messages"],
+    discordTools: ["Lets the AI use your connected Discord account to read and send messages"],
+    notionTools: ["Lets the AI use your connected Notion account to search, read, and create pages"],
+    trelloTools: ["Lets the AI use your connected Trello account to read and create cards"],
+    outlookTools: ["Lets the AI use your connected Outlook account to search, read, and send email"],
+    memory: ["Remembers facts you share, across conversations", "Injects relevant memories into new chats automatically"],
+    imageGen: ["Adds the Image Generator tool to your sidebar"],
+    codexBuilder: ["Adds the Codex coding and website-building tool to your sidebar"]
+};
+
 // Cache of the last known status per provider, so all rows for that
 // provider (e.g. the 3 Google rows) render consistently without each
 // firing its own network request.
@@ -1878,6 +1854,7 @@ async function refreshAllConnectorStatuses(){
         connectorStatusCache[provider] = await fetchConnectorStatus(provider);
     }));
     renderPluginsConnectionsList();
+    if(pluginDetailCurrent?.type === "connector") renderPluginDetail();
 }
 
 async function handleConnectorClick(connector){
@@ -1961,6 +1938,9 @@ function renderPluginsConnectionsList(){
 
         const row = document.createElement("div");
         row.className = "plugin-row";
+        row.dataset.connectorKey = connector.key;
+        row.style.cursor = "pointer";
+        row.addEventListener("click", () => openPluginDetail("connector", connector.key));
 
         const left = document.createElement("div");
         left.style.cssText = "display:flex; align-items:flex-start;";
@@ -2849,46 +2829,8 @@ document.getElementById("projectNewChatBtn")?.addEventListener("click", () => {
 // Plugins page (full-screen marketplace, like Projects/Scheduled)
 // ==========================
 
-function renderPluginsInstalledRow(){
-    const row = document.getElementById("pluginsInstalledRow");
-    const label = document.getElementById("pluginsInstalledLabel");
-    if(!row) return;
-    row.innerHTML = "";
-    const plugins = getPlugins();
-    const installed = PLUGIN_DEFS.filter(def => plugins[def.key]);
-
-    if(installed.length === 0){
-        label.style.display = "none";
-        row.style.display = "none";
-        return;
-    }
-    label.style.display = "";
-    row.style.display = "";
-
-    installed.forEach(def => {
-        const tile = document.createElement("div");
-        tile.className = "plugin-icon-tile";
-        tile.title = def.title;
-        const square = buildPluginIconEl(def, "plugin-icon-tile-square");
-        const label2 = document.createElement("span");
-        label2.className = "label";
-        label2.textContent = def.title;
-        tile.appendChild(square);
-        tile.appendChild(label2);
-        tile.addEventListener("click", () => {
-            const targetRow = document.querySelector(`.plugin-row[data-key="${def.key}"]`);
-            if(targetRow){
-                targetRow.scrollIntoView({ behavior: "smooth", block: "center" });
-                targetRow.classList.add("flash");
-                setTimeout(() => targetRow.classList.remove("flash"), 900);
-            }
-        });
-        row.appendChild(tile);
-    });
-}
-
-function renderPluginsList(filterText){
-    const list = document.getElementById("pluginsList");
+function renderPluginsCapabilitiesList(filterText){
+    const list = document.getElementById("pluginsCapabilitiesList");
     if(!list) return;
     list.innerHTML = "";
     const plugins = getPlugins();
@@ -2900,14 +2842,18 @@ function renderPluginsList(filterText){
     }
 
     if(defs.length === 0){
-        list.innerHTML = '<div class="page-empty-state" style="grid-column:1/-1;"><div class="page-empty-state-icon">🧩</div><p>No plugins match your search</p></div>';
+        list.innerHTML = '<div class="page-empty-state" style="grid-column:1/-1;"><div class="page-empty-state-icon">\ud83e\udde9</div><p>No plugins match your search</p></div>';
         return;
     }
 
     defs.forEach(def => {
+        const enabled = !!plugins[def.key];
+
         const row = document.createElement("div");
         row.className = "plugin-row";
         row.dataset.key = def.key;
+        row.style.cursor = "pointer";
+        row.addEventListener("click", () => openPluginDetail("plugin", def.key));
 
         const left = document.createElement("div");
         left.style.cssText = "display:flex; align-items:flex-start;";
@@ -2924,107 +2870,104 @@ function renderPluginsList(filterText){
         left.appendChild(icon);
         left.appendChild(textWrap);
 
-        const toggle = document.createElement("input");
-        toggle.type = "checkbox";
-        toggle.className = "plugin-row-switch";
-        toggle.checked = plugins[def.key];
-        toggle.addEventListener("change", () => {
-            setPlugin(def.key, toggle.checked);
-            renderPluginsInstalledRow();
-            showToast((toggle.checked ? "✅ " : "🚫 ") + def.title + (toggle.checked ? " enabled" : " disabled"));
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "plugin-connect-btn";
+        btn.textContent = enabled ? "\u2713" : "+";
+        btn.title = enabled ? "Disable" : "Enable";
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const newState = !enabled;
+            setPlugin(def.key, newState);
+            renderPluginsCapabilitiesList(filterText);
+            showToast((newState ? "\u2705 " : "\ud83d\udeab ") + def.title + (newState ? " enabled" : " disabled"));
         });
 
         row.appendChild(left);
-        row.appendChild(toggle);
+        row.appendChild(btn);
         list.appendChild(row);
     });
 }
+
+// ==========================
+// Plugin detail page (shared by connectors and built-in plugins)
+// ==========================
+
+let pluginDetailCurrent = null; // { type: "connector"|"plugin", key }
+
+function openPluginDetail(type, key){
+    pluginDetailCurrent = { type, key };
+    renderPluginDetail();
+    showPageView("pluginDetail");
+}
+
+function renderPluginDetail(){
+    if(!pluginDetailCurrent) return;
+    const { type, key } = pluginDetailCurrent;
+    const def = type === "connector" ? CONNECTORS.find(c => c.key === key) : PLUGIN_DEFS.find(p => p.key === key);
+    if(!def) return;
+
+    document.getElementById("pluginDetailTitle").textContent = def.title;
+    const iconWrap = document.getElementById("pluginDetailIcon");
+    iconWrap.innerHTML = "";
+    iconWrap.appendChild(buildPluginIconEl(def, "plugin-icon-tile-square"));
+
+    const capsList = document.getElementById("pluginDetailCapabilities");
+    capsList.innerHTML = "";
+    (PLUGIN_CAPABILITIES[def.key] || [def.desc]).forEach(cap => {
+        const li = document.createElement("li");
+        li.style.cssText = "display:flex; align-items:flex-start; gap:10px; color:#c7cae6; font-size:14px;";
+        li.innerHTML = '<span style="color:#7c8bff;">\u2713</span><span></span>';
+        li.querySelector("span:last-child").textContent = cap;
+        capsList.appendChild(li);
+    });
+
+    const subtitle = document.getElementById("pluginDetailSubtitle");
+    const actionBtn = document.getElementById("pluginDetailActionBtn");
+    const statusEl = document.getElementById("pluginDetailStatus");
+
+    if(type === "connector"){
+        const status = connectorStatusCache[def.provider];
+        const connected = status?.connected;
+        subtitle.textContent = status === undefined ? "Checking\u2026" : (connected ? CONNECTOR_PROVIDER_CONFIG[def.provider].label(status) : def.desc);
+        actionBtn.textContent = connected ? "Disconnect" : "Connect";
+        actionBtn.disabled = status === undefined;
+        actionBtn.onclick = () => handleConnectorClick(def);
+        statusEl.textContent = connected ? "" : "Connecting lets Zyntra take real actions in your account, only when you ask it to in chat.";
+    } else {
+        const plugins = getPlugins();
+        const enabled = !!plugins[def.key];
+        subtitle.textContent = def.desc;
+        actionBtn.textContent = enabled ? "Disable" : "Enable";
+        actionBtn.disabled = false;
+        actionBtn.onclick = () => {
+            const newState = !enabled;
+            setPlugin(def.key, newState);
+            renderPluginDetail();
+            showToast((newState ? "\u2705 " : "\ud83d\udeab ") + def.title + (newState ? " enabled" : " disabled"));
+        };
+        statusEl.textContent = "";
+    }
+}
+
+document.getElementById("pluginDetailBackBtn")?.addEventListener("click", () => {
+    renderPluginsConnectionsList();
+    renderPluginsCapabilitiesList(document.getElementById("pluginsSearchInput")?.value || "");
+    showPageView("plugins");
+});
 
 document.getElementById("navPlugins")?.addEventListener("click", () => {
     setActiveNav("plugins");
     document.getElementById("pluginsSearchInput").value = "";
-    pluginsShowAllComingSoon = false;
     renderPluginsConnectionsList();
     refreshAllConnectorStatuses();
-    renderPluginsInstalledRow();
-    renderPluginsList("");
-    renderComingSoonPlugins("");
+    renderPluginsCapabilitiesList("");
     showPageView("plugins");
     closeSidebarMobile();
 });
 document.getElementById("pluginsSearchInput")?.addEventListener("input", (e) => {
-    renderPluginsList(e.target.value);
-    renderComingSoonPlugins(e.target.value);
+    renderPluginsCapabilitiesList(e.target.value);
 });
-
-let pluginsShowAllComingSoon = false;
-
-function renderComingSoonPlugins(filterText){
-    const list = document.getElementById("pluginsComingSoonList");
-    if(!list) return;
-    list.innerHTML = "";
-
-    let items = PLUGIN_COMING_SOON;
-    if(filterText){
-        const q = filterText.toLowerCase();
-        items = items.filter(d => d.title.toLowerCase().includes(q) || d.desc.toLowerCase().includes(q));
-    }
-
-    // Collapsed by default — just the first 6, like ChatGPT's "Popular"
-    // section — with a "See more" row instead of dumping the whole
-    // catalog on screen at once. Searching auto-expands so search results
-    // beyond the first 6 are still reachable.
-    const showAll = pluginsShowAllComingSoon || !!filterText;
-    const visible = showAll ? items : items.slice(0, 6);
-    const hidden = showAll ? [] : items.slice(6);
-
-    visible.forEach(def => {
-        const row = document.createElement("div");
-        row.className = "plugin-row coming-soon";
-
-        const left = document.createElement("div");
-        left.style.cssText = "display:flex; align-items:flex-start;";
-        const icon = buildPluginIconEl(def);
-        const textWrap = document.createElement("div");
-        const title = document.createElement("div");
-        title.className = "plugin-row-title";
-        title.textContent = def.title;
-        const desc = document.createElement("div");
-        desc.className = "plugin-row-desc";
-        desc.textContent = def.desc;
-        textWrap.appendChild(title);
-        textWrap.appendChild(desc);
-        left.appendChild(icon);
-        left.appendChild(textWrap);
-
-        const badge = document.createElement("span");
-        badge.className = "plugin-soon-badge";
-        badge.textContent = "Soon";
-
-        row.appendChild(left);
-        row.appendChild(badge);
-        row.addEventListener("click", () => showToast(`🔒 ${def.title} isn't connected yet — coming soon`));
-        list.appendChild(row);
-    });
-
-    if(hidden.length > 0){
-        const seeMore = document.createElement("div");
-        seeMore.className = "plugin-see-more-row";
-        const preview = document.createElement("div");
-        preview.className = "plugin-see-more-icons";
-        hidden.slice(0, 3).forEach(def => preview.appendChild(buildPluginIconEl(def, "plugin-see-more-icon")));
-        const label = document.createElement("span");
-        const names = hidden.slice(0, 2).map(d => d.title).join(", ");
-        label.textContent = `See ${names}, and more`;
-        seeMore.appendChild(preview);
-        seeMore.appendChild(label);
-        seeMore.addEventListener("click", () => {
-            pluginsShowAllComingSoon = true;
-            renderComingSoonPlugins(filterText);
-        });
-        list.appendChild(seeMore);
-    }
-}
 
 // ==========================
 // Scheduled page (full-screen))
