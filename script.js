@@ -1828,6 +1828,75 @@ const PLUGIN_CAPABILITIES = {
     codexBuilder: ["Adds the Codex coding and website-building tool to your sidebar"]
 };
 
+// Richer metadata for the detail page's "Information" section and example
+// prompts — real, working starter messages (not decorative), since every
+// connector here is a real, tested integration.
+const PLUGIN_DETAILS = {
+    gmail: {
+        longDesc: "Search your inbox, read full email content, send new emails, and create drafts — all from chat, using your own connected Gmail account.",
+        examples: ["Search my Gmail for emails from the last 7 days", "Read that email from [sender] and summarize it", "Draft a reply to my last email from [sender]"],
+        category: "Email", website: "https://gmail.com"
+    },
+    "google-drive": {
+        longDesc: "Search your Google Drive, read the content of Docs, Sheets, and text files, and create new files — without leaving the chat.",
+        examples: ["Search my Drive for the Q3 budget file", "Read that file and summarize the key points", "Create a new file called Meeting Notes with today's summary"],
+        category: "Productivity", website: "https://drive.google.com"
+    },
+    "google-calendar": {
+        longDesc: "See what's coming up, schedule new events, and update or cancel existing ones on your Google Calendar.",
+        examples: ["What's on my calendar tomorrow?", "Schedule a meeting with the team Friday at 2pm", "Move my 3pm call to 4pm"],
+        category: "Productivity", website: "https://calendar.google.com"
+    },
+    github: {
+        longDesc: "List your repositories, review issues and pull requests, and create new ones — right from chat, using your own connected GitHub account.",
+        examples: ["List my GitHub repos", "Show open issues on [repo]", "Create an issue on [repo] titled 'Fix login bug'"],
+        category: "Developer Tools", website: "https://github.com"
+    },
+    slack: {
+        longDesc: "Read and send messages across your Slack channels and DMs, search your workspace, and look up teammates.",
+        examples: ["List my Slack channels", "What's the latest in #general?", "Send a message to #team saying I'll be late"],
+        category: "Communication", website: "https://slack.com"
+    },
+    discord: {
+        longDesc: "Read and send messages in the Discord server you've added the Zyntra bot to.",
+        examples: ["List channels in my Discord server", "What's the latest message in #general?", "Send a message to #announcements"],
+        category: "Communication", website: "https://discord.com"
+    },
+    notion: {
+        longDesc: "Search your Notion workspace, read page content, and create new pages — all from chat.",
+        examples: ["Search my Notion for the project roadmap", "Read that page and summarize it", "Create a new page under Projects called Q4 Plan"],
+        category: "Productivity", website: "https://notion.so"
+    },
+    trello: {
+        longDesc: "View your Trello boards, lists, and cards, and create new cards — without opening Trello.",
+        examples: ["List my Trello boards", "Show cards in my To Do list", "Create a card called 'Review designs' in my To Do list"],
+        category: "Productivity", website: "https://trello.com"
+    },
+    outlook: {
+        longDesc: "Search your Outlook inbox, read full email content, send new emails, and create drafts — using your own connected Microsoft account.",
+        examples: ["Search my Outlook for emails from last week", "Read that email and summarize it", "Send an email to [name] about tomorrow's meeting"],
+        category: "Email", website: "https://outlook.com"
+    },
+    webSearch: {
+        longDesc: "Lets Zyntra search the web for current information and switch to Research mode for deeper, multi-source answers on complex questions.",
+        examples: ["What's the latest news on [topic]?", "Research the pros and cons of [decision] for me"],
+        category: "Built-in"
+    },
+    googleTools: { longDesc: "Turns Gmail, Google Drive, and Google Calendar actions on or off for the AI, once you've connected your Google account.", examples: [], category: "Built-in" },
+    githubTools: { longDesc: "Turns GitHub actions on or off for the AI, once you've connected your GitHub account.", examples: [], category: "Built-in" },
+    slackTools: { longDesc: "Turns Slack actions on or off for the AI, once you've connected your Slack account.", examples: [], category: "Built-in" },
+    discordTools: { longDesc: "Turns Discord actions on or off for the AI, once you've connected Discord and added the bot to a server.", examples: [], category: "Built-in" },
+    notionTools: { longDesc: "Turns Notion actions on or off for the AI, once you've connected your Notion account.", examples: [], category: "Built-in" },
+    trelloTools: { longDesc: "Turns Trello actions on or off for the AI, once you've connected your Trello account.", examples: [], category: "Built-in" },
+    outlookTools: { longDesc: "Turns Outlook actions on or off for the AI, once you've connected your Outlook account.", examples: [], category: "Built-in" },
+    memory: {
+        longDesc: "Lets Zyntra remember facts you share and bring them back naturally in future conversations, so you don't have to repeat yourself.",
+        examples: [], category: "Built-in"
+    },
+    imageGen: { longDesc: "Adds the Image Generator tool to your sidebar for creating images from text prompts.", examples: [], category: "Built-in" },
+    codexBuilder: { longDesc: "Adds the Codex tool to your sidebar for coding help and building full websites from a prompt.", examples: [], category: "Built-in" }
+};
+
 // Cache of the last known status per provider, so all rows for that
 // provider (e.g. the 3 Google rows) render consistently without each
 // firing its own network request.
@@ -2906,11 +2975,42 @@ function renderPluginDetail(){
     const { type, key } = pluginDetailCurrent;
     const def = type === "connector" ? CONNECTORS.find(c => c.key === key) : PLUGIN_DEFS.find(p => p.key === key);
     if(!def) return;
+    const details = PLUGIN_DETAILS[def.key] || {};
 
     document.getElementById("pluginDetailTitle").textContent = def.title;
     const iconWrap = document.getElementById("pluginDetailIcon");
     iconWrap.innerHTML = "";
     iconWrap.appendChild(buildPluginIconEl(def, "plugin-icon-tile-square"));
+
+    document.getElementById("pluginDetailLongDesc").textContent = details.longDesc || def.desc;
+
+    // Hero card of real, working example prompts — clicking one sends it
+    // exactly like the homepage starter-prompt chips do.
+    const hero = document.getElementById("pluginDetailHero");
+    hero.innerHTML = "";
+    if(details.examples && details.examples.length){
+        hero.style.display = "flex";
+        details.examples.forEach(example => {
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 18px; border-radius:14px; background:rgba(255,255,255,.14); cursor:pointer; backdrop-filter:blur(6px);";
+            const text = document.createElement("span");
+            text.style.cssText = "color:#fff; font-size:14px; line-height:1.4;";
+            text.textContent = example;
+            const arrow = document.createElement("span");
+            arrow.textContent = "→";
+            arrow.style.cssText = "color:#fff; flex-shrink:0; font-size:16px;";
+            row.appendChild(text);
+            row.appendChild(arrow);
+            row.addEventListener("click", () => {
+                showPageView("chat");
+                setActiveNav("chat");
+                sendChatMessage(example);
+            });
+            hero.appendChild(row);
+        });
+    } else {
+        hero.style.display = "none";
+    }
 
     const capsList = document.getElementById("pluginDetailCapabilities");
     capsList.innerHTML = "";
@@ -2925,10 +3025,11 @@ function renderPluginDetail(){
     const subtitle = document.getElementById("pluginDetailSubtitle");
     const actionBtn = document.getElementById("pluginDetailActionBtn");
     const statusEl = document.getElementById("pluginDetailStatus");
+    let connected = false;
 
     if(type === "connector"){
         const status = connectorStatusCache[def.provider];
-        const connected = status?.connected;
+        connected = !!status?.connected;
         subtitle.textContent = status === undefined ? "Checking\u2026" : (connected ? CONNECTOR_PROVIDER_CONFIG[def.provider].label(status) : def.desc);
         actionBtn.textContent = connected ? "Disconnect" : "Connect";
         actionBtn.disabled = status === undefined;
@@ -2936,19 +3037,69 @@ function renderPluginDetail(){
         statusEl.textContent = connected ? "" : "Connecting lets Zyntra take real actions in your account, only when you ask it to in chat.";
     } else {
         const plugins = getPlugins();
-        const enabled = !!plugins[def.key];
+        connected = !!plugins[def.key];
         subtitle.textContent = def.desc;
-        actionBtn.textContent = enabled ? "Disable" : "Enable";
+        actionBtn.textContent = connected ? "Disable" : "Enable";
         actionBtn.disabled = false;
         actionBtn.onclick = () => {
-            const newState = !enabled;
+            const newState = !connected;
             setPlugin(def.key, newState);
             renderPluginDetail();
             showToast((newState ? "\u2705 " : "\ud83d\udeab ") + def.title + (newState ? " enabled" : " disabled"));
         };
         statusEl.textContent = "";
     }
+
+    // "Information" section — matches the reference layout: capabilities,
+    // developer, category, website, version, privacy policy.
+    const infoTable = document.getElementById("pluginDetailInfoTable");
+    infoTable.innerHTML = "";
+    const rows = [
+        ["Capabilities", type === "connector" ? "Read, Write" : "Built-in"],
+        ["Developer", "Zyntra AI"],
+        ["Category", details.category || (type === "connector" ? "Integration" : "Built-in")]
+    ];
+    if(details.website) rows.push(["Website", details.website]);
+    rows.push(["Version", "1.0"]);
+    rows.push(["Privacy Policy", "__privacy__"]);
+
+    rows.forEach(([label, value]) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex; align-items:center; justify-content:space-between; padding:14px 0; border-bottom:1px solid #232952;";
+        const labelEl = document.createElement("span");
+        labelEl.style.cssText = "color:#8087a8; font-size:14px;";
+        labelEl.textContent = label;
+        row.appendChild(labelEl);
+
+        if(value === "__privacy__"){
+            const link = document.createElement("a");
+            link.href = "#";
+            link.textContent = "View";
+            link.style.cssText = "color:#9aa8ff; font-size:14px; text-decoration:none;";
+            link.addEventListener("click", (e) => { e.preventDefault(); openModal("privacyModal"); });
+            row.appendChild(link);
+        } else if(typeof value === "string" && value.startsWith("http")){
+            const link = document.createElement("a");
+            link.href = value;
+            link.target = "_blank";
+            link.rel = "noopener";
+            link.textContent = value.replace(/^https?:\/\//, "");
+            link.style.cssText = "color:#9aa8ff; font-size:14px; text-decoration:none;";
+            row.appendChild(link);
+        } else {
+            const valueEl = document.createElement("span");
+            valueEl.style.cssText = "color:#eef0ff; font-size:14px; font-weight:600;";
+            valueEl.textContent = value;
+            row.appendChild(valueEl);
+        }
+        infoTable.appendChild(row);
+    });
 }
+
+document.getElementById("pluginDetailPrivacyLink")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    openModal("privacyModal");
+});
 
 document.getElementById("pluginDetailBackBtn")?.addEventListener("click", () => {
     renderPluginsConnectionsList();
