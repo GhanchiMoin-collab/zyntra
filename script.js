@@ -657,7 +657,7 @@ function pickVoiceForLang(lang){
         || null;
 }
 
-function speakText(text, lang){
+function speakText(text, lang, onEnd){
     speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
 
@@ -679,6 +679,7 @@ function speakText(text, lang){
         if(voice) utter.voice = voice;
     }
 
+    if(onEnd) utter.onend = onEnd;
     speechSynthesis.speak(utter);
 }
 
@@ -4317,6 +4318,8 @@ function openTool(tool, prefix){
     } else if(tool === "voice"){
         document.getElementById("jarvisPermissionGate").style.display = jarvisMicGranted ? "none" : "";
         document.getElementById("jarvisInterface").style.display = jarvisMicGranted ? "" : "none";
+        document.getElementById("voiceMicBtn").style.display = "";
+        document.getElementById("jarvisStatusLabel").textContent = "Say \"repeat\" any time to hear the last answer again.";
         openModal("voiceModal");
         closeSidebarMobile();
     }
@@ -4712,7 +4715,10 @@ document.getElementById("posterGenBtn")?.addEventListener("click", () => {
 // Voice modal
 // ==========================
 
-document.getElementById("voiceModalClose").addEventListener("click", () => closeModal("voiceModal"));
+document.getElementById("voiceModalClose").addEventListener("click", () => {
+    if(typeof window.stopJarvisConversation === "function") window.stopJarvisConversation();
+    closeModal("voiceModal");
+});
 
 const voiceBox = document.getElementById("voiceBox");
 const voiceMicBtn = document.getElementById("voiceMicBtn");
@@ -4777,29 +4783,62 @@ let voiceHistory = [];
 
 if(!SpeechRecognitionAPI){
     voiceMicBtn.addEventListener("click", () => {
-        addVoiceMsg("Voice recognition is not supported in this browser.", "ai");
+        document.getElementById("jarvisStatusLabel").textContent = "Voice recognition is not supported in this browser.";
     });
 } else {
     const recognition = new SpeechRecognitionAPI();
     recognition.lang = navigator.language || "en-US";
 
-    voiceMicBtn.addEventListener("click", () => {
-        voiceMicBtn.textContent = "🎙 Listening...";
+    let jarvisContinuousMode = false;
+    let lastJarvisSpoken = null; // { text, lang } — for the "repeat" voice command
+    const jarvisStatusLabel = document.getElementById("jarvisStatusLabel");
+    const REPEAT_PATTERNS = ["repeat that", "repeat again", "say that again", "can you repeat", "repeat it", "repeat"];
+
+    function setJarvisStatus(text){
+        if(jarvisStatusLabel) jarvisStatusLabel.textContent = text;
+    }
+
+    function startJarvisListening(){
+        setJarvisStatus("Listening…");
         document.getElementById("jarvisOrb")?.classList.add("listening");
         recognition.start();
+    }
+
+    voiceMicBtn.addEventListener("click", () => {
+        // Only needed once — this first tap is the user gesture browsers
+        // require before mic access / audio playback is allowed. After
+        // this, recognition restarts itself automatically after each
+        // reply, so the conversation continues without any more taps —
+        // closer to a real back-and-forth than a manual tap-per-turn.
+        jarvisContinuousMode = true;
+        voiceMicBtn.style.display = "none";
+        startJarvisListening();
     });
 
     recognition.onresult = async (e) => {
         const said = e.results[0][0].transcript;
-        voiceMicBtn.textContent = "🎤 Tap to speak";
         document.getElementById("jarvisOrb")?.classList.remove("listening");
-        addVoiceMsg(said, "user");
+
+        if(REPEAT_PATTERNS.some(p => said.toLowerCase().trim().includes(p))){
+            if(lastJarvisSpoken){
+                setJarvisStatus("Repeating…");
+                speakText(lastJarvisSpoken.text, lastJarvisSpoken.lang, () => {
+                    if(jarvisContinuousMode) startJarvisListening();
+                });
+            } else {
+                setJarvisStatus("I haven't said anything yet.");
+                if(jarvisContinuousMode) startJarvisListening();
+            }
+            return;
+        }
 
         const command = matchJarvisCommand(said);
         if(command){
             command.run();
-            addVoiceMsg("On it — opening that now.", "ai");
-            speakText("On it.", "en-US");
+            setJarvisStatus("Opening that now…");
+            speakText("On it.", "en-US", () => {
+                if(jarvisContinuousMode) startJarvisListening();
+            });
             return; // recognized as a command, never sent to the AI
         }
 
@@ -4811,7 +4850,9 @@ if(!SpeechRecognitionAPI){
         }
         voiceHistory.push({ role: "user", content: said });
         logVoiceMessageToHistory("user", said);
+        addVoiceMsg(said, "user"); // kept invisible (voiceBox is hidden) — still logs for session history/replay elsewhere
         addVoiceMsg("Thinking...", "ai-loading");
+        setJarvisStatus("Thinking…");
         try{
             const { content: reply } = await callChatAPI(voiceHistory);
             voiceHistory.push({ role: "assistant", content: reply });
@@ -4820,6 +4861,7 @@ if(!SpeechRecognitionAPI){
             const clean = reply.replace(/\*\*/g, "");
             const spoken = stripForSpeech(reply);
             const lang = detectSpeechLang(spoken);
+            lastJarvisSpoken = { text: spoken, lang };
             const aiDiv = document.createElement("div");
             aiDiv.className = "chat-msg ai";
             voiceBox.appendChild(aiDiv);
@@ -4828,16 +4870,34 @@ if(!SpeechRecognitionAPI){
                 const bar = addMessageActionBar(aiDiv, clean);
                 addSpeakRepeatButton(bar, spoken, lang);
             });
-            speakText(spoken, lang);
+            setJarvisStatus("Speaking…");
+            speakText(spoken, lang, () => {
+                if(jarvisContinuousMode) startJarvisListening();
+            });
         }catch(err){
             voiceBox.removeChild(voiceBox.lastChild);
-            addVoiceMsg("Sorry, I couldn't process that.", "ai");
+            setJarvisStatus("Sorry, I couldn't process that.");
+            if(jarvisContinuousMode) startJarvisListening();
         }
     };
 
-    recognition.onerror = () => {
-        voiceMicBtn.textContent = "🎤 Tap to speak";
+    window.stopJarvisConversation = () => {
+        jarvisContinuousMode = false;
+        try{ recognition.stop(); }catch{}
+        speechSynthesis.cancel();
         document.getElementById("jarvisOrb")?.classList.remove("listening");
+    };
+
+    recognition.onerror = () => {
+        document.getElementById("jarvisOrb")?.classList.remove("listening");
+        // A brief silence/no-speech timeout is routine in continuous mode,
+        // not a real failure — just listen again instead of stopping.
+        if(jarvisContinuousMode){
+            setJarvisStatus("Listening…");
+            setTimeout(() => { if(jarvisContinuousMode) startJarvisListening(); }, 400);
+        } else {
+            setJarvisStatus('Say "Tap to speak" below to start.');
+        }
     };
 }
 
