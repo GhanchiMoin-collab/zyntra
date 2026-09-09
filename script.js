@@ -2898,66 +2898,6 @@ document.getElementById("projectNewChatBtn")?.addEventListener("click", () => {
 // Plugins page (full-screen marketplace, like Projects/Scheduled)
 // ==========================
 
-function renderPluginsCapabilitiesList(filterText){
-    const list = document.getElementById("pluginsCapabilitiesList");
-    if(!list) return;
-    list.innerHTML = "";
-    const plugins = getPlugins();
-
-    let defs = PLUGIN_DEFS;
-    if(filterText){
-        const q = filterText.toLowerCase();
-        defs = defs.filter(d => d.title.toLowerCase().includes(q) || d.desc.toLowerCase().includes(q));
-    }
-
-    if(defs.length === 0){
-        list.innerHTML = '<div class="page-empty-state" style="grid-column:1/-1;"><div class="page-empty-state-icon">\ud83e\udde9</div><p>No plugins match your search</p></div>';
-        return;
-    }
-
-    defs.forEach(def => {
-        const enabled = !!plugins[def.key];
-
-        const row = document.createElement("div");
-        row.className = "plugin-row";
-        row.dataset.key = def.key;
-        row.style.cursor = "pointer";
-        row.addEventListener("click", () => openPluginDetail("plugin", def.key));
-
-        const left = document.createElement("div");
-        left.style.cssText = "display:flex; align-items:flex-start;";
-        const icon = buildPluginIconEl(def);
-        const textWrap = document.createElement("div");
-        const title = document.createElement("div");
-        title.className = "plugin-row-title";
-        title.textContent = def.title;
-        const desc = document.createElement("div");
-        desc.className = "plugin-row-desc";
-        desc.textContent = def.desc;
-        textWrap.appendChild(title);
-        textWrap.appendChild(desc);
-        left.appendChild(icon);
-        left.appendChild(textWrap);
-
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "plugin-connect-btn";
-        btn.textContent = enabled ? "\u2713" : "+";
-        btn.title = enabled ? "Disable" : "Enable";
-        btn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            const newState = !enabled;
-            setPlugin(def.key, newState);
-            renderPluginsCapabilitiesList(filterText);
-            showToast((newState ? "\u2705 " : "\ud83d\udeab ") + def.title + (newState ? " enabled" : " disabled"));
-        });
-
-        row.appendChild(left);
-        row.appendChild(btn);
-        list.appendChild(row);
-    });
-}
-
 // ==========================
 // Plugin detail page (shared by connectors and built-in plugins)
 // ==========================
@@ -3103,21 +3043,15 @@ document.getElementById("pluginDetailPrivacyLink")?.addEventListener("click", (e
 
 document.getElementById("pluginDetailBackBtn")?.addEventListener("click", () => {
     renderPluginsConnectionsList();
-    renderPluginsCapabilitiesList(document.getElementById("pluginsSearchInput")?.value || "");
     showPageView("plugins");
 });
 
 document.getElementById("navPlugins")?.addEventListener("click", () => {
     setActiveNav("plugins");
-    document.getElementById("pluginsSearchInput").value = "";
     renderPluginsConnectionsList();
     refreshAllConnectorStatuses();
-    renderPluginsCapabilitiesList("");
     showPageView("plugins");
     closeSidebarMobile();
-});
-document.getElementById("pluginsSearchInput")?.addEventListener("input", (e) => {
-    renderPluginsCapabilitiesList(e.target.value);
 });
 
 // ==========================
@@ -4381,6 +4315,8 @@ function openTool(tool, prefix){
         userInput.focus();
         closeSidebarMobile();
     } else if(tool === "voice"){
+        document.getElementById("jarvisPermissionGate").style.display = jarvisMicGranted ? "none" : "";
+        document.getElementById("jarvisInterface").style.display = jarvisMicGranted ? "" : "none";
         openModal("voiceModal");
         closeSidebarMobile();
     }
@@ -4781,6 +4717,53 @@ document.getElementById("voiceModalClose").addEventListener("click", () => close
 const voiceBox = document.getElementById("voiceBox");
 const voiceMicBtn = document.getElementById("voiceMicBtn");
 
+// ---------- Jarvis in-app voice commands ----------
+// Real, working navigation commands — NOT a claim of OS-level control.
+// A browser tab can never launch or control desktop apps (Chrome, etc.);
+// this only navigates within Zyntra itself. Checked BEFORE sending
+// anything to the AI, so a recognized command never becomes a chat message.
+const JARVIS_COMMANDS = [
+    { patterns: ["open chat", "open ai chat", "go to chat"], run: () => openTool("chat") },
+    { patterns: ["open image generator", "open images", "open image"], run: () => openTool("image") },
+    { patterns: ["open codex"], run: () => openTool("codex") },
+    { patterns: ["open business tools", "open business"], run: () => openTool("business") },
+    { patterns: ["open plugins"], run: () => document.getElementById("navPlugins")?.click() },
+    { patterns: ["open projects"], run: () => document.getElementById("navProjects")?.click() },
+    { patterns: ["open scheduled"], run: () => document.getElementById("navScheduled")?.click() }
+];
+
+function matchJarvisCommand(said){
+    const text = said.toLowerCase().trim();
+    for(const cmd of JARVIS_COMMANDS){
+        if(cmd.patterns.some(p => text.includes(p))) return cmd;
+    }
+    return null;
+}
+
+// ---------- Microphone permission gate ----------
+// Requested explicitly when the user opens Jarvis (not silently on first
+// mic tap), with plain context on why it's needed — the actual browser
+// permission prompt still comes from getUserMedia itself.
+let jarvisMicGranted = false;
+
+async function requestJarvisMicPermission(){
+    const errorEl = document.getElementById("jarvisPermissionError");
+    errorEl.style.display = "none";
+    try{
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop()); // only needed the permission prompt, not an open mic stream
+        jarvisMicGranted = true;
+        document.getElementById("jarvisPermissionGate").style.display = "none";
+        document.getElementById("jarvisInterface").style.display = "";
+    }catch(err){
+        errorEl.textContent = err.name === "NotAllowedError"
+            ? "Microphone access was denied. You can allow it from your browser's site settings, then try again."
+            : "Couldn't access your microphone: " + err.message;
+        errorEl.style.display = "block";
+    }
+}
+document.getElementById("jarvisEnableMicBtn")?.addEventListener("click", requestJarvisMicPermission);
+
 function addVoiceMsg(text, who){
     const p = document.createElement("p");
     p.className = "chat-msg " + who;
@@ -4809,6 +4792,15 @@ if(!SpeechRecognitionAPI){
         const said = e.results[0][0].transcript;
         voiceMicBtn.textContent = "🎤 Tap to speak";
         addVoiceMsg(said, "user");
+
+        const command = matchJarvisCommand(said);
+        if(command){
+            command.run();
+            addVoiceMsg("On it — opening that now.", "ai");
+            speakText("On it.", "en-US");
+            return; // recognized as a command, never sent to the AI
+        }
+
         if(voiceHistory.length === 0){
             voiceHistory.push({
                 role: "system",
