@@ -4785,12 +4785,14 @@ if(!SpeechRecognitionAPI){
 
     voiceMicBtn.addEventListener("click", () => {
         voiceMicBtn.textContent = "🎙 Listening...";
+        document.getElementById("jarvisOrb")?.classList.add("listening");
         recognition.start();
     });
 
     recognition.onresult = async (e) => {
         const said = e.results[0][0].transcript;
         voiceMicBtn.textContent = "🎤 Tap to speak";
+        document.getElementById("jarvisOrb")?.classList.remove("listening");
         addVoiceMsg(said, "user");
 
         const command = matchJarvisCommand(said);
@@ -4835,6 +4837,7 @@ if(!SpeechRecognitionAPI){
 
     recognition.onerror = () => {
         voiceMicBtn.textContent = "🎤 Tap to speak";
+        document.getElementById("jarvisOrb")?.classList.remove("listening");
     };
 }
 
