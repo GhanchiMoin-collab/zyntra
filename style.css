@@ -7360,3 +7360,66 @@ background:#2c3470;
 opacity:.5;
 cursor:default;
 }
+
+/* ===== Zyntra Jarvis animated orb ===== */
+.jarvis-orb{
+  position: relative;
+  width: 180px;
+  height: 180px;
+}
+.jarvis-orb-ring{
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(135deg, rgba(124,58,237,.9), rgba(236,72,153,.9), rgba(79,184,255,.9)) border-box;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) padding-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: drop-shadow(0 0 6px rgba(124,58,237,.55));
+  opacity: .85;
+}
+.ring-1{ animation: jarvis-spin 6s linear infinite; }
+.ring-2{ inset: 16px; animation: jarvis-spin 4.5s linear infinite reverse; opacity:.65; }
+.ring-3{ inset: 32px; animation: jarvis-spin 8s linear infinite; opacity:.5; }
+
+.jarvis-orb-core{
+  position: absolute;
+  inset: 56px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #c084fc, #7c3aed 45%, #ec4899 85%);
+  box-shadow:
+    0 0 24px 6px rgba(124,58,237,.55),
+    0 0 48px 14px rgba(236,72,153,.35),
+    inset 0 0 18px rgba(255,255,255,.25);
+  animation: jarvis-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes jarvis-spin{
+  from{ transform: rotate(0deg); }
+  to{ transform: rotate(360deg); }
+}
+@keyframes jarvis-pulse{
+  0%, 100%{ transform: scale(1); filter: brightness(1); }
+  50%{ transform: scale(1.06); filter: brightness(1.15); }
+}
+
+/* While actively listening, everything speeds up and glows harder —
+   toggled via the .listening class on #jarvisOrb from script.js. */
+.jarvis-orb.listening .ring-1{ animation-duration: 2.2s; }
+.jarvis-orb.listening .ring-2{ animation-duration: 1.6s; }
+.jarvis-orb.listening .ring-3{ animation-duration: 3s; }
+.jarvis-orb.listening .jarvis-orb-core{
+  animation-duration: 1s;
+  box-shadow:
+    0 0 34px 10px rgba(124,58,237,.75),
+    0 0 64px 20px rgba(236,72,153,.5),
+    inset 0 0 22px rgba(255,255,255,.35);
+}
+
+@media (prefers-reduced-motion: reduce){
+  .jarvis-orb-ring, .jarvis-orb-core{ animation: none; }
+}
