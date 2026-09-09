@@ -79,7 +79,7 @@
             <button class="nav-item active" id="navChat" data-tool="chat"><span class="nav-icon">💬</span> AI Chat</button>
             <button class="nav-item" data-tool="image"><span class="nav-icon">🖼️</span> Image Generator</button>
             <button class="nav-item" data-tool="codex"><span class="nav-icon">🧑‍💻</span> Codex</button>
-            <button class="nav-item" data-tool="voice"><span class="nav-icon">🎤</span> Voice Assistant</button>
+            <button class="nav-item" data-tool="voice"><span class="nav-icon">🛰️</span> Zyntra Jarvis</button>
             <button class="nav-item" data-tool="business" data-prefix="Give me business ideas for "><span class="nav-icon">💼</span> Business Tools</button>
             <button class="nav-item" id="navPlugins" data-panel="plugins"><span class="nav-icon">🧩</span> Plugins</button>
             <button class="nav-item" id="navProjects" data-panel="projects"><span class="nav-icon">📁</span> Projects</button>
@@ -270,21 +270,13 @@
                 <div class="page-view-header">
                     <div>
                         <h1 class="page-view-title">Plugins</h1>
-                        <p class="page-view-subtitle" style="margin-bottom:0;">Turn Zyntra's built-in capabilities on or off.</p>
-                    </div>
-                    <div class="page-search-box">
-                        <span>🔍</span>
-                        <input type="text" id="pluginsSearchInput" placeholder="Search plugins">
+                        <p class="page-view-subtitle" style="margin-bottom:0;">Connect your own accounts so Zyntra can take real actions in them.</p>
                     </div>
                 </div>
 
                 <p class="page-recommended-label" style="margin-top:28px;">Connections</p>
                 <p class="page-view-subtitle" style="margin-top:4px;">Connect your own accounts so Zyntra can take real actions in them.</p>
                 <div id="pluginsConnectionsList" class="plugin-marketplace-list"></div>
-
-                <p class="page-recommended-label" style="margin-top:28px;">Capabilities</p>
-                <p class="page-view-subtitle" style="margin-top:4px;">Turn Zyntra's built-in capabilities on or off.</p>
-                <div id="pluginsCapabilitiesList" class="plugin-marketplace-list"></div>
             </div>
         </div>
 
@@ -435,11 +427,20 @@
 <div class="modal-overlay" id="voiceModal">
     <div class="modal-box">
         <button class="modal-close" id="voiceModalClose">✕</button>
-        <span class="tag">VOICE ASSISTANT</span>
-        <h1>Talk to <span>Zyntra AI</span></h1>
+        <span class="tag">ZYNTRA JARVIS</span>
+        <h1>Talk to <span>Zyntra Jarvis</span></h1>
         <p class="ai-disclosure">⚡ AI-generated responses. Please verify important information.</p>
-        <div class="chat-box" id="voiceBox"></div>
-        <button id="voiceMicBtn" class="mic-btn">🎤 Tap to speak</button>
+
+        <div id="jarvisPermissionGate" style="text-align:center; padding:20px 8px;">
+            <p style="color:#c7cae6; font-size:14px; line-height:1.6; margin-bottom:18px;">Zyntra Jarvis needs microphone access to hear your voice — including commands like "open image generator" or "open plugins".</p>
+            <button id="jarvisEnableMicBtn" type="button" style="padding:12px 28px; border-radius:999px; border:none; background:linear-gradient(135deg, #7c3aed, #ec4899); color:#fff; font-weight:600; cursor:pointer;">🎤 Enable Microphone</button>
+            <p id="jarvisPermissionError" style="color:#ff8fa8; font-size:13px; margin-top:14px; display:none;"></p>
+        </div>
+
+        <div id="jarvisInterface" style="display:none;">
+            <div class="chat-box" id="voiceBox"></div>
+            <button id="voiceMicBtn" class="mic-btn">🎤 Tap to speak</button>
+        </div>
     </div>
 </div>
 
@@ -613,7 +614,7 @@
 
                 <div class="settings-panel" data-settings-panel="voice" style="display:none;">
                     <h2 class="settings-panel-title">Voice</h2>
-                    <p class="settings-section-hint" style="margin-top:20px;">Choose the voice Zyntra AI speaks with in Voice Assistant and read-aloud replies.</p>
+                    <p class="settings-section-hint" style="margin-top:20px;">Choose the voice Zyntra AI speaks with in Zyntra Jarvis and read-aloud replies.</p>
 
                     <div class="voice-carousel">
                         <button type="button" class="voice-carousel-arrow" id="voicePrevBtn" title="Previous voice">‹</button>
@@ -693,10 +694,10 @@
         <p>Zyntra AI ("we", "our", "the app") is a personal AI assistant developed by Ghanchi Moin. This policy explains what information Zyntra AI collects, how it is used, and your choices.</p>
 
         <p><strong>Information we collect</strong></p>
-        <p>When you use Zyntra AI, the messages you send to AI Chat, Study Helper, Business Tools and Voice Assistant, along with the prompts and any reference images you provide to Image Generator, are sent to our AI provider to generate a response. If you use web search, your search terms are sent to our search provider to retrieve current results. If you sign in, your email and a unique account ID are used to identify you and sync your data across your devices. If you submit the Contact form, we receive the name, email, and message you provide.</p>
+        <p>When you use Zyntra AI, the messages you send to AI Chat, Study Helper, Business Tools and Zyntra Jarvis, along with the prompts and any reference images you provide to Image Generator, are sent to our AI provider to generate a response. If you use web search, your search terms are sent to our search provider to retrieve current results. If you sign in, your email and a unique account ID are used to identify you and sync your data across your devices. If you submit the Contact form, we receive the name, email, and message you provide.</p>
 
         <p><strong>Where your data is processed</strong></p>
-        <p>Chat, Study Helper, Business Tools and Voice Assistant replies are generated using Groq's AI API. Images are generated using Pollinations AI. Web search results are retrieved using Tavily's search API. Sign-in and account sync are handled using Google Firebase (Authentication and Firestore). These third-party providers process your prompts and data to provide their part of the service; we do not control their servers.</p>
+        <p>Chat, Study Helper, Business Tools and Zyntra Jarvis replies are generated using Groq's AI API. Images are generated using Pollinations AI. Web search results are retrieved using Tavily's search API. Sign-in and account sync are handled using Google Firebase (Authentication and Firestore). These third-party providers process your prompts and data to provide their part of the service; we do not control their servers.</p>
 
         <p><strong>Account sync (cloud storage)</strong></p>
         <p>If you sign in, your profile, chat history, and the facts Zyntra AI remembers about you (see "Memory" below) are stored securely in our database (Firestore), tied to your account, so they follow you across devices instead of staying on one browser. This data is only accessible to your own signed-in account — never to other users.</p>
