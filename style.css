@@ -7423,3 +7423,192 @@ cursor:default;
 @media (prefers-reduced-motion: reduce){
   .jarvis-orb-ring, .jarvis-orb-core{ animation: none; }
 }
+
+/* ==========================================================
+   Discord community button (Contact modal)
+   ========================================================== */
+.discord-join-btn{
+display:flex;
+align-items:center;
+justify-content:center;
+gap:8px;
+margin-top:10px;
+padding:12px 16px;
+border-radius:var(--r-md);
+background:rgba(88,101,242,.14);
+border:1px solid rgba(88,101,242,.35);
+color:#8b95ff;
+font-weight:700;
+font-size:14.5px;
+text-decoration:none;
+transition:background .2s ease, transform .15s ease, border-color .2s ease;
+}
+.discord-join-btn:hover{
+background:rgba(88,101,242,.22);
+border-color:rgba(88,101,242,.55);
+transform:translateY(-1px);
+}
+.discord-join-btn svg{ flex-shrink:0; }
+
+/* ==========================================================
+   Scroll-to-latest-message floating button
+   ========================================================== */
+.scroll-to-latest-btn{
+position:fixed;
+z-index:80;
+width:40px;
+height:40px;
+border-radius:50%;
+border:1px solid var(--glass-border-strong);
+background:var(--glass-strong);
+backdrop-filter:blur(14px);
+-webkit-backdrop-filter:blur(14px);
+color:var(--text-1);
+display:flex;
+align-items:center;
+justify-content:center;
+cursor:pointer;
+box-shadow:var(--shadow-md, 0 6px 20px rgba(0,0,0,.35));
+opacity:0;
+visibility:hidden;
+transform:translate(-50%,8px);
+transition:opacity .2s ease, transform .2s ease, visibility .2s ease, background .2s ease;
+}
+.scroll-to-latest-btn.show{
+opacity:1;
+visibility:visible;
+transform:translate(-50%,0);
+}
+.scroll-to-latest-btn:hover{
+background:var(--glass-hover);
+}
+
+/* ==========================================================
+   Offline overlay + offline mini-game
+   ========================================================== */
+.offline-overlay{
+display:none;
+position:fixed;
+inset:0;
+z-index:10000;
+background:var(--bg-void);
+align-items:center;
+justify-content:center;
+padding:24px;
+}
+.offline-overlay.show{ display:flex; }
+
+.offline-box{
+width:100%;
+max-width:360px;
+text-align:center;
+display:flex;
+flex-direction:column;
+align-items:center;
+gap:6px;
+}
+.offline-logo{
+width:64px;
+height:64px;
+border-radius:18px;
+margin-bottom:6px;
+box-shadow:0 0 50px rgba(124,92,255,.35);
+}
+.offline-online-dot{
+font-size:40px;
+margin-bottom:6px;
+}
+.offline-title{
+font-size:20px;
+font-weight:800;
+color:var(--text-1);
+margin:0 0 8px;
+}
+.offline-line{
+color:var(--text-1);
+font-size:15.5px;
+font-weight:600;
+margin:0;
+}
+.offline-line-sub{
+color:var(--text-2);
+font-weight:500;
+font-size:14.5px;
+margin-bottom:14px;
+}
+.offline-cta{
+width:100%;
+padding:13px 20px;
+border:none;
+border-radius:var(--r-pill);
+background:var(--accent-grad);
+color:#fff;
+font-weight:700;
+font-size:15px;
+cursor:pointer;
+margin-top:6px;
+transition:transform .15s ease, filter .2s ease;
+}
+.offline-cta:hover{ filter:brightness(1.08); transform:translateY(-1px); }
+
+.offline-secondary{
+width:100%;
+padding:11px 20px;
+border-radius:var(--r-pill);
+border:1px solid var(--glass-border-strong);
+background:var(--glass);
+color:var(--text-1);
+font-weight:600;
+font-size:14px;
+cursor:pointer;
+margin-top:10px;
+transition:background .2s ease;
+}
+.offline-secondary:hover{ background:var(--glass-hover); }
+
+.offline-status{
+min-height:18px;
+font-size:13px;
+color:var(--danger);
+margin-top:10px;
+}
+
+.offline-game-wrap{
+display:flex;
+flex-direction:column;
+align-items:center;
+gap:10px;
+width:100%;
+max-width:360px;
+}
+.offline-game-hud{
+display:flex;
+justify-content:space-between;
+width:100%;
+max-width:320px;
+color:var(--text-2);
+font-size:13.5px;
+font-weight:700;
+}
+.offline-game-hud span span{ color:var(--text-1); }
+#offlineGameCanvas{
+width:100%;
+max-width:320px;
+aspect-ratio:4/5;
+border-radius:var(--r-lg);
+background:var(--bg-void-2);
+border:1px solid var(--glass-border);
+touch-action:none;
+}
+.offline-game-hint{
+color:var(--text-3);
+font-size:12.5px;
+margin:0;
+}
+
+body.light-mode .offline-overlay{
+background:#f5f5f8;
+}
+body.light-mode .offline-status{
+color:var(--danger-strong);
+}
