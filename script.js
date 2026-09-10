@@ -4905,3 +4905,314 @@ if(!SpeechRecognitionAPI){
 
 renderSidebarHistory();
 renderPromptSuggestions();
+
+// ==========================================================
+// Scroll-to-latest-message floating button
+// ==========================================================
+(function initScrollToLatestBtn(){
+    const area = document.getElementById("chatArea");
+    const btn = document.getElementById("scrollToLatestBtn");
+    if(!area || !btn) return;
+
+    function positionBtn(){
+        const rect = area.getBoundingClientRect();
+        btn.style.left = (rect.left + rect.width / 2) + "px";
+        btn.style.bottom = (window.innerHeight - rect.bottom + 16) + "px";
+    }
+
+    function updateVisibility(){
+        const distanceFromBottom = area.scrollHeight - area.scrollTop - area.clientHeight;
+        if(distanceFromBottom > 220){
+            btn.classList.add("show");
+        } else {
+            btn.classList.remove("show");
+        }
+        positionBtn();
+    }
+
+    area.addEventListener("scroll", updateVisibility, { passive: true });
+    window.addEventListener("resize", positionBtn);
+
+    // Catch new messages being appended even when scroll position
+    // doesn't change on its own (e.g. streaming replies growing the box).
+    const chatMessagesEl = document.getElementById("chatMessages");
+    if(chatMessagesEl && "MutationObserver" in window){
+        new MutationObserver(updateVisibility).observe(chatMessagesEl, { childList: true, subtree: true });
+    }
+
+    btn.addEventListener("click", () => {
+        area.scrollTo({ top: area.scrollHeight, behavior: "smooth" });
+    });
+
+    positionBtn();
+    updateVisibility();
+})();
+
+// ==========================================================
+// Offline overlay + offline mini-game ("Orb Dash")
+// ==========================================================
+(function initOfflineExperience(){
+    const overlay = document.getElementById("offlineOverlay");
+    if(!overlay) return;
+
+    const mainView = document.getElementById("offlineMainView");
+    const backOnlineView = document.getElementById("offlineBackOnlineView");
+    const gameWrap = document.getElementById("offlineGameWrap");
+    const playBtn = document.getElementById("offlinePlayBtn");
+    const retryBtn = document.getElementById("offlineRetryBtn");
+    const startChatBtn = document.getElementById("offlineStartChatBtn");
+    const gameBackBtn = document.getElementById("offlineGameBackBtn");
+    const statusMsg = document.getElementById("offlineStatusMsg");
+
+    let wasOffline = false;
+
+    function showView(view){
+        mainView.style.display = view === "main" ? "flex" : "none";
+        backOnlineView.style.display = view === "backOnline" ? "flex" : "none";
+        gameWrap.style.display = view === "game" ? "flex" : "none";
+        if(view === "game"){
+            startGame();
+        } else {
+            stopGame();
+        }
+    }
+
+    function openOverlay(){
+        wasOffline = true;
+        overlay.classList.add("show");
+        statusMsg.textContent = "";
+        showView("main");
+    }
+
+    function closeOverlay(){
+        overlay.classList.remove("show");
+        stopGame();
+    }
+
+    window.addEventListener("offline", openOverlay);
+    window.addEventListener("online", () => {
+        if(!wasOffline) return; // only react if we were actually showing the offline screen
+        statusMsg.textContent = "";
+        showView("backOnline");
+    });
+
+    retryBtn.addEventListener("click", () => {
+        if(navigator.onLine){
+            statusMsg.textContent = "";
+            showView("backOnline");
+        } else {
+            statusMsg.textContent = "Still offline — check your connection and try again.";
+        }
+    });
+
+    startChatBtn.addEventListener("click", () => {
+        wasOffline = false;
+        closeOverlay();
+    });
+
+    playBtn.addEventListener("click", () => showView("game"));
+    gameBackBtn.addEventListener("click", () => showView("main"));
+
+    // Check immediately on load in case the app was opened while offline.
+    if(!navigator.onLine){
+        openOverlay();
+    }
+
+    // ---------------- Mini game: Orb Dash ----------------
+    // Tiny original canvas endless-runner: a jumping orb dodges
+    // incoming bars. No external assets, pure canvas drawing.
+    const canvas = document.getElementById("offlineGameCanvas");
+    const scoreEl = document.getElementById("offlineGameScore");
+    const bestEl = document.getElementById("offlineGameBest");
+    const hintEl = document.getElementById("offlineGameHint");
+    let ctx = null;
+    let rafId = null;
+    let gameRunning = false;
+    let gameOver = false;
+    let W = 320, H = 400;
+
+    const GROUND_Y_RATIO = 0.82;
+    let player, obstacles, speed, spawnTimer, score, best;
+
+    function loadBest(){
+        try{ return parseInt(localStorage.getItem("zyntraOfflineGameBest") || "0", 10) || 0; }
+        catch(e){ return 0; }
+    }
+    function saveBest(val){
+        try{ localStorage.setItem("zyntraOfflineGameBest", String(val)); }
+        catch(e){ /* ignore */ }
+    }
+
+    function resizeCanvas(){
+        if(!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        W = rect.width;
+        H = rect.height;
+        canvas.width = W * dpr;
+        canvas.height = H * dpr;
+        ctx = canvas.getContext("2d");
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function resetGame(){
+        best = loadBest();
+        bestEl.textContent = best;
+        score = 0;
+        scoreEl.textContent = "0";
+        speed = 4.2;
+        spawnTimer = 0;
+        obstacles = [];
+        const groundY = H * GROUND_Y_RATIO;
+        player = { x: W * 0.22, y: groundY - 26, size: 26, vy: 0, onGround: true };
+        gameOver = false;
+        hintEl.textContent = "Tap, click or press Space to jump";
+    }
+
+    function jump(){
+        if(!gameRunning) return;
+        if(gameOver){
+            resetGame();
+            return;
+        }
+        if(player.onGround){
+            player.vy = -10.5;
+            player.onGround = false;
+        }
+    }
+
+    function spawnObstacle(){
+        const groundY = H * GROUND_Y_RATIO;
+        const h = 22 + Math.random() * 26;
+        obstacles.push({ x: W + 10, y: groundY - h, w: 16 + Math.random() * 10, h });
+    }
+
+    function update(){
+        const groundY = H * GROUND_Y_RATIO;
+
+        // player physics
+        player.vy += 0.55;
+        player.y += player.vy;
+        if(player.y >= groundY - player.size){
+            player.y = groundY - player.size;
+            player.vy = 0;
+            player.onGround = true;
+        }
+
+        // obstacles
+        spawnTimer -= 1;
+        if(spawnTimer <= 0){
+            spawnObstacle();
+            spawnTimer = 55 - Math.min(25, speed * 4) + Math.random() * 35;
+        }
+        for(let i = obstacles.length - 1; i >= 0; i--){
+            obstacles[i].x -= speed;
+            if(obstacles[i].x + obstacles[i].w < 0){
+                obstacles.splice(i, 1);
+                score += 1;
+                scoreEl.textContent = String(score);
+            }
+        }
+
+        // collision (simple AABB)
+        for(const o of obstacles){
+            const px = player.x, py = player.y, ps = player.size;
+            if(px < o.x + o.w && px + ps > o.x && py < o.y + o.h && py + ps > o.y){
+                gameOver = true;
+                if(score > best){
+                    best = score;
+                    saveBest(best);
+                    bestEl.textContent = best;
+                }
+                hintEl.textContent = "Game over — tap to try again";
+            }
+        }
+
+        speed += 0.0025;
+    }
+
+    function draw(){
+        ctx.clearRect(0, 0, W, H);
+
+        // ground line
+        const groundY = H * GROUND_Y_RATIO;
+        ctx.strokeStyle = "rgba(255,255,255,.14)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, groundY);
+        ctx.lineTo(W, groundY);
+        ctx.stroke();
+
+        // obstacles
+        ctx.fillStyle = "#b45cff";
+        obstacles.forEach(o => {
+            const grad = ctx.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
+            grad.addColorStop(0, "#ff59b0");
+            grad.addColorStop(1, "#6e5cff");
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.roundRect ? ctx.roundRect(o.x, o.y, o.w, o.h, 4) : ctx.rect(o.x, o.y, o.w, o.h);
+            ctx.fill();
+        });
+
+        // player orb
+        const grad2 = ctx.createRadialGradient(
+            player.x + player.size/2, player.y + player.size/2, 2,
+            player.x + player.size/2, player.y + player.size/2, player.size
+        );
+        grad2.addColorStop(0, "#ffffff");
+        grad2.addColorStop(0.4, "#6e5cff");
+        grad2.addColorStop(1, "#b45cff");
+        ctx.fillStyle = grad2;
+        ctx.beginPath();
+        ctx.arc(player.x + player.size/2, player.y + player.size/2, player.size/2, 0, Math.PI * 2);
+        ctx.fill();
+
+        if(gameOver){
+            ctx.fillStyle = "rgba(5,5,7,.55)";
+            ctx.fillRect(0, 0, W, H);
+            ctx.fillStyle = "#f5f5f7";
+            ctx.textAlign = "center";
+            ctx.font = "700 20px sans-serif";
+            ctx.fillText("Game Over", W/2, H/2 - 8);
+            ctx.font = "500 13px sans-serif";
+            ctx.fillText("Score: " + score, W/2, H/2 + 16);
+        }
+    }
+
+    function loop(){
+        if(!gameRunning) return;
+        if(!gameOver) update();
+        draw();
+        rafId = requestAnimationFrame(loop);
+    }
+
+    function startGame(){
+        if(!canvas) return;
+        resizeCanvas();
+        resetGame();
+        gameRunning = true;
+        if(rafId) cancelAnimationFrame(rafId);
+        loop();
+    }
+
+    function stopGame(){
+        gameRunning = false;
+        if(rafId){ cancelAnimationFrame(rafId); rafId = null; }
+    }
+
+    if(canvas){
+        canvas.addEventListener("pointerdown", jump);
+        window.addEventListener("keydown", (e) => {
+            if(gameWrap.style.display === "flex" && (e.code === "Space" || e.key === " ")){
+                e.preventDefault();
+                jump();
+            }
+        });
+        window.addEventListener("resize", () => {
+            if(gameWrap.style.display === "flex"){
+                resizeCanvas();
+            }
+        });
+    }
+})();
