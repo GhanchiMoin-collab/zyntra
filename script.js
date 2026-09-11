@@ -1082,6 +1082,7 @@ document.addEventListener("keydown", e => {
         document.querySelectorAll(".modal-overlay.show").forEach(m => m.classList.remove("show"));
         if(typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
         closeSidebarMobile();
+        document.getElementById("accountMenu")?.classList.remove("show");
     }
 });
 
@@ -1278,18 +1279,125 @@ function renderAuthNav(){
 
 function handleProfileEntry(){
     if(isLoggedIn()){
-        openModal("profileModal");
-        renderProfileModal();
-    } else {
-        document.getElementById("signinContext").style.display = "none";
-        resetSigninModalUI();
-        openModal("signinModal");
+        toggleAccountMenu();
+        return;
     }
+    document.getElementById("signinContext").style.display = "none";
+    resetSigninModalUI();
+    openModal("signinModal");
     closeSidebarMobile();
 }
 
+function toggleAccountMenu(forceState){
+    const menu = document.getElementById("accountMenu");
+    if(!menu) return;
+    const show = forceState !== undefined ? forceState : !menu.classList.contains("show");
+    if(show) renderAccountMenu();
+    menu.classList.toggle("show", show);
+}
+
+function renderAccountMenu(){
+    const email = localStorage.getItem("zyntra-user");
+    const profile = getProfile();
+    const displayName = profile.nickname || profile.fullName || (email ? email.split("@")[0] : "Guest");
+    const letter = displayName.trim().charAt(0).toUpperCase() || "?";
+    document.getElementById("accountMenuName").textContent = displayName;
+    document.getElementById("accountMenuAvatar").textContent = letter;
+}
+
+document.getElementById("sidebarUser")?.addEventListener("click", e => {
+    if(e.target.closest(".account-menu")) return; // menu items handle their own clicks
+    handleProfileEntry();
+});
+
+document.addEventListener("click", e => {
+    const menu = document.getElementById("accountMenu");
+    if(!menu || !menu.classList.contains("show")) return;
+    if(!e.target.closest("#sidebarUser")) toggleAccountMenu(false);
+});
+
+document.getElementById("accountMenuProfileBtn")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openProfileViewModal();
+});
+document.getElementById("accountMenuProfile")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openProfileViewModal();
+});
+document.getElementById("accountMenuPersonalization")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openModal("profileModal");
+    renderProfileModal();
+    switchSettingsSection("personalization");
+});
+document.getElementById("accountMenuSettings")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openModal("profileModal");
+    renderProfileModal();
+    switchSettingsSection("general");
+});
+document.getElementById("accountMenuHelp")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openModal("contactModal");
+});
+document.getElementById("accountMenuLogout")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openModal("signoutModal");
+});
+
+// ---------- Profile view modal (read-only overview) ----------
+
+function openProfileViewModal(){
+    renderProfileViewModal();
+    openModal("profileViewModal");
+}
+
+function renderProfileViewModal(){
+    const email = localStorage.getItem("zyntra-user");
+    const profile = getProfile();
+    const displayName = profile.nickname || profile.fullName || (email ? email.split("@")[0] : "Guest");
+    const letter = displayName.trim().charAt(0).toUpperCase() || "?";
+    const handle = email ? "@" + email.split("@")[0] : "@guest";
+
+    document.getElementById("profileViewAvatar").textContent = letter;
+    document.getElementById("profileViewName").textContent = displayName;
+    document.getElementById("profileViewHandle").textContent = `${handle} · Free`;
+
+    document.getElementById("profileViewTotalChats").textContent = getSessions().length;
+    document.getElementById("profileViewTotalProjects").textContent = getProjects().length;
+
+    let memberSince = "—";
+    const fbUser = (typeof firebase !== "undefined") ? firebase.auth().currentUser : null;
+    if(fbUser?.metadata?.creationTime){
+        memberSince = new Date(fbUser.metadata.creationTime).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+    }
+    document.getElementById("profileViewMemberSince").textContent = memberSince;
+
+    const plugins = getPlugins();
+    const enabled = PLUGIN_DEFS.filter(p => plugins[p.key]);
+    const pluginsEl = document.getElementById("profileViewPlugins");
+    pluginsEl.innerHTML = "";
+    if(enabled.length === 0){
+        pluginsEl.innerHTML = '<p class="profile-view-plugins-empty">No plugins enabled.</p>';
+    } else {
+        enabled.forEach(p => {
+            const chip = document.createElement("div");
+            chip.className = "profile-view-plugin-chip";
+            chip.innerHTML = `<span>${p.icon}</span> ${p.title}`;
+            pluginsEl.appendChild(chip);
+        });
+    }
+}
+
+document.getElementById("profileViewClose")?.addEventListener("click", () => closeModal("profileViewModal"));
+document.getElementById("profileViewEditBtn")?.addEventListener("click", () => {
+    closeModal("profileViewModal");
+    openModal("profileModal");
+    renderProfileModal();
+    switchSettingsSection("account");
+});
+
 document.getElementById("topbarSettingsBtn")?.addEventListener("click", handleProfileEntry);
-document.getElementById("sidebarUser")?.addEventListener("click", handleProfileEntry);
 
 // ---------- Profile modal ----------
 
