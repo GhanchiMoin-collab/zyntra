@@ -1448,6 +1448,9 @@ function renderProfileModal(){
 
     renderVoiceCarousel();
     renderWorkOptions();
+    renderChatBehaviorSettings();
+    renderNotificationSettings();
+    renderSecuritySettings();
 }
 
 document.getElementById("profileModalClose")?.addEventListener("click", () => closeModal("profileModal"));
@@ -2432,6 +2435,7 @@ function stripMarkdownForTitle(text){
 }
 
 function logMessageToHistory(role, content){
+    if(role === "assistant") notifyAIReply(content);
     if(!isLoggedIn() || temporaryChatActive) return;
 
     const sessions = getSessions();
@@ -3518,7 +3522,7 @@ function openChatSession(session){
             chatMessages.appendChild(div);
         }
     });
-    chatArea.scrollTop = chatArea.scrollHeight;
+    chatAutoScroll();
     updateDeleteChatBtnVisibility();
 }
 
@@ -4011,7 +4015,7 @@ function appendUserBubble(msg){
     userDiv.appendChild(userTime);
     chatMessages.appendChild(userDiv);
     userInput.value = "";
-    chatArea.scrollTop = chatArea.scrollHeight;
+    chatAutoScroll();
 }
 
 function appendLoadingAiBubble(initialHTML){
@@ -4027,7 +4031,7 @@ function appendLoadingAiBubble(initialHTML){
     loadingDiv.appendChild(aiAvatar);
     loadingDiv.appendChild(aiContent);
     chatMessages.appendChild(loadingDiv);
-    chatArea.scrollTop = chatArea.scrollHeight;
+    chatAutoScroll();
     return { loadingDiv, aiContent };
 }
 
@@ -4044,7 +4048,7 @@ function runImageGeneration(msg, loadingDiv, aiContent){
         aiTime.className = "msg-time";
         aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         aiContent.appendChild(aiTime);
-        chatArea.scrollTop = chatArea.scrollHeight;
+        chatAutoScroll();
 
         // Saved as a markdown image so reopening this chat later renders it
         // again automatically via formatAIText's image-block support.
@@ -4098,7 +4102,7 @@ async function runImageModeConversationalReply(msg, loadingDiv, aiContent){
         aiContent.textContent = friendlyErrorMessage(err);
         loadingDiv.classList.add("done");
     }
-    chatArea.scrollTop = chatArea.scrollHeight;
+    chatAutoScroll();
 }
 
 async function sendImageOrChatMessage(msg){
@@ -4161,7 +4165,7 @@ async function sendChatMessage(prefill){
     userDiv.appendChild(userTime);
     chatMessages.appendChild(userDiv);
     userInput.value = "";
-    chatArea.scrollTop = chatArea.scrollHeight;
+    chatAutoScroll();
 
     let historyContent;
     if(attachedImage){
@@ -4223,7 +4227,7 @@ async function sendChatMessage(prefill){
     loadingDiv.appendChild(aiAvatar);
     loadingDiv.appendChild(aiContent);
     chatMessages.appendChild(loadingDiv);
-    chatArea.scrollTop = chatArea.scrollHeight;
+    chatAutoScroll();
 
     try{
         let accumulated = "";
@@ -4235,7 +4239,7 @@ async function sendChatMessage(prefill){
             }
             accumulated += chunk;
             aiContent.innerHTML = formatAIText(accumulated);
-            chatArea.scrollTop = chatArea.scrollHeight;
+            chatAutoScroll();
         }, { research: researchModeEnabled, website: activeChatTool === "codex" });
 
         if(!accumulated){
@@ -4257,7 +4261,7 @@ async function sendChatMessage(prefill){
     }catch(err){
         aiContent.textContent = friendlyErrorMessage(err);
     }
-    chatArea.scrollTop = chatArea.scrollHeight;
+    chatAutoScroll();
 }
 
 document.getElementById("sendMessage").addEventListener("click", () => sendChatMessage());
@@ -5416,3 +5420,220 @@ document.getElementById("tempChatToggleBtn")?.addEventListener("click", () => {
         }
     });
 })();
+
+// ==========================================================
+// Settings: Chat Behavior
+// ==========================================================
+function chatAutoScroll(){
+    if(localStorage.getItem("zyntra-autoscroll") === "0") return;
+    chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function renderChatBehaviorSettings(){
+    const toggle = document.getElementById("settingsAutoScrollToggle");
+    if(!toggle) return;
+    toggle.checked = localStorage.getItem("zyntra-autoscroll") !== "0";
+}
+
+document.getElementById("settingsAutoScrollToggle")?.addEventListener("change", e => {
+    localStorage.setItem("zyntra-autoscroll", e.target.checked ? "1" : "0");
+});
+
+// ==========================================================
+// Settings: Notifications
+// ==========================================================
+function playNotifSound(){
+    try{
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.4);
+    } catch(e){ /* audio not available — ignore */ }
+}
+
+function notifyAIReply(text){
+    if(!document.hidden) return; // only nudge the user when they're not looking at the tab
+
+    if(localStorage.getItem("zyntra-notif-sound") === "1"){
+        playNotifSound();
+    }
+    if(localStorage.getItem("zyntra-notif-desktop") === "1" && "Notification" in window && Notification.permission === "granted"){
+        const plain = String(text || "").replace(/[#*`_>\[\]]/g, "").trim().slice(0, 120);
+        try{
+            new Notification("Zyntra AI replied", { body: plain || "New message", icon: "favicon.png" });
+        } catch(e){ /* ignore */ }
+    }
+}
+
+function renderNotificationSettings(){
+    const soundToggle = document.getElementById("settingsSoundToggle");
+    const desktopToggle = document.getElementById("settingsDesktopNotifToggle");
+    if(!soundToggle || !desktopToggle) return;
+    soundToggle.checked = localStorage.getItem("zyntra-notif-sound") === "1";
+    desktopToggle.checked = localStorage.getItem("zyntra-notif-desktop") === "1" && "Notification" in window && Notification.permission === "granted";
+}
+
+document.getElementById("settingsSoundToggle")?.addEventListener("change", e => {
+    localStorage.setItem("zyntra-notif-sound", e.target.checked ? "1" : "0");
+    if(e.target.checked) playNotifSound();
+});
+
+document.getElementById("settingsDesktopNotifToggle")?.addEventListener("change", async e => {
+    const hint = document.getElementById("notifPermissionHint");
+    if(!("Notification" in window)){
+        e.target.checked = false;
+        if(hint){ hint.style.display = "block"; hint.textContent = "Your browser doesn't support desktop notifications."; }
+        return;
+    }
+    if(e.target.checked){
+        const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+        if(permission !== "granted"){
+            e.target.checked = false;
+            localStorage.setItem("zyntra-notif-desktop", "0");
+            if(hint){ hint.style.display = "block"; hint.textContent = "Notifications are blocked for this site — enable them in your browser's site settings to turn this on."; }
+            return;
+        }
+        if(hint) hint.style.display = "none";
+    }
+    localStorage.setItem("zyntra-notif-desktop", e.target.checked ? "1" : "0");
+});
+
+// ==========================================================
+// Settings: Data export
+// ==========================================================
+document.getElementById("settingsExportDataBtn")?.addEventListener("click", () => {
+    const data = {
+        exportedAt: new Date().toISOString(),
+        profile: getProfile(),
+        sessions: getSessions(),
+        memories: getMemories(),
+        projects: getProjects()
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "zyntra-ai-data-export.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    const btn = document.getElementById("settingsExportDataBtn");
+    const original = btn.textContent;
+    btn.textContent = "Downloaded ✓";
+    setTimeout(() => { btn.textContent = original; }, 1800);
+});
+
+// ==========================================================
+// Settings: Security (change password / delete account)
+// ==========================================================
+function renderSecuritySettings(){
+    const user = (typeof firebase !== "undefined") ? firebase.auth().currentUser : null;
+    const passwordSection = document.getElementById("securityPasswordSection");
+    const googleNote = document.getElementById("securityGoogleOnlyNote");
+    if(!passwordSection || !googleNote) return;
+
+    const hasPasswordProvider = !!user?.providerData?.some(p => p.providerId === "password");
+    passwordSection.style.display = hasPasswordProvider ? "block" : "none";
+    googleNote.style.display = hasPasswordProvider ? "none" : "block";
+
+    document.getElementById("securityCurrentPassword").value = "";
+    document.getElementById("securityNewPassword").value = "";
+    document.getElementById("securityConfirmPassword").value = "";
+    document.getElementById("securityPasswordMsg").textContent = "";
+    document.getElementById("securityDeleteMsg").textContent = "";
+}
+
+document.getElementById("securityChangePasswordBtn")?.addEventListener("click", () => {
+    const msg = document.getElementById("securityPasswordMsg");
+    const user = firebase.auth().currentUser;
+    const current = document.getElementById("securityCurrentPassword").value;
+    const next = document.getElementById("securityNewPassword").value;
+    const confirm = document.getElementById("securityConfirmPassword").value;
+
+    if(!current || !next || !confirm){
+        msg.style.color = "#ff8fa8";
+        msg.textContent = "Fill in all three fields.";
+        return;
+    }
+    if(next.length < 6){
+        msg.style.color = "#ff8fa8";
+        msg.textContent = "New password must be at least 6 characters.";
+        return;
+    }
+    if(next !== confirm){
+        msg.style.color = "#ff8fa8";
+        msg.textContent = "New password and confirmation don't match.";
+        return;
+    }
+
+    const btn = document.getElementById("securityChangePasswordBtn");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Updating…";
+
+    const credential = firebase.auth.EmailAuthProvider.credential(user.email, current);
+    user.reauthenticateWithCredential(credential)
+        .then(() => user.updatePassword(next))
+        .then(() => {
+            msg.style.color = "#7ee7a8";
+            msg.textContent = "Password updated ✓";
+            document.getElementById("securityCurrentPassword").value = "";
+            document.getElementById("securityNewPassword").value = "";
+            document.getElementById("securityConfirmPassword").value = "";
+        })
+        .catch(err => {
+            msg.style.color = "#ff8fa8";
+            msg.textContent = firebaseErrorMessage(err.code, err.message);
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = original;
+        });
+});
+
+document.getElementById("securityDeleteAccountBtn")?.addEventListener("click", () => {
+    openModal("deleteAccountModal");
+});
+document.getElementById("deleteAccountModalClose")?.addEventListener("click", () => closeModal("deleteAccountModal"));
+document.getElementById("deleteAccountCancel")?.addEventListener("click", () => closeModal("deleteAccountModal"));
+
+document.getElementById("deleteAccountConfirm")?.addEventListener("click", () => {
+    const user = firebase.auth().currentUser;
+    if(!user) return;
+    const btn = document.getElementById("deleteAccountConfirm");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Deleting…";
+
+    user.delete()
+        .then(() => {
+            localStorage.clear();
+            closeModal("deleteAccountModal");
+            closeModal("profileModal");
+            window.location.reload();
+        })
+        .catch(err => {
+            btn.disabled = false;
+            btn.textContent = original;
+            const dmsg = document.getElementById("securityDeleteMsg");
+            if(err.code === "auth/requires-recent-login"){
+                closeModal("deleteAccountModal");
+                if(dmsg){
+                    dmsg.style.color = "#ff8fa8";
+                    dmsg.textContent = "For your security, please sign out and sign back in, then try deleting your account again.";
+                }
+            } else if(dmsg){
+                dmsg.style.color = "#ff8fa8";
+                dmsg.textContent = firebaseErrorMessage(err.code, err.message);
+            }
+        });
+});
