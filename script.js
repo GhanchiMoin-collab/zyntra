@@ -5281,8 +5281,9 @@ document.getElementById("tempChatToggleBtn")?.addEventListener("click", () => {
 // Sidebar collapse/expand toggle (desktop)
 // ==========================================================
 (function initSidebarToggle(){
-    const btn = document.getElementById("sidebarToggleBtn");
-    if(!btn) return;
+    const innerBtn = document.getElementById("sidebarToggleBtnInner");
+    const outerBtn = document.getElementById("sidebarToggleBtnOuter");
+    if(!innerBtn && !outerBtn) return;
 
     function applyCollapsed(collapsed){
         document.body.classList.toggle("sidebar-collapsed", collapsed);
@@ -5293,9 +5294,11 @@ document.getElementById("tempChatToggleBtn")?.addEventListener("click", () => {
     // mobile sidebar already has its own separate open/close handling.
     applyCollapsed(window.innerWidth > 900 && localStorage.getItem("zyntra-sidebar-collapsed") === "1");
 
-    btn.addEventListener("click", () => {
+    function toggle(){
         applyCollapsed(!document.body.classList.contains("sidebar-collapsed"));
-    });
+    }
+    innerBtn?.addEventListener("click", toggle);
+    outerBtn?.addEventListener("click", toggle);
 
     // If the window shrinks into mobile range while collapsed, undo the
     // collapse so the mobile slide-over sidebar isn't left hidden/broken.
