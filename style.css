@@ -7661,6 +7661,15 @@ background:var(--glass);
 color:var(--text-1);
 }
 
+/* Inner copy lives in the sidebar's own header (collapses along with
+   it automatically, no extra visibility rule needed on desktop). */
+.sidebar-toggle-btn-inner{ display:flex; }
+
+/* Outer copy only appears in the topbar once the sidebar is collapsed,
+   so there's still a way to bring it back. */
+.sidebar-toggle-btn-outer{ display:none; }
+body.sidebar-collapsed .sidebar-toggle-btn-outer{ display:flex; }
+
 .sidebar{
 transition:width .25s cubic-bezier(.2,.9,.3,1), padding .25s ease, opacity .2s ease;
 }
@@ -7674,5 +7683,6 @@ opacity:0;
 }
 
 @media(max-width:900px){
-.sidebar-toggle-btn{ display:none; }
+.sidebar-toggle-btn-inner{ display:none; }
+.sidebar-toggle-btn-outer{ display:none; }
 }
