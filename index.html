@@ -121,6 +121,28 @@
                     <p class="sidebar-user-name" id="sidebarUserName">Guest</p>
                     <p class="sidebar-user-plan" id="sidebarUserPlan">Sign in</p>
                 </div>
+
+                <div class="account-menu" id="accountMenu">
+                    <button class="account-menu-header" id="accountMenuProfileBtn">
+                        <div class="account-menu-avatar" id="accountMenuAvatar">?</div>
+                        <div class="account-menu-info">
+                            <p class="account-menu-name" id="accountMenuName">Guest</p>
+                            <p class="account-menu-plan">Free</p>
+                        </div>
+                        <span class="account-menu-chevron">›</span>
+                    </button>
+
+                    <div class="account-menu-divider"></div>
+
+                    <button class="account-menu-item" id="accountMenuPersonalization"><span class="account-menu-icon">✨</span> Personalization</button>
+                    <button class="account-menu-item" id="accountMenuProfile"><span class="account-menu-icon">👤</span> Profile</button>
+                    <button class="account-menu-item" id="accountMenuSettings"><span class="account-menu-icon">⚙️</span> Settings</button>
+
+                    <div class="account-menu-divider"></div>
+
+                    <button class="account-menu-item" id="accountMenuHelp"><span class="account-menu-icon">🛟</span> Help <span class="account-menu-chevron account-menu-chevron-right">›</span></button>
+                    <button class="account-menu-item account-menu-item-danger" id="accountMenuLogout"><span class="account-menu-icon">↩</span> Log out</button>
+                </div>
             </div>
         </div>
     </aside>
@@ -379,6 +401,40 @@
                 <p class="developer-label">Developed by</p>
                 <p class="developer-name">Ghanchi Moin</p>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- ================= PROFILE VIEW MODAL ================= -->
+<div class="modal-overlay" id="profileViewModal">
+    <div class="modal-box profile-view-box">
+        <button class="modal-close" id="profileViewClose">✕</button>
+
+        <div class="profile-view-header">
+            <div class="profile-view-avatar" id="profileViewAvatar">?</div>
+            <h2 class="profile-view-name" id="profileViewName">Guest</h2>
+            <p class="profile-view-handle" id="profileViewHandle">@guest · Free</p>
+            <button class="profile-view-edit-btn" id="profileViewEditBtn">✎ Edit profile</button>
+        </div>
+
+        <div class="profile-view-stats">
+            <div class="profile-view-stat">
+                <p class="profile-view-stat-value" id="profileViewTotalChats">0</p>
+                <p class="profile-view-stat-label">Total chats</p>
+            </div>
+            <div class="profile-view-stat">
+                <p class="profile-view-stat-value" id="profileViewTotalProjects">0</p>
+                <p class="profile-view-stat-label">Projects</p>
+            </div>
+            <div class="profile-view-stat">
+                <p class="profile-view-stat-value" id="profileViewMemberSince">—</p>
+                <p class="profile-view-stat-label">Member since</p>
+            </div>
+        </div>
+
+        <div class="profile-view-section">
+            <h3>Enabled plugins</h3>
+            <div class="profile-view-plugins" id="profileViewPlugins"></div>
         </div>
     </div>
 </div>
