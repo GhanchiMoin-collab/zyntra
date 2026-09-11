@@ -567,6 +567,19 @@
     </div>
 </div>
 
+<div class="modal-overlay" id="deleteAccountModal">
+    <div class="modal-box" style="max-width:420px; text-align:center;">
+        <button class="modal-close" id="deleteAccountModalClose">✕</button>
+        <span class="tag">DELETE ACCOUNT</span>
+        <h1>Delete <span>Account?</span></h1>
+        <p>This permanently deletes your Zyntra AI account. Your chats, memory, and projects on this device will also be cleared. This can't be undone.</p>
+        <div class="modal-input-row" style="margin-top:20px;">
+            <button id="deleteAccountCancel" style="flex:1; padding:13px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:white; font-weight:600; cursor:pointer;">Cancel</button>
+            <button id="deleteAccountConfirm" style="flex:1; padding:13px; border:none; border-radius:12px; background:linear-gradient(135deg,#e14b6a,#ff5db5); color:white; font-weight:700; cursor:pointer;">Delete Forever</button>
+        </div>
+    </div>
+</div>
+
 <!-- ================= CHAT LOCKED MODAL ================= -->
 <div class="modal-overlay" id="chatLockedModal">
     <div class="modal-box" style="max-width:420px; text-align:center;">
@@ -619,8 +632,17 @@
                 <button type="button" class="settings-nav-item" data-settings-section="voice">
                     <span class="settings-nav-icon">🔊</span> Voice
                 </button>
+                <button type="button" class="settings-nav-item" data-settings-section="chatbehavior">
+                    <span class="settings-nav-icon">💬</span> Chat Behavior
+                </button>
+                <button type="button" class="settings-nav-item" data-settings-section="notifications">
+                    <span class="settings-nav-icon">🔔</span> Notifications
+                </button>
                 <button type="button" class="settings-nav-item" data-settings-section="data">
                     <span class="settings-nav-icon">🗄️</span> Data Controls
+                </button>
+                <button type="button" class="settings-nav-item" data-settings-section="security">
+                    <span class="settings-nav-icon">🔒</span> Security
                 </button>
                 <button type="button" class="settings-nav-item" data-settings-section="account">
                     <span class="settings-nav-icon">👤</span> Account
@@ -707,9 +729,53 @@
                     <button id="voiceTestBtn" type="button" class="voice-carousel-test">▶ Test this voice</button>
                 </div>
 
+                <div class="settings-panel" data-settings-panel="chatbehavior" style="display:none;">
+                    <h2 class="settings-panel-title">Chat Behavior</h2>
+                    <div class="settings-toggle-row" style="margin-top:20px;">
+                        <div>
+                            <p class="profile-label" style="margin-top:0;">Auto-scroll to new messages</p>
+                            <p class="settings-section-hint">Jump to the latest message automatically as replies come in. Turn this off to stay where you scrolled — the ↓ button will still jump you to the newest message whenever you want.</p>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="settingsAutoScrollToggle" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="settings-panel" data-settings-panel="notifications" style="display:none;">
+                    <h2 class="settings-panel-title">Notifications</h2>
+                    <div class="settings-toggle-row" style="margin-top:20px;">
+                        <div>
+                            <p class="profile-label" style="margin-top:0;">Sound on reply</p>
+                            <p class="settings-section-hint">Play a short sound when Zyntra finishes replying while this tab isn't focused.</p>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="settingsSoundToggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="settings-toggle-row" style="margin-top:20px;">
+                        <div>
+                            <p class="profile-label" style="margin-top:0;">Desktop notifications</p>
+                            <p class="settings-section-hint">Show a system notification when Zyntra replies while you're on another tab or window.</p>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="settingsDesktopNotifToggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <p id="notifPermissionHint" class="settings-section-hint" style="display:none; margin-top:14px; color:#ff8fa8;"></p>
+                </div>
+
                 <div class="settings-panel" data-settings-panel="data" style="display:none;">
                     <h2 class="settings-panel-title">Data Controls</h2>
                     <div style="margin-top:20px;">
+                        <p class="profile-label" style="margin-top:0;">Export your data</p>
+                        <p class="settings-section-hint">Download a copy of your chats, memory, and profile as a file.</p>
+                        <button id="settingsExportDataBtn" type="button" style="margin-top:12px; padding:12px 20px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:white; font-weight:700; cursor:pointer;">⬇ Export my data</button>
+                    </div>
+                    <div style="margin-top:28px; border-top:1px solid #232a4d; padding-top:20px;">
                         <p class="profile-label" style="margin-top:0;">Chat history</p>
                         <p class="settings-section-hint">Delete every saved conversation from this device. This can't be undone.</p>
                         <button id="settingsClearHistoryBtn" type="button" style="margin-top:12px; padding:12px 20px; border:1px solid #5a2334; border-radius:12px; background:#2a1420; color:#ff8fa8; font-weight:700; cursor:pointer;">🗑 Clear all chat history</button>
@@ -720,6 +786,30 @@
                         <ul id="settingsMemoryList" style="margin-top:12px; padding-left:20px; color:#c8cae0; font-size:14px; line-height:1.6;"></ul>
                         <p id="settingsMemoryEmpty" style="display:none; color:#8a8ea8; font-size:14px;">Nothing remembered yet — it builds up as you chat.</p>
                         <button id="settingsClearMemoryBtn" type="button" style="margin-top:12px; padding:12px 20px; border:1px solid #5a2334; border-radius:12px; background:#2a1420; color:#ff8fa8; font-weight:700; cursor:pointer;">🗑 Clear everything remembered</button>
+                    </div>
+                </div>
+
+                <div class="settings-panel" data-settings-panel="security" style="display:none;">
+                    <h2 class="settings-panel-title">Security</h2>
+
+                    <div id="securityPasswordSection" style="margin-top:20px;">
+                        <p class="profile-label" style="margin-top:0;">Change password</p>
+                        <div class="modal-input-row modal-input-col">
+                            <input type="password" id="securityCurrentPassword" placeholder="Current password">
+                            <input type="password" id="securityNewPassword" placeholder="New password">
+                            <input type="password" id="securityConfirmPassword" placeholder="Confirm new password">
+                            <button id="securityChangePasswordBtn" type="button">Update Password</button>
+                        </div>
+                        <p id="securityPasswordMsg" class="settings-section-hint" style="margin-top:10px;"></p>
+                    </div>
+
+                    <p id="securityGoogleOnlyNote" class="settings-section-hint" style="display:none; margin-top:20px;">You signed in with Google, so there's no Zyntra password to change — manage sign-in security from your Google Account.</p>
+
+                    <div style="margin-top:32px; border-top:1px solid #2b3154; padding-top:24px;">
+                        <p class="profile-label" style="margin-top:0; color:#ff8fa8;">Delete account</p>
+                        <p class="settings-section-hint">Permanently delete your Zyntra AI account and everything saved to it. This can't be undone.</p>
+                        <button id="securityDeleteAccountBtn" type="button" style="margin-top:12px; padding:12px 20px; border:1px solid #5a2334; border-radius:12px; background:#2a1420; color:#ff8fa8; font-weight:700; cursor:pointer;">🗑 Delete my account</button>
+                        <p id="securityDeleteMsg" class="settings-section-hint" style="margin-top:10px;"></p>
                     </div>
                 </div>
 
