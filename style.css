@@ -7612,3 +7612,37 @@ background:#f5f5f8;
 body.light-mode .offline-status{
 color:var(--danger-strong);
 }
+
+/* ==========================================================
+   Temporary Chat toggle + disclaimer
+   ========================================================== */
+.temp-chat-toggle-btn{
+width:38px;
+height:38px;
+border-radius:50%;
+background:transparent;
+border:none;
+color:var(--text-2);
+cursor:pointer;
+display:flex;
+align-items:center;
+justify-content:center;
+flex-shrink:0;
+transition:background .2s ease, color .2s ease;
+}
+.temp-chat-toggle-btn:hover{
+background:var(--glass);
+color:var(--text-1);
+}
+.temp-chat-toggle-btn.active{
+background:var(--accent-grad-soft);
+color:#c9b8ff;
+box-shadow:0 0 0 1px rgba(180,92,255,.35) inset;
+}
+
+.temp-chat-disclaimer{
+margin-top:22px;
+font-size:12.5px;
+color:var(--text-3);
+text-align:center;
+}
