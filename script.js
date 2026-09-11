@@ -5276,3 +5276,32 @@ document.getElementById("tempChatToggleBtn")?.addEventListener("click", () => {
     }
     updateTempChatToggleVisibility();
 })();
+
+// ==========================================================
+// Sidebar collapse/expand toggle (desktop)
+// ==========================================================
+(function initSidebarToggle(){
+    const btn = document.getElementById("sidebarToggleBtn");
+    if(!btn) return;
+
+    function applyCollapsed(collapsed){
+        document.body.classList.toggle("sidebar-collapsed", collapsed);
+        localStorage.setItem("zyntra-sidebar-collapsed", collapsed ? "1" : "0");
+    }
+
+    // Restore the user's last choice, but only on desktop widths — the
+    // mobile sidebar already has its own separate open/close handling.
+    applyCollapsed(window.innerWidth > 900 && localStorage.getItem("zyntra-sidebar-collapsed") === "1");
+
+    btn.addEventListener("click", () => {
+        applyCollapsed(!document.body.classList.contains("sidebar-collapsed"));
+    });
+
+    // If the window shrinks into mobile range while collapsed, undo the
+    // collapse so the mobile slide-over sidebar isn't left hidden/broken.
+    window.addEventListener("resize", () => {
+        if(window.innerWidth <= 900 && document.body.classList.contains("sidebar-collapsed")){
+            document.body.classList.remove("sidebar-collapsed");
+        }
+    });
+})();
