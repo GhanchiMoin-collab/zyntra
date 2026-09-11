@@ -593,10 +593,7 @@ display:flex;
 align-items:center;
 gap:14px;
 padding:16px 26px;
-border-bottom:1px solid rgba(255,255,255,.06);
-background:rgba(255,255,255,.025);
-backdrop-filter:var(--blur-soft);
--webkit-backdrop-filter:var(--blur-soft);
+background:transparent;
 flex-shrink:0;
 }
 
@@ -3450,8 +3447,7 @@ border-color:rgba(10,10,25,.08);
 }
 
 body.light-mode .topbar{
-background:rgba(255,255,255,.45);
-border-color:rgba(10,10,25,.08);
+background:transparent;
 }
 
 body.light-mode .nav-item{
@@ -4263,10 +4259,7 @@ display:flex;
 align-items:center;
 gap:14px;
 padding:16px 26px;
-border-bottom:1px solid rgba(255,255,255,.06);
-background:rgba(255,255,255,.025);
-backdrop-filter:var(--blur-soft);
--webkit-backdrop-filter:var(--blur-soft);
+background:transparent;
 flex-shrink:0;
 }
 
@@ -7120,8 +7113,7 @@ border-color:rgba(10,10,25,.08);
 }
 
 body.light-mode .topbar{
-background:rgba(255,255,255,.45);
-border-color:rgba(10,10,25,.08);
+background:transparent;
 }
 
 body.light-mode .nav-item{
@@ -7645,4 +7637,42 @@ margin-top:22px;
 font-size:12.5px;
 color:var(--text-3);
 text-align:center;
+}
+
+/* ==========================================================
+   Sidebar collapse/expand toggle (desktop)
+   ========================================================== */
+.sidebar-toggle-btn{
+width:38px;
+height:38px;
+border-radius:50%;
+background:transparent;
+border:none;
+color:var(--text-2);
+cursor:pointer;
+display:flex;
+align-items:center;
+justify-content:center;
+flex-shrink:0;
+transition:background .2s ease, color .2s ease;
+}
+.sidebar-toggle-btn:hover{
+background:var(--glass);
+color:var(--text-1);
+}
+
+.sidebar{
+transition:width .25s cubic-bezier(.2,.9,.3,1), padding .25s ease, opacity .2s ease;
+}
+body.sidebar-collapsed .sidebar{
+width:0;
+padding-left:0;
+padding-right:0;
+border-right:none;
+overflow:hidden;
+opacity:0;
+}
+
+@media(max-width:900px){
+.sidebar-toggle-btn{ display:none; }
 }
