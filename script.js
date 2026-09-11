@@ -1477,6 +1477,7 @@ function saveMemories(memories){
 function addMemories(facts){
     if(!Array.isArray(facts) || facts.length === 0) return;
     if(!getPlugins().memory) return;
+    if(temporaryChatActive) return;
     const memories = getMemories();
     facts.forEach(fact => {
         const normalized = (fact || "").trim();
@@ -2323,7 +2324,7 @@ function stripMarkdownForTitle(text){
 }
 
 function logMessageToHistory(role, content){
-    if(!isLoggedIn()) return;
+    if(!isLoggedIn() || temporaryChatActive) return;
 
     const sessions = getSessions();
     let isNewSession = false;
@@ -3498,6 +3499,8 @@ function resetChatView(){
     document.getElementById("chatGreeting").style.display = "";
     renderPromptSuggestions();
     updateDeleteChatBtnVisibility();
+    if(temporaryChatActive) setTemporaryChatActive(false);
+    updateTempChatToggleVisibility();
 }function updateDeleteChatBtnVisibility(){
     const btn = document.getElementById("deleteChatBtn");
     if(!btn) return;
@@ -4070,20 +4073,22 @@ async function sendChatMessage(prefill){
     if(chatHistory.length === 0){
         const profile = getProfile();
         let note = "Always reply in the same language the user writes in (for example, reply in Hindi if they write in Hindi, in Spanish if they write in Spanish, and so on — support any language naturally). If the user explicitly asks you to reply or speak in a specific language (for example \"talk in Gujarati\" or \"reply in French\"), you MUST switch to writing your entire response in that requested language from that point on, using its native script, not English. Pay attention to the emotional tone of what the user writes (happy, sad, frustrated, excited, worried, etc.) and respond with matching empathy and tone — be warm and supportive if they seem upset or stressed, and match their energy if they're happy or excited. Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process or thought process, and do not add unnecessary meta-commentary about the question itself. Just give the direct, natural answer.";
-        if(profile.nickname) note += ` Call the user "${profile.nickname}".`;
-        if(profile.instructions) note += ` User's custom instructions: ${profile.instructions}`;
-        const memories = getMemories();
-        if(memories.length && getPlugins().memory){
-            note += ` Here are things you already know about this user from past conversations — weave them in naturally where relevant, don't just list them back at the user: ${memories.map(m => m.fact).join("; ")}.`;
+        if(!temporaryChatActive){
+            if(profile.nickname) note += ` Call the user "${profile.nickname}".`;
+            if(profile.instructions) note += ` User's custom instructions: ${profile.instructions}`;
+            const memories = getMemories();
+            if(memories.length && getPlugins().memory){
+                note += ` Here are things you already know about this user from past conversations — weave them in naturally where relevant, don't just list them back at the user: ${memories.map(m => m.fact).join("; ")}.`;
+            }
+            if(currentProjectId){
+                const project = getProjects().find(p => p.id === currentProjectId);
+                if(project && project.instructions){
+                    note += ` You are working inside the "${project.name}" project. Project-specific instructions: ${project.instructions}`;
+                }
+            }
         }
         if(activeChatTool === "codex"){
             note += " " + CODEX_SYSTEM_NOTE;
-        }
-        if(currentProjectId){
-            const project = getProjects().find(p => p.id === currentProjectId);
-            if(project && project.instructions){
-                note += ` You are working inside the "${project.name}" project. Project-specific instructions: ${project.instructions}`;
-            }
         }
         chatHistory.push({ role: "system", content: note });
     }
@@ -4296,6 +4301,10 @@ function applyToolGreeting(tool){
 // Which chat-mode tool is currently open (chat / study / business / code)
 let activeChatTool = "chat";
 
+// Temporary Chat: when on, this conversation skips history logging,
+// memory read/write, and custom-instructions/personalization injection.
+let temporaryChatActive = false;
+
 function openTool(tool, prefix){
     showPageView("chat");
     if(TOOL_PLACEHOLDERS[tool]){
@@ -4315,6 +4324,7 @@ function openTool(tool, prefix){
         userInput.value = prefix || "";
         userInput.focus();
         closeSidebarMobile();
+        if(typeof updateTempChatToggleVisibility === "function") updateTempChatToggleVisibility();
     } else if(tool === "voice"){
         document.getElementById("jarvisPermissionGate").style.display = jarvisMicGranted ? "none" : "";
         document.getElementById("jarvisInterface").style.display = jarvisMicGranted ? "" : "none";
@@ -5215,4 +5225,54 @@ renderPromptSuggestions();
             }
         });
     }
+})();
+
+// ==========================================================
+// Temporary Chat
+// ==========================================================
+function setTemporaryChatActive(active){
+    temporaryChatActive = active;
+    const btn = document.getElementById("tempChatToggleBtn");
+    const disclaimer = document.getElementById("tempChatDisclaimer");
+    const suggestions = document.getElementById("promptSuggestions");
+    if(btn) btn.classList.toggle("active", active);
+    if(disclaimer) disclaimer.style.display = active ? "" : "none";
+    if(active){
+        document.getElementById("greetingHeading").textContent = "Temporary chat";
+        document.getElementById("greetingSubtitle").textContent = "This chat will ignore memory, plugins, and custom instructions, and it won't appear in your history.";
+        if(suggestions) suggestions.style.display = "none";
+    } else {
+        applyToolGreeting(activeChatTool);
+        if(suggestions) suggestions.style.display = "";
+    }
+}
+
+function updateTempChatToggleVisibility(){
+    const btn = document.getElementById("tempChatToggleBtn");
+    const greeting = document.getElementById("chatGreeting");
+    if(!btn || !greeting) return;
+    const isNewChat = greeting.style.display !== "none" && chatMessages.children.length === 0;
+    btn.style.display = (isNewChat && activeChatTool === "chat") ? "flex" : "none";
+}
+
+document.getElementById("tempChatToggleBtn")?.addEventListener("click", () => {
+    setTemporaryChatActive(!temporaryChatActive);
+});
+
+// Keep the toggle's visibility in sync with the greeting screen — it
+// should only ever be offered before the first message of a brand-new
+// chat, on the main Chat tool (matches setTemporaryChatActive's reset
+// path in resetChatView, and openTool's tab switches below).
+(function watchTempChatToggleVisibility(){
+    const greeting = document.getElementById("chatGreeting");
+    if(!greeting) return;
+    if("MutationObserver" in window){
+        new MutationObserver(updateTempChatToggleVisibility)
+            .observe(greeting, { attributes: true, attributeFilter: ["style"] });
+        if(chatMessages){
+            new MutationObserver(updateTempChatToggleVisibility)
+                .observe(chatMessages, { childList: true });
+        }
+    }
+    updateTempChatToggleVisibility();
 })();
