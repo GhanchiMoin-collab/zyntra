@@ -7686,3 +7686,189 @@ opacity:0;
 .sidebar-toggle-btn-inner{ display:none; }
 .sidebar-toggle-btn-outer{ display:none; }
 }
+
+/* ==========================================================
+   Account menu popover (sidebar footer)
+   ========================================================== */
+.sidebar-user{ position:relative; }
+
+.account-menu{
+display:none;
+position:absolute;
+bottom:calc(100% + 8px);
+left:0;
+right:0;
+background:#17182b;
+border:1px solid var(--glass-border-strong);
+border-radius:var(--r-lg);
+box-shadow:0 16px 40px rgba(0,0,0,.5);
+padding:8px;
+z-index:60;
+cursor:default;
+}
+.account-menu.show{ display:block; }
+
+.account-menu-header{
+width:100%;
+display:flex;
+align-items:center;
+gap:12px;
+padding:10px;
+border:none;
+background:transparent;
+border-radius:var(--r-md);
+cursor:pointer;
+text-align:left;
+transition:background .15s ease;
+}
+.account-menu-header:hover{ background:var(--glass-hover); }
+
+.account-menu-avatar{
+width:34px;
+height:34px;
+border-radius:50%;
+background:var(--accent-grad);
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:14px;
+font-weight:800;
+color:#fff;
+flex-shrink:0;
+}
+.account-menu-info{ flex:1; min-width:0; }
+.account-menu-name{
+font-size:14.5px;
+font-weight:700;
+color:var(--text-1);
+margin:0;
+white-space:nowrap;
+overflow:hidden;
+text-overflow:ellipsis;
+}
+.account-menu-plan{
+font-size:12.5px;
+color:var(--text-3);
+margin:1px 0 0;
+}
+.account-menu-chevron{
+color:var(--text-3);
+font-size:16px;
+flex-shrink:0;
+}
+.account-menu-chevron-right{ margin-left:auto; }
+
+.account-menu-divider{
+height:1px;
+background:var(--glass-border);
+margin:6px 4px;
+}
+
+.account-menu-item{
+width:100%;
+display:flex;
+align-items:center;
+gap:10px;
+padding:10px;
+border:none;
+background:transparent;
+border-radius:var(--r-md);
+color:var(--text-1);
+font-size:14px;
+font-weight:600;
+cursor:pointer;
+text-align:left;
+transition:background .15s ease;
+}
+.account-menu-item:hover{ background:var(--glass-hover); }
+.account-menu-icon{ font-size:15px; width:18px; text-align:center; flex-shrink:0; }
+.account-menu-item-danger{ color:#ff8fa8; }
+.account-menu-item-danger:hover{ background:rgba(255,107,129,.12); }
+
+/* ==========================================================
+   Profile view modal
+   ========================================================== */
+.profile-view-box{ max-width:420px; }
+
+.profile-view-header{
+display:flex;
+flex-direction:column;
+align-items:center;
+text-align:center;
+gap:4px;
+padding-top:6px;
+}
+.profile-view-avatar{
+width:72px;
+height:72px;
+border-radius:50%;
+background:var(--accent-grad);
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:28px;
+font-weight:800;
+color:#fff;
+margin-bottom:10px;
+box-shadow:0 0 40px rgba(124,92,255,.35);
+}
+.profile-view-name{ font-size:21px; font-weight:800; color:var(--text-1); margin:0; }
+.profile-view-handle{ font-size:13.5px; color:var(--text-3); margin:2px 0 14px; }
+.profile-view-edit-btn{
+padding:9px 18px;
+border-radius:var(--r-pill);
+border:1px solid var(--glass-border-strong);
+background:var(--glass);
+color:var(--text-1);
+font-size:13px;
+font-weight:600;
+cursor:pointer;
+transition:background .2s ease;
+}
+.profile-view-edit-btn:hover{ background:var(--glass-hover); }
+
+.profile-view-stats{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:10px;
+margin:26px 0 20px;
+}
+.profile-view-stat{
+text-align:center;
+padding:14px 8px;
+border-radius:var(--r-md);
+background:var(--glass);
+border:1px solid var(--glass-border);
+}
+.profile-view-stat-value{ font-size:19px; font-weight:800; color:var(--text-1); margin:0; }
+.profile-view-stat-label{ font-size:11.5px; color:var(--text-3); margin:4px 0 0; }
+
+.profile-view-section h3{
+font-size:13px;
+font-weight:700;
+color:var(--text-2);
+text-transform:uppercase;
+letter-spacing:.04em;
+margin:0 0 10px;
+}
+.profile-view-plugins{
+display:flex;
+flex-wrap:wrap;
+gap:8px;
+}
+.profile-view-plugin-chip{
+display:flex;
+align-items:center;
+gap:6px;
+padding:7px 12px;
+border-radius:var(--r-pill);
+background:var(--glass);
+border:1px solid var(--glass-border);
+font-size:12.5px;
+font-weight:600;
+color:var(--text-1);
+}
+.profile-view-plugins-empty{
+font-size:13px;
+color:var(--text-3);
+}
