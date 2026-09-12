@@ -1091,6 +1091,7 @@ document.addEventListener("keydown", e => {
         if(typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
         closeSidebarMobile();
         document.getElementById("accountMenu")?.classList.remove("show");
+        document.getElementById("accountMenuBackdrop")?.classList.remove("show");
     }
 });
 
@@ -1302,6 +1303,7 @@ function toggleAccountMenu(forceState){
     const show = forceState !== undefined ? forceState : !menu.classList.contains("show");
     if(show) renderAccountMenu();
     menu.classList.toggle("show", show);
+    document.getElementById("accountMenuBackdrop")?.classList.toggle("show", show);
 }
 
 function renderAccountMenu(){
