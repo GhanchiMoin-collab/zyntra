@@ -7935,5 +7935,6 @@ position:fixed;
 inset:0;
 background:rgba(2,2,6,.5);
 z-index:55;
+pointer-events:none;
 }
 .account-menu-backdrop.show{ display:block; }
