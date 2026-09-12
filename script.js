@@ -1497,24 +1497,28 @@ document.getElementById("profileSignoutBtn")?.addEventListener("click", () => {
 document.getElementById("signoutModalClose")?.addEventListener("click", () => closeModal("signoutModal"));
 document.getElementById("signoutCancel")?.addEventListener("click", () => closeModal("signoutModal"));
 document.getElementById("signoutConfirm")?.addEventListener("click", () => {
-    const signedOutSlot = activeAccountSlot;
-    activeAuth().signOut().catch(() => {});
-    localStorage.removeItem("zyntra-user");
-    closeModal("signoutModal");
+    const btn = document.getElementById("signoutConfirm");
+    btn.disabled = true;
 
-    // If another account is still signed in on this device, drop back to
-    // it instead of leaving the app in a signed-out state unnecessarily.
-    const otherSlot = signedOutSlot === "default" ? "secondary" : "default";
-    const otherApp = otherSlot === "secondary"
-        ? (firebase.apps.some(a => a.name === "secondary") ? firebase.app("secondary") : null)
-        : firebase.app();
-    const otherUser = otherApp ? otherApp.auth().currentUser : null;
-    if(otherUser){
-        switchToSlot(otherSlot);
-    } else {
+    // Save this account's latest state to the cloud before wiping the
+    // local copy, so nothing is lost — then always drop to a clean Guest
+    // state. (No more auto-switching to another signed-in account here —
+    // Sign Out should mean Sign Out, not silently hop to a different one.)
+    pushLocalToCloud().catch(() => {}).finally(() => {
+        activeAuth().signOut().catch(() => {});
+        localStorage.removeItem("zyntra-user");
+        localStorage.removeItem("zyntra-sessions");
+        localStorage.removeItem("zyntra-profile");
+        localStorage.removeItem("zyntra-memories");
+        activeAccountSlot = "default";
+        localStorage.setItem("zyntra-active-slot", "default");
+
+        closeModal("signoutModal");
+        resetChatView();
         renderAuthNav();
         renderSidebarHistory();
-    }
+        btn.disabled = false;
+    });
 });
 document.getElementById("signinModalClose")?.addEventListener("click", () => closeModal("signinModal"));
 let isSignupMode = false;
