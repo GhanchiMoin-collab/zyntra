@@ -3651,12 +3651,12 @@ padding:0 14px 14px;
 
 #profileSignedInView > div:first-child{ flex-wrap:wrap; }
 
-.modal-input-row{ flex-wrap:wrap; }
-.modal-input-row input[type="text"]{ min-width:0; flex:1 1 100%; order:2; }
-.modal-input-row .attach-btn{ order:1; }
-.modal-input-row #imageGenBtn,
-.modal-input-row #imgUploadBtn{ order:1; }
-.modal-input-row button:not(.attach-btn){ order:3; flex:1 1 100%; margin-top:8px; }
+.modal-input-row:not(.modal-input-col){ flex-wrap:wrap; }
+.modal-input-row:not(.modal-input-col) input[type="text"]{ min-width:0; flex:1 1 100%; order:2; }
+.modal-input-row:not(.modal-input-col) .attach-btn{ order:1; }
+.modal-input-row:not(.modal-input-col) #imageGenBtn,
+.modal-input-row:not(.modal-input-col) #imgUploadBtn{ order:1; }
+.modal-input-row:not(.modal-input-col) button:not(.attach-btn){ order:3; flex:1 1 100%; margin-top:8px; }
 #imageInput{ padding:12px 14px; font-size:14px; }
 }
 
@@ -7317,12 +7317,12 @@ padding:0 14px 14px;
 
 #profileSignedInView > div:first-child{ flex-wrap:wrap; }
 
-.modal-input-row{ flex-wrap:wrap; }
-.modal-input-row input[type="text"]{ min-width:0; flex:1 1 100%; order:2; }
-.modal-input-row .attach-btn{ order:1; }
-.modal-input-row #imageGenBtn,
-.modal-input-row #imgUploadBtn{ order:1; }
-.modal-input-row button:not(.attach-btn){ order:3; flex:1 1 100%; margin-top:8px; }
+.modal-input-row:not(.modal-input-col){ flex-wrap:wrap; }
+.modal-input-row:not(.modal-input-col) input[type="text"]{ min-width:0; flex:1 1 100%; order:2; }
+.modal-input-row:not(.modal-input-col) .attach-btn{ order:1; }
+.modal-input-row:not(.modal-input-col) #imageGenBtn,
+.modal-input-row:not(.modal-input-col) #imgUploadBtn{ order:1; }
+.modal-input-row:not(.modal-input-col) button:not(.attach-btn){ order:3; flex:1 1 100%; margin-top:8px; }
 #imageInput{ padding:12px 14px; font-size:14px; }
 }
 
