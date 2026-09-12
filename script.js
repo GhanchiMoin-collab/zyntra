@@ -948,9 +948,9 @@ async function callChatAPI(messages, options){
     // Sent so the backend can verify who's asking and, if they've connected
     // Google, offer the send_email / create_calendar_event tools for this
     // request. Silently skipped if getIdToken fails — chat still works.
-    if(firebase.auth().currentUser){
+    if(activeAuth().currentUser){
         try{
-            const idToken = await firebase.auth().currentUser.getIdToken();
+            const idToken = await activeAuth().currentUser.getIdToken();
             headers["Authorization"] = "Bearer " + idToken;
         }catch(err){
             console.error("Couldn't get ID token:", err);
@@ -988,9 +988,9 @@ async function callChatAPI(messages, options){
 async function streamChatAPI(messages, onDelta, options){
     const opts = options || {};
     const headers = { "Content-Type": "application/json" };
-    if(firebase.auth().currentUser){
+    if(activeAuth().currentUser){
         try{
-            const idToken = await firebase.auth().currentUser.getIdToken();
+            const idToken = await activeAuth().currentUser.getIdToken();
             headers["Authorization"] = "Bearer " + idToken;
         }catch(err){
             console.error("Couldn't get ID token:", err);
@@ -1367,7 +1367,7 @@ function renderProfileViewModal(){
     document.getElementById("profileViewTotalProjects").textContent = getProjects().length;
 
     let memberSince = "—";
-    const fbUser = (typeof firebase !== "undefined") ? firebase.auth().currentUser : null;
+    const fbUser = (typeof firebase !== "undefined") ? activeAuth().currentUser : null;
     if(fbUser?.metadata?.creationTime){
         memberSince = new Date(fbUser.metadata.creationTime).toLocaleDateString(undefined, { month: "short", year: "numeric" });
     }
@@ -1451,6 +1451,7 @@ function renderProfileModal(){
     renderChatBehaviorSettings();
     renderNotificationSettings();
     renderSecuritySettings();
+    renderAccountSwitcher();
 }
 
 document.getElementById("profileModalClose")?.addEventListener("click", () => closeModal("profileModal"));
@@ -1486,11 +1487,24 @@ document.getElementById("profileSignoutBtn")?.addEventListener("click", () => {
 document.getElementById("signoutModalClose")?.addEventListener("click", () => closeModal("signoutModal"));
 document.getElementById("signoutCancel")?.addEventListener("click", () => closeModal("signoutModal"));
 document.getElementById("signoutConfirm")?.addEventListener("click", () => {
-    firebase.auth().signOut().catch(() => {});
+    const signedOutSlot = activeAccountSlot;
+    activeAuth().signOut().catch(() => {});
     localStorage.removeItem("zyntra-user");
     closeModal("signoutModal");
-    renderAuthNav();
-    renderSidebarHistory();
+
+    // If another account is still signed in on this device, drop back to
+    // it instead of leaving the app in a signed-out state unnecessarily.
+    const otherSlot = signedOutSlot === "default" ? "secondary" : "default";
+    const otherApp = otherSlot === "secondary"
+        ? (firebase.apps.some(a => a.name === "secondary") ? firebase.app("secondary") : null)
+        : firebase.app();
+    const otherUser = otherApp ? otherApp.auth().currentUser : null;
+    if(otherUser){
+        switchToSlot(otherSlot);
+    } else {
+        renderAuthNav();
+        renderSidebarHistory();
+    }
 });
 document.getElementById("signinModalClose")?.addEventListener("click", () => closeModal("signinModal"));
 let isSignupMode = false;
@@ -1539,6 +1553,8 @@ function firebaseErrorMessage(code, rawMessage){
 
 function finishSignin(email){
     localStorage.setItem("zyntra-user", email);
+    accountAddPreviousSlot = null;
+    localStorage.removeItem("zyntra-account-add-previous-slot");
     document.getElementById("signinEmail").value = "";
     document.getElementById("signinPass").value = "";
     document.getElementById("signinContext").style.display = "none";
@@ -1561,9 +1577,9 @@ let zyntraCloudSyncing = false; // true while pulling down, to avoid an echo sav
 let zyntraCloudSaveTimer = null;
 
 function zyntraUserDocRef(){
-    const user = firebase.auth().currentUser;
+    const user = activeAuth().currentUser;
     if(!user) return null;
-    return db.collection("users").doc(user.uid);
+    return activeFirestore().collection("users").doc(user.uid);
 }
 
 // ---- Long-term memory ----
@@ -1616,8 +1632,8 @@ let projectsCache = [];
 async function refreshProjectsCache(){
     if(!isLoggedIn()){ projectsCache = []; return; }
     try{
-        const uid = firebase.auth().currentUser.uid;
-        const snap = await firebase.firestore().collection("projects").where("members", "array-contains", uid).get();
+        const uid = activeAuth().currentUser.uid;
+        const snap = await activeFirestore().collection("projects").where("members", "array-contains", uid).get();
         projectsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         projectsCache.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     }catch(err){
@@ -1637,9 +1653,9 @@ const PROJECT_COLORS = ["#7c5cff", "#ff6b8a", "#37c98f", "#ffb545", "#4fb8ff", "
 let currentProjectId = null;
 
 async function createProject(name, instructions, color){
-    const uid = firebase.auth().currentUser.uid;
-    const email = (firebase.auth().currentUser.email || "").toLowerCase();
-    const docRef = firebase.firestore().collection("projects").doc();
+    const uid = activeAuth().currentUser.uid;
+    const email = (activeAuth().currentUser.email || "").toLowerCase();
+    const docRef = activeFirestore().collection("projects").doc();
     const project = {
         name: name.trim(),
         instructions: (instructions || "").trim(),
@@ -1655,12 +1671,12 @@ async function createProject(name, instructions, color){
 }
 
 async function updateProject(id, changes){
-    await firebase.firestore().collection("projects").doc(id).update(changes);
+    await activeFirestore().collection("projects").doc(id).update(changes);
     await refreshProjectsCache();
 }
 
 async function deleteProject(id){
-    await firebase.firestore().collection("projects").doc(id).delete();
+    await activeFirestore().collection("projects").doc(id).delete();
     await refreshProjectsCache();
     // Un-tag any of YOUR chats that belonged to this project — their
     // history stays, they just go back to being regular chats. (Chats
@@ -1678,7 +1694,7 @@ async function deleteProject(id){
 // api/share-project.js via the Admin SDK — a client can never resolve an
 // arbitrary email to a uid itself (see that file's comments).
 async function shareProject(projectId, email){
-    const idToken = await firebase.auth().currentUser.getIdToken();
+    const idToken = await activeAuth().currentUser.getIdToken();
     const resp = await fetch("/api/share-project", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
@@ -2016,9 +2032,9 @@ const PLUGIN_DETAILS = {
 let connectorStatusCache = {};
 
 async function fetchConnectorStatus(provider){
-    if(!firebase.auth().currentUser) return { connected: false, error: true };
+    if(!activeAuth().currentUser) return { connected: false, error: true };
     try{
-        const idToken = await firebase.auth().currentUser.getIdToken();
+        const idToken = await activeAuth().currentUser.getIdToken();
         const res = await fetch(CONNECTOR_PROVIDER_CONFIG[provider].statusUrl, {
             headers: { "Authorization": "Bearer " + idToken }
         });
@@ -2212,31 +2228,73 @@ async function pullCloudToLocal(){
     }
 }
 
+// Multi-account support: which Firebase app instance is "active" right
+// now. "default" is always the original app (used by everyone with just
+// one account). "secondary" is a second named Firebase app created the
+// first time the user adds a second account — its own signed-in session
+// persists independently, so switching back to it later never requires
+// re-entering credentials.
+let activeAccountSlot = localStorage.getItem("zyntra-active-slot") || "default";
+// Survives an in-progress "add account" flow across a mobile Google
+// sign-in redirect, which does a full page reload and would otherwise
+// lose track of which slot to fall back to if the user backs out.
+let accountAddPreviousSlot = localStorage.getItem("zyntra-account-add-previous-slot");
+
+function activeAuth(){
+    return activeAccountSlot === "secondary" && firebase.apps.some(a => a.name === "secondary")
+        ? firebase.app("secondary").auth()
+        : firebase.app().auth();
+}
+function activeFirestore(){
+    return activeAccountSlot === "secondary" && firebase.apps.some(a => a.name === "secondary")
+        ? firebase.app("secondary").firestore()
+        : firebase.app().firestore();
+}
+
 // Runs on every page load AND right after sign-in/sign-up/Google sign-in,
 // since all of those trigger onAuthStateChanged — so there's no separate
-// hook needed in finishSignin.
-firebase.auth().onAuthStateChanged(user => {
-    if(user){
-        pullCloudToLocal();
-        refreshProjectsCache();
-    } else {
-        projectsCache = [];
-    }
-});
+// hook needed in finishSignin. Registered separately per account slot (see
+// initSecondaryFirebaseApp below) so a background account's own state
+// changes never overwrite what's currently on screen.
+function attachAuthStateListener(authInstance, slot){
+    authInstance.onAuthStateChanged(user => {
+        if(user){
+            saveKnownAccount(slot, user.email);
+        } else {
+            removeKnownAccount(slot);
+        }
+        if(slot !== activeAccountSlot) return;
+        if(user){
+            pullCloudToLocal();
+            refreshProjectsCache();
+        } else {
+            projectsCache = [];
+        }
+    });
+}
+attachAuthStateListener(firebase.app().auth(), "default");
 
-// firebase.auth().currentUser can briefly be null right after a sign-in
+// If a second account was already added in an earlier session, make sure
+// its Firebase app + listener exist again on this fresh page load too —
+// otherwise switching to it (or a mobile Google-redirect mid-flow) would
+// have nothing to attach to.
+if(activeAccountSlot === "secondary" || getKnownAccounts().secondary){
+    initSecondaryFirebaseApp();
+}
+
+// activeAuth().currentUser can briefly be null right after a sign-in
 // completes, before Firebase's internal state has fully settled — so
 // anything that needs "the signed-in user, right now" should await this
 // instead of reading .currentUser directly, which can otherwise throw
 // "Cannot read properties of null" in that narrow window.
 function getCurrentFirebaseUser(){
-    if(firebase.auth().currentUser) return Promise.resolve(firebase.auth().currentUser);
+    if(activeAuth().currentUser) return Promise.resolve(activeAuth().currentUser);
     return new Promise((resolve) => {
-        const unsubscribe = firebase.auth().onAuthStateChanged(user => {
+        const unsubscribe = activeAuth().onAuthStateChanged(user => {
             unsubscribe();
             resolve(user);
         });
-        setTimeout(() => { unsubscribe(); resolve(firebase.auth().currentUser); }, 3000);
+        setTimeout(() => { unsubscribe(); resolve(activeAuth().currentUser); }, 3000);
     });
 }
 
@@ -2307,7 +2365,7 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
     btn.disabled = true;
 
     if(!isSignupMode){
-        firebase.auth().signInWithEmailAndPassword(email, password)
+        activeAuth().signInWithEmailAndPassword(email, password)
             .then(userCredential => {
                 finishSignin(userCredential.user.email);
             })
@@ -2321,7 +2379,7 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
         return;
     }
 
-    const authAction = firebase.auth().createUserWithEmailAndPassword(email, password);
+    const authAction = activeAuth().createUserWithEmailAndPassword(email, password);
 
     authAction
         .then(userCredential => {
@@ -2354,11 +2412,11 @@ document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
         // between "just a normal page load" and "the redirect silently
         // lost its state" — and say something instead of going quiet.
         sessionStorage.setItem("zyntra-redirect-pending", "1");
-        firebase.auth().signInWithRedirect(provider);
+        activeAuth().signInWithRedirect(provider);
         return;
     }
 
-    firebase.auth().signInWithPopup(provider)
+    activeAuth().signInWithPopup(provider)
         .then(result => {
             finishSignin(result.user.email);
         })
@@ -2372,7 +2430,7 @@ document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
 const zyntraRedirectWasPending = sessionStorage.getItem("zyntra-redirect-pending") === "1";
 sessionStorage.removeItem("zyntra-redirect-pending");
 
-firebase.auth().getRedirectResult()
+activeAuth().getRedirectResult()
     .then(result => {
         if(result && result.user){
             finishSignin(result.user.email);
@@ -2737,7 +2795,7 @@ function renderProjectsList(filterText){
 
     // Sharing is real now — filter by actual ownership instead of the
     // old placeholder that always showed "Shared with you" as empty.
-    const uid = firebase.auth().currentUser?.uid;
+    const uid = activeAuth().currentUser?.uid;
     let projects = getProjects();
     if(projectsActiveFilter === "mine") projects = projects.filter(p => p.ownerId === uid);
     if(projectsActiveFilter === "shared") projects = projects.filter(p => p.ownerId !== uid);
@@ -2815,7 +2873,7 @@ function openProjectDetail(id){
     // Only the owner can delete or invite others — a member with shared
     // access shouldn't be able to remove the project out from under the
     // owner or the other members.
-    const isOwner = project.ownerId === firebase.auth().currentUser?.uid;
+    const isOwner = project.ownerId === activeAuth().currentUser?.uid;
     document.getElementById("projectDeleteBtn").style.display = isOwner ? "" : "none";
     document.getElementById("projectShareBtn").style.display = isOwner ? "" : "none";
     document.getElementById("projectEditBtn").style.display = isOwner ? "" : "none";
@@ -5536,7 +5594,7 @@ document.getElementById("settingsExportDataBtn")?.addEventListener("click", () =
 // Settings: Security (change password / delete account)
 // ==========================================================
 function renderSecuritySettings(){
-    const user = (typeof firebase !== "undefined") ? firebase.auth().currentUser : null;
+    const user = (typeof firebase !== "undefined") ? activeAuth().currentUser : null;
     const passwordSection = document.getElementById("securityPasswordSection");
     const googleNote = document.getElementById("securityGoogleOnlyNote");
     if(!passwordSection || !googleNote) return;
@@ -5554,7 +5612,7 @@ function renderSecuritySettings(){
 
 document.getElementById("securityChangePasswordBtn")?.addEventListener("click", () => {
     const msg = document.getElementById("securityPasswordMsg");
-    const user = firebase.auth().currentUser;
+    const user = activeAuth().currentUser;
     const current = document.getElementById("securityCurrentPassword").value;
     const next = document.getElementById("securityNewPassword").value;
     const confirm = document.getElementById("securityConfirmPassword").value;
@@ -5607,7 +5665,7 @@ document.getElementById("deleteAccountModalClose")?.addEventListener("click", ()
 document.getElementById("deleteAccountCancel")?.addEventListener("click", () => closeModal("deleteAccountModal"));
 
 document.getElementById("deleteAccountConfirm")?.addEventListener("click", () => {
-    const user = firebase.auth().currentUser;
+    const user = activeAuth().currentUser;
     if(!user) return;
     const btn = document.getElementById("deleteAccountConfirm");
     const original = btn.textContent;
@@ -5637,3 +5695,130 @@ document.getElementById("deleteAccountConfirm")?.addEventListener("click", () =>
             }
         });
 });
+
+// ==========================================================
+// Multi-account: add + switch between two signed-in accounts
+// ==========================================================
+
+function initSecondaryFirebaseApp(){
+    if(!firebase.apps.some(a => a.name === "secondary")){
+        const secondaryApp = firebase.initializeApp(window.zyntraFirebaseConfig, "secondary");
+        attachAuthStateListener(secondaryApp.auth(), "secondary");
+    }
+    return firebase.app("secondary");
+}
+
+function getKnownAccounts(){
+    try{
+        return JSON.parse(localStorage.getItem("zyntra-known-accounts") || "{}");
+    } catch(e){
+        return {};
+    }
+}
+function saveKnownAccount(slot, email){
+    if(!email) return;
+    const known = getKnownAccounts();
+    known[slot] = { email, letter: email.charAt(0).toUpperCase() };
+    localStorage.setItem("zyntra-known-accounts", JSON.stringify(known));
+    renderAccountSwitcher();
+}
+function removeKnownAccount(slot){
+    const known = getKnownAccounts();
+    delete known[slot];
+    localStorage.setItem("zyntra-known-accounts", JSON.stringify(known));
+    renderAccountSwitcher();
+}
+
+// Kicks off adding a second account: stashes which slot is currently
+// active (in case the user backs out), spins up the secondary Firebase
+// app if this is the first time, marks it as the one about to be signed
+// into, then opens the existing sign-in modal — every sign-in path in
+// that modal already goes through activeAuth(), so it transparently
+// signs into the secondary app without any changes to the modal itself.
+function startAddAccountFlow(){
+    accountAddPreviousSlot = activeAccountSlot;
+    localStorage.setItem("zyntra-account-add-previous-slot", accountAddPreviousSlot);
+    initSecondaryFirebaseApp();
+    activeAccountSlot = "secondary";
+    localStorage.setItem("zyntra-active-slot", "secondary");
+    document.getElementById("signinContext").style.display = "none";
+    resetSigninModalUI();
+    openModal("signinModal");
+}
+
+document.getElementById("addAccountBtn")?.addEventListener("click", startAddAccountFlow);
+
+// If the sign-in modal gets closed without completing the add-account
+// flow, put the active slot back so nothing changes underneath the user.
+document.getElementById("signinModalClose")?.addEventListener("click", () => {
+    if(accountAddPreviousSlot !== null){
+        const secondaryUser = firebase.apps.some(a => a.name === "secondary") ? firebase.app("secondary").auth().currentUser : null;
+        if(!secondaryUser){
+            activeAccountSlot = accountAddPreviousSlot;
+            localStorage.setItem("zyntra-active-slot", activeAccountSlot);
+        }
+        accountAddPreviousSlot = null;
+        localStorage.removeItem("zyntra-account-add-previous-slot");
+    }
+});
+
+async function switchToSlot(slot){
+    if(slot === activeAccountSlot) return;
+    const msg = document.getElementById("accountSwitcherMsg");
+    if(msg) msg.textContent = "Switching…";
+
+    await pushLocalToCloud(); // save whatever's active right now before leaving it
+
+    activeAccountSlot = slot;
+    localStorage.setItem("zyntra-active-slot", slot);
+
+    const user = activeAuth().currentUser;
+    if(user) localStorage.setItem("zyntra-user", user.email);
+
+    await pullCloudToLocal();
+    refreshProjectsCache();
+    resetChatView();
+    renderAuthNav();
+    renderSidebarHistory();
+    applyPluginVisibility();
+    renderProfileModal();
+
+    if(msg) msg.textContent = "";
+}
+
+function renderAccountSwitcher(){
+    const list = document.getElementById("accountSwitcherList");
+    if(!list) return;
+    const known = getKnownAccounts();
+    list.innerHTML = "";
+
+    ["default", "secondary"].forEach(slot => {
+        const account = known[slot];
+        if(!account) return;
+
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid #232a4d; border-radius:12px;";
+        const isActive = slot === activeAccountSlot;
+
+        row.innerHTML = `
+            <div style="width:34px; height:34px; border-radius:50%; background:var(--accent-grad); display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; flex-shrink:0;">${account.letter}</div>
+            <p style="flex:1; margin:0; font-size:14px; color:#e8e9f5; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${account.email}</p>
+        `;
+
+        if(isActive){
+            const badge = document.createElement("span");
+            badge.textContent = "Active";
+            badge.style.cssText = "font-size:12px; color:#7ee7a8; font-weight:700; flex-shrink:0;";
+            row.appendChild(badge);
+        } else {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = "Switch";
+            btn.style.cssText = "padding:7px 14px; border:1px solid #2b3154; border-radius:10px; background:#171d3d; color:white; font-weight:600; cursor:pointer; flex-shrink:0;";
+            btn.addEventListener("click", () => switchToSlot(slot));
+            row.appendChild(btn);
+        }
+
+        list.appendChild(row);
+    });
+}
