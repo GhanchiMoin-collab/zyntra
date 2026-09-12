@@ -1059,6 +1059,14 @@ async function streamChatAPI(messages, onDelta, options){
 // ---------- Generic modal open/close ----------
 
 function openModal(id){
+    // Every modal shares one overlay layer/z-index, so if another modal is
+    // still open underneath, whichever happens to sit later in the HTML
+    // would silently paint on top — not necessarily the one just opened.
+    // Closing anything else first guarantees the modal you just triggered
+    // is always the one actually on top and visible.
+    document.querySelectorAll(".modal-overlay.show").forEach(overlay => {
+        if(overlay.id !== id) overlay.classList.remove("show");
+    });
     document.getElementById(id).classList.add("show");
 }
 function closeModal(id){
@@ -1552,6 +1560,32 @@ function firebaseErrorMessage(code, rawMessage){
 }
 
 function finishSignin(email){
+    const wasAddingAccount = accountAddPreviousSlot !== null;
+
+    // Adding an account you're already signed into elsewhere on this
+    // device isn't a second account at all — back it out instead of
+    // showing the same email twice in the switcher.
+    if(wasAddingAccount){
+        const otherSlot = activeAccountSlot === "secondary" ? "default" : "secondary";
+        const known = getKnownAccounts();
+        if(known[otherSlot] && known[otherSlot].email.toLowerCase() === email.toLowerCase()){
+            activeAuth().signOut().catch(() => {});
+            activeAccountSlot = accountAddPreviousSlot;
+            localStorage.setItem("zyntra-active-slot", activeAccountSlot);
+            accountAddPreviousSlot = null;
+            localStorage.removeItem("zyntra-account-add-previous-slot");
+            document.getElementById("signinEmail").value = "";
+            document.getElementById("signinPass").value = "";
+            document.getElementById("signinContext").style.display = "none";
+            clearSigninError();
+            closeModal("signinModal");
+            openModal("profileModal");
+            renderProfileModal();
+            showToast("⚠️ That's already your signed-in account — try a different one.");
+            return;
+        }
+    }
+
     localStorage.setItem("zyntra-user", email);
     accountAddPreviousSlot = null;
     localStorage.removeItem("zyntra-account-add-previous-slot");
@@ -1563,6 +1597,13 @@ function finishSignin(email){
     renderAuthNav();
     renderSidebarHistory();
     showToast("✅ You're signed in successfully!");
+
+    // Adding a second account started from Settings — hop back there so
+    // the newly added account shows up in the switcher right away.
+    if(wasAddingAccount){
+        openModal("profileModal");
+        renderProfileModal();
+    }
 }
 
 // ================= Firestore cloud sync =================
@@ -5759,6 +5800,8 @@ document.getElementById("signinModalClose")?.addEventListener("click", () => {
         }
         accountAddPreviousSlot = null;
         localStorage.removeItem("zyntra-account-add-previous-slot");
+        openModal("profileModal");
+        renderProfileModal();
     }
 });
 
@@ -5789,7 +5832,21 @@ async function switchToSlot(slot){
 function renderAccountSwitcher(){
     const list = document.getElementById("accountSwitcherList");
     if(!list) return;
-    const known = getKnownAccounts();
+    let known = getKnownAccounts();
+
+    // Self-heal a duplicate from before this was blocked: if both slots
+    // ended up pointing at the same email, there's nothing to actually
+    // switch to — drop the non-active one and sign its background
+    // session out so it doesn't linger pointlessly.
+    if(known.default && known.secondary && known.default.email.toLowerCase() === known.secondary.email.toLowerCase()){
+        const staleSlot = activeAccountSlot === "secondary" ? "default" : "secondary";
+        if(staleSlot === "secondary" && firebase.apps.some(a => a.name === "secondary")){
+            firebase.app("secondary").auth().signOut().catch(() => {});
+        }
+        delete known[staleSlot];
+        localStorage.setItem("zyntra-known-accounts", JSON.stringify(known));
+    }
+
     list.innerHTML = "";
 
     ["default", "secondary"].forEach(slot => {
