@@ -7924,3 +7924,16 @@ border-color:transparent;
 transform:translateX(18px);
 background:#fff;
 }
+
+/* ==========================================================
+   Account menu backdrop — dims the page behind the account
+   popup so it reads as a floating menu, not a layout glitch.
+   ========================================================== */
+.account-menu-backdrop{
+display:none;
+position:fixed;
+inset:0;
+background:rgba(2,2,6,.5);
+z-index:55;
+}
+.account-menu-backdrop.show{ display:block; }
