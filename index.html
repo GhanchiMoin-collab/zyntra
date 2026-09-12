@@ -675,6 +675,14 @@
                         <p id="profileEmailDisplay" style="color:#9aa0c0; font-size:14px; margin:0;"></p>
                     </div>
                     <button id="profileSignoutBtn" style="width:100%; padding:12px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:#ff8fa8; font-weight:600; cursor:pointer; margin-top:22px;">🚪 Sign Out</button>
+
+                    <div style="margin-top:32px; border-top:1px solid #232a4d; padding-top:24px;">
+                        <p class="profile-label" style="margin-top:0;">Switch accounts</p>
+                        <p class="settings-section-hint">Signed-in accounts on this device — switch between them without signing in again.</p>
+                        <div id="accountSwitcherList" style="margin-top:14px; display:flex; flex-direction:column; gap:10px;"></div>
+                        <button id="addAccountBtn" type="button" style="margin-top:14px; width:100%; padding:12px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:white; font-weight:600; cursor:pointer;">＋ Add Account</button>
+                        <p id="accountSwitcherMsg" class="settings-section-hint" style="margin-top:10px;"></p>
+                    </div>
                 </div>
 
                 <div class="settings-panel" data-settings-panel="personalization">
@@ -937,14 +945,16 @@
 <script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/12.17.0/firebase-firestore-compat.js"></script>
 <script>
-    firebase.initializeApp({
+    const zyntraFirebaseConfig = {
         apiKey: "AIzaSyAWuJOkwON5KLALez5_p4rQYA7vNoGgjvM",
         authDomain: "zyntra-98cad.firebaseapp.com",
         projectId: "zyntra-98cad",
         storageBucket: "zyntra-98cad.firebasestorage.app",
         messagingSenderId: "960720019638",
         appId: "1:960720019638:web:3f672e5d103386ed858617"
-    });
+    };
+    window.zyntraFirebaseConfig = zyntraFirebaseConfig;
+    firebase.initializeApp(zyntraFirebaseConfig);
     // Firestore gives every signed-in user real cloud storage for their
     // profile + chat history, so it survives cleared caches and syncs
     // across devices — instead of living only in this browser's localStorage.
