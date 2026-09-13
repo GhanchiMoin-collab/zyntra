@@ -3975,6 +3975,10 @@ function stripMarkdownForPdf(text){
         .replace(/```[\s\S]*?```/g, m => m.replace(/```/g, "").trim())
         .replace(/[*_`#>]+/g, "")
         .replace(/^\s*[-•]\s+/gm, "• ")
+        // jsPDF's built-in fonts can't render emoji (they show as broken
+        // boxes), so strip them out for a clean PDF instead.
+        .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\uFE0F]/gu, "")
+        .replace(/[ \t]{2,}/g, " ")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
 }
@@ -4038,7 +4042,7 @@ function renderPdfRequestExchange(userMsg, content){
     const aiDiv = document.createElement("div");
     aiDiv.className = "ai-message";
     const text = document.createElement("p");
-    text.textContent = "Here's your PDF:";
+    text.textContent = "Your PDF is ready — tap below to download:";
     aiDiv.appendChild(text);
     const btn = document.createElement("button");
     btn.type = "button";
@@ -4055,10 +4059,6 @@ function renderPdfRequestExchange(userMsg, content){
     logMessageToHistory("assistant", "[Generated a downloadable PDF of the previous response]");
     chatHistory.push({ role: "user", content: userMsg });
     chatHistory.push({ role: "assistant", content: "[Generated a downloadable PDF of the previous response]" });
-
-    // Trigger the download immediately too, so the user doesn't have to
-    // click twice — the button stays there to re-download afterward.
-    generateAndDownloadPdf(content, title);
 }
 
 function renderAttachPreview(){
