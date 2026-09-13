@@ -3957,6 +3957,110 @@ async function extractDocumentText(file){
     throw new Error("Unsupported file type. Try a PDF, Word doc, Excel sheet, CSV, or plain text file.");
 }
 
+// ==========================================================
+// PDF export — "make it a pdf" turns the last reply into a real,
+// downloadable PDF file, generated entirely in the browser.
+// ==========================================================
+
+function isPdfRequest(text){
+    const t = text.toLowerCase().trim();
+    if(!/\bpdf\b/.test(t)) return false;
+    if(/^(as a |a |the |that |this )?pdf[.!]?$/.test(t)) return true;
+    return /(make|turn|convert|give|send|download|export|save|create|generate).{0,25}\bpdf\b/.test(t)
+        || /\bpdf\b.{0,15}(please|version|file|format|instead)/.test(t);
+}
+
+function stripMarkdownForPdf(text){
+    return String(text || "")
+        .replace(/```[\s\S]*?```/g, m => m.replace(/```/g, "").trim())
+        .replace(/[*_`#>]+/g, "")
+        .replace(/^\s*[-•]\s+/gm, "• ")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+}
+
+function deriveTitleFromContent(content){
+    const clean = stripMarkdownForPdf(content);
+    const firstLine = clean.split("\n").find(l => l.trim().length > 0) || "";
+    return firstLine.slice(0, 70) || "Zyntra AI Export";
+}
+
+function generateAndDownloadPdf(content, title){
+    if(!window.jspdf || !window.jspdf.jsPDF){
+        showToast("⚠️ PDF export didn't load — check your connection and try again.");
+        return false;
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const margin = 48;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const maxWidth = pageWidth - margin * 2;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    const titleLines = doc.splitTextToSize(title, maxWidth);
+    doc.text(titleLines, margin, margin);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    const clean = stripMarkdownForPdf(content);
+    const lines = doc.splitTextToSize(clean, maxWidth);
+
+    let y = margin + 20 + titleLines.length * 16;
+    const lineHeight = 16;
+    lines.forEach(line => {
+        if(y > pageHeight - margin){
+            doc.addPage();
+            y = margin;
+        }
+        doc.text(line, margin, y);
+        y += lineHeight;
+    });
+
+    const filename = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-+|-+$)/g, "").slice(0, 60) || "zyntra-ai-export";
+    doc.save(filename + ".pdf");
+    return true;
+}
+
+function renderPdfRequestExchange(userMsg, content){
+    document.getElementById("chatGreeting").style.display = "none";
+
+    const userDiv = document.createElement("div");
+    userDiv.className = "user-message";
+    const p = document.createElement("p");
+    p.textContent = userMsg;
+    userDiv.appendChild(p);
+    chatMessages.appendChild(userDiv);
+
+    const title = deriveTitleFromContent(content);
+
+    const aiDiv = document.createElement("div");
+    aiDiv.className = "ai-message";
+    const text = document.createElement("p");
+    text.textContent = "Here's your PDF:";
+    aiDiv.appendChild(text);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "⬇ Download PDF";
+    btn.style.cssText = "margin-top:10px; padding:11px 20px; border:none; border-radius:12px; background:linear-gradient(135deg,#6e5cff,#ff59b0); color:#fff; font-weight:700; cursor:pointer; font-size:14px;";
+    btn.addEventListener("click", () => generateAndDownloadPdf(content, title));
+    aiDiv.appendChild(btn);
+    chatMessages.appendChild(aiDiv);
+
+    chatAutoScroll();
+    if(userInput) userInput.value = "";
+
+    logMessageToHistory("user", userMsg);
+    logMessageToHistory("assistant", "[Generated a downloadable PDF of the previous response]");
+    chatHistory.push({ role: "user", content: userMsg });
+    chatHistory.push({ role: "assistant", content: "[Generated a downloadable PDF of the previous response]" });
+
+    // Trigger the download immediately too, so the user doesn't have to
+    // click twice — the button stays there to re-download afterward.
+    generateAndDownloadPdf(content, title);
+}
+
 function renderAttachPreview(){
     const preview = document.getElementById("attachPreview");
     preview.innerHTML = "";
@@ -4234,6 +4338,18 @@ async function sendChatMessage(prefill){
 
     if(activeChatTool === "image" && msg){
         return sendImageOrChatMessage(msg);
+    }
+
+    // "Make it a PDF" — turn the last reply into a downloadable PDF
+    // instead of sending anything to the AI for a new answer.
+    if(msg && !attachedImage && !attachedDocument && isPdfRequest(msg)){
+        const lastAssistant = [...chatHistory].reverse().find(m => m.role === "assistant");
+        if(lastAssistant){
+            renderPdfRequestExchange(msg, lastAssistant.content);
+            return;
+        }
+        // Nothing to convert yet — fall through so the AI can respond
+        // naturally instead (e.g. ask what to write first).
     }
 
     if(isLockedOut()){
@@ -5885,3 +6001,24 @@ function renderAccountSwitcher(){
         list.appendChild(row);
     });
 }
+
+// ==========================================================
+// Deep-link into a specific tool via ?tool=image / ?tool=voice / etc.
+// Used by the dedicated SEO landing pages (/image-generator, /jarvis,
+// /codex, /business-tools) so their "Open in Zyntra AI" button lands
+// the visitor straight in that tool instead of the plain chat screen.
+// ==========================================================
+(function openToolFromUrl(){
+    const validTools = ["chat", "image", "codex", "voice", "business"];
+    const params = new URLSearchParams(window.location.search);
+    const tool = params.get("tool");
+    if(tool && validTools.includes(tool) && tool !== "chat"){
+        openTool(tool);
+    }
+    // Clean the query string out of the address bar so the deep link
+    // doesn't linger once the app has taken over — the URL match already
+    // did its job of getting them to the right screen.
+    if(window.history?.replaceState){
+        window.history.replaceState({}, "", window.location.pathname);
+    }
+})();
