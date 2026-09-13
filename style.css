@@ -7938,3 +7938,75 @@ z-index:55;
 pointer-events:none;
 }
 .account-menu-backdrop.show{ display:block; }
+
+/* ==========================================================
+   About / Privacy — wider, page-like modal styling
+   ========================================================== */
+.modal-box-wide{ max-width:760px; }
+
+.about-hero{
+display:flex;
+align-items:center;
+gap:18px;
+margin:18px 0 8px;
+}
+.about-hero img{
+width:56px;
+height:56px;
+border-radius:16px;
+box-shadow:0 0 40px rgba(124,92,255,.35);
+}
+
+.about-feature-grid{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:14px;
+margin:28px 0;
+}
+.about-feature{
+padding:18px 20px;
+border:1px solid var(--glass-border);
+border-radius:16px;
+background:rgba(255,255,255,.02);
+}
+.about-feature .icon{ font-size:22px; margin-bottom:8px; display:block; }
+.about-feature h3{ margin:0 0 6px; font-size:15px; color:#f0f0f5; }
+.about-feature p{ margin:0; font-size:13.5px; color:#a8abc8; }
+
+@media(max-width:640px){
+.about-feature-grid{ grid-template-columns:1fr; }
+}
+
+.policy-section{
+margin-top:30px;
+padding-top:22px;
+border-top:1px solid var(--glass-border);
+}
+.policy-section:first-of-type{ border-top:none; margin-top:20px; padding-top:0; }
+.policy-section h3{
+display:flex;
+align-items:center;
+gap:10px;
+font-size:16px;
+margin:0 0 10px;
+color:#f0f0f5;
+}
+.policy-section h3 .icon{ font-size:17px; }
+.policy-section p{ margin:0 0 10px; }
+.policy-section p:last-child{ margin-bottom:0; }
+
+/* Back button for page-views reached from a footer link (About/Privacy)
+   rather than a dedicated sidebar nav item. */
+.page-view-back-btn{
+background:none;
+border:none;
+color:#9aa0c0;
+font-size:14px;
+cursor:pointer;
+padding:0;
+margin-bottom:18px;
+display:flex;
+align-items:center;
+gap:6px;
+}
+.page-view-back-btn:hover{ color:#eef0ff; }
