@@ -1095,21 +1095,34 @@ document.addEventListener("keydown", e => {
     }
 });
 
-// ---------- About modal ----------
+// ---------- About page ----------
 
-document.getElementById("aboutBtn")?.addEventListener("click", e => { e.preventDefault(); openModal("aboutModal"); });
-document.getElementById("aboutClose")?.addEventListener("click", () => closeModal("aboutModal"));
+document.getElementById("aboutBtn")?.addEventListener("click", e => {
+    e.preventDefault();
+    showPageView("about");
+    setActiveNav("about");
+    closeSidebarMobile();
+});
+document.getElementById("aboutBackBtn")?.addEventListener("click", () => {
+    showPageView("chat");
+    setActiveNav("chat");
+});
 
-// ---------- Privacy Policy modal ----------
+// ---------- Privacy Policy page ----------
 
 document.getElementById("privacyBtn")?.addEventListener("click", e => {
     e.preventDefault();
-    openModal("privacyModal");
+    showPageView("privacy");
+    setActiveNav("privacy");
+    closeSidebarMobile();
 });
-document.getElementById("privacyModalClose")?.addEventListener("click", () => closeModal("privacyModal"));
+document.getElementById("privacyBackBtn")?.addEventListener("click", () => {
+    showPageView("chat");
+    setActiveNav("chat");
+});
 
 if(window.location.hash === "#privacy"){
-    openModal("privacyModal");
+    showPageView("privacy");
 }
 
 // ---------- Ads (replaces the old Pro/payment system) ----------
@@ -3235,7 +3248,7 @@ function renderPluginDetail(){
             link.href = "#";
             link.textContent = "View";
             link.style.cssText = "color:#9aa8ff; font-size:14px; text-decoration:none;";
-            link.addEventListener("click", (e) => { e.preventDefault(); openModal("privacyModal"); });
+            link.addEventListener("click", (e) => { e.preventDefault(); showPageView("privacy"); setActiveNav("privacy"); });
             row.appendChild(link);
         } else if(typeof value === "string" && value.startsWith("http")){
             const link = document.createElement("a");
@@ -3257,7 +3270,8 @@ function renderPluginDetail(){
 
 document.getElementById("pluginDetailPrivacyLink")?.addEventListener("click", (e) => {
     e.preventDefault();
-    openModal("privacyModal");
+    showPageView("privacy");
+    setActiveNav("privacy");
 });
 
 document.getElementById("pluginDetailBackBtn")?.addEventListener("click", () => {
@@ -4624,9 +4638,27 @@ const TOOL_GREETINGS = {
     }
 };
 
+// A first-time visitor (never seen the app before, not signed in) gets a
+// slightly longer greeting that actually explains what Zyntra AI does and
+// that there's no sign-up needed to try it — cold traffic from search
+// shouldn't land on the exact same bare "ask me anything" a returning
+// user sees. Shown once per browser, then reverts to the normal greeting.
+function isFirstTimeVisitor(){
+    return !isLoggedIn() && !localStorage.getItem("zyntra-visited-before");
+}
+
 function applyToolGreeting(tool){
     const greeting = TOOL_GREETINGS[tool];
     if(!greeting) return;
+
+    if(tool === "chat" && isFirstTimeVisitor()){
+        document.getElementById("greetingHeading").innerHTML = 'Hey, I\'m <span>Zyntra AI</span>';
+        document.getElementById("greetingSubtitle").textContent =
+            "Chat, generate AI images, talk hands-free with Jarvis, or get coding help — try up to 10 messages free, no sign-up needed.";
+        localStorage.setItem("zyntra-visited-before", "1");
+        return;
+    }
+
     document.getElementById("greetingHeading").innerHTML = greeting.heading;
     document.getElementById("greetingSubtitle").textContent = greeting.subtitle;
 }
@@ -5248,6 +5280,7 @@ if(!SpeechRecognitionAPI){
 
 renderSidebarHistory();
 renderPromptSuggestions();
+applyToolGreeting("chat");
 
 // ==========================================================
 // Scroll-to-latest-message floating button
