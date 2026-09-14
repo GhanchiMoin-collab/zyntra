@@ -2322,6 +2322,20 @@ function activeFirestore(){
 // hook needed in finishSignin. Registered separately per account slot (see
 // initSecondaryFirebaseApp below) so a background account's own state
 // changes never overwrite what's currently on screen.
+// Route resolution (see applyRouteFromPath at the bottom of this file)
+// needs to wait for the first cloud sync to actually finish before
+// looking up a /chat/<id> link — otherwise a pasted chat URL gets
+// checked against sessions that haven't downloaded yet and looks like
+// it doesn't exist. tryApplyInitialRoute runs exactly once, whichever
+// happens first: sync finishes, no user is signed in, or a timeout.
+let initialRouteApplied = false;
+function tryApplyInitialRoute(){
+    if(initialRouteApplied) return;
+    initialRouteApplied = true;
+    if(typeof applyRouteFromPath === "function") applyRouteFromPath();
+}
+setTimeout(tryApplyInitialRoute, 4000); // safety net if auth never resolves
+
 function attachAuthStateListener(authInstance, slot){
     authInstance.onAuthStateChanged(user => {
         if(user){
@@ -2331,10 +2345,11 @@ function attachAuthStateListener(authInstance, slot){
         }
         if(slot !== activeAccountSlot) return;
         if(user){
-            pullCloudToLocal();
+            pullCloudToLocal().then(tryApplyInitialRoute).catch(tryApplyInitialRoute);
             refreshProjectsCache();
         } else {
             projectsCache = [];
+            tryApplyInitialRoute();
         }
     });
 }
@@ -2568,6 +2583,7 @@ function logMessageToHistory(role, content){
     if(!currentSessionId){
         currentSessionId = Date.now();
         isNewSession = true;
+        navigateToRoute("chat", currentSessionId);
         const cleanTitle = stripMarkdownForTitle(content);
         sessions.unshift({
             id: currentSessionId,
@@ -2702,6 +2718,7 @@ function deleteChatSession(id){
     if(currentSessionId === id){
         currentSessionId = null;
         resetChatView();
+        navigateToRoute("chat");
     }
     renderSidebarHistory();
     renderPinnedChats();
@@ -3602,6 +3619,7 @@ document.getElementById("searchChatsClearBtn")?.addEventListener("click", () => 
 
 function openSession(session){
     showPageView("chat");
+    navigateToRoute("chat", session.id);
     const type = session.type || "chat";
     if(type === "image" && session.imageUrl){
         openImageSession(session);
@@ -3761,6 +3779,7 @@ document.getElementById("newChatBtn")?.addEventListener("click", () => {
     currentProjectId = null;
     showPageView("chat");
     resetChatView();
+    navigateToRoute("chat");
     closeSidebarMobile();
     userInput.focus();
 });
@@ -6084,21 +6103,45 @@ function setRouteMeta(slug){
 }
 
 let firstRouteSync = true;
-function navigateToRoute(slug){
-    const path = slug ? "/" + slug : "/";
+function navigateToRoute(slug, id){
+    let path = slug ? "/" + slug : "/";
+    if(id) path += "/" + id;
     if(window.location.pathname !== path || firstRouteSync){
         if(firstRouteSync){
-            window.history.replaceState({ slug }, "", path);
+            window.history.replaceState({ slug, id }, "", path);
         } else {
-            window.history.pushState({ slug }, "", path);
+            window.history.pushState({ slug, id }, "", path);
         }
     }
     firstRouteSync = false;
     setRouteMeta(slug);
 }
 
+function openSessionById(id){
+    const session = getSessions().find(s => String(s.id) === String(id));
+    if(session){
+        openSession(session);
+        return true;
+    }
+    return false;
+}
+
 function applyRouteFromPath(){
-    const slug = window.location.pathname.replace(/^\/+|\/+$/g, "");
+    const parts = window.location.pathname.replace(/^\/+|\/+$/g, "").split("/");
+    const slug = parts[0] || "";
+    const subId = parts[1] || null;
+
+    if(slug === "chat" && subId){
+        // Deep link to one specific conversation, like /chat/<id>.
+        if(!openSessionById(subId)){
+            // That chat doesn't exist (wrong id, or a guest with nothing
+            // saved locally) — fall back to a normal empty chat instead
+            // of a dead end.
+            showPageView("chat");
+        }
+        setRouteMeta("chat");
+        return;
+    }
     if(slug === "about"){
         showPageView("about");
         setActiveNav("about");
@@ -6139,4 +6182,7 @@ function applyRouteFromPath(){
 
 window.addEventListener("popstate", applyRouteFromPath);
 
-applyRouteFromPath();
+// Initial route resolution now happens via tryApplyInitialRoute (see
+// attachAuthStateListener above), which waits for the first cloud sync
+// so a pasted /chat/<id> link is checked against real data, not
+// whatever was left over in localStorage before this page load.
