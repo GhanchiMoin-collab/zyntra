@@ -1101,11 +1101,13 @@ document.getElementById("aboutBtn")?.addEventListener("click", e => {
     e.preventDefault();
     showPageView("about");
     setActiveNav("about");
+    navigateToRoute("about");
     closeSidebarMobile();
 });
 document.getElementById("aboutBackBtn")?.addEventListener("click", () => {
     showPageView("chat");
     setActiveNav("chat");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
 });
 
 // ---------- Privacy Policy page ----------
@@ -1114,15 +1116,18 @@ document.getElementById("privacyBtn")?.addEventListener("click", e => {
     e.preventDefault();
     showPageView("privacy");
     setActiveNav("privacy");
+    navigateToRoute("privacy");
     closeSidebarMobile();
 });
 document.getElementById("privacyBackBtn")?.addEventListener("click", () => {
     showPageView("chat");
     setActiveNav("chat");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
 });
 
 if(window.location.hash === "#privacy"){
     showPageView("privacy");
+    navigateToRoute("privacy");
 }
 
 // ---------- Ads (replaces the old Pro/payment system) ----------
@@ -1168,8 +1173,8 @@ function renderAdSlots(){
 
 renderAdSlots();
 
-document.getElementById("contactBtn")?.addEventListener("click", e => { e.preventDefault(); openModal("contactModal"); closeSidebarMobile(); });
-document.getElementById("contactModalClose")?.addEventListener("click", () => closeModal("contactModal"));
+document.getElementById("contactBtn")?.addEventListener("click", e => { e.preventDefault(); openModal("contactModal"); navigateToRoute("contact"); closeSidebarMobile(); });
+document.getElementById("contactModalClose")?.addEventListener("click", () => { closeModal("contactModal"); navigateToRoute(TOOL_TO_SLUG[activeChatTool] || ""); });
 document.getElementById("contactSubmit")?.addEventListener("click", async () => {
     const name = document.getElementById("contactName").value.trim();
     const email = document.getElementById("contactEmail").value.trim();
@@ -1201,6 +1206,7 @@ document.getElementById("contactSubmit")?.addEventListener("click", async () => 
             document.getElementById("contactEmail").value = "";
             document.getElementById("contactMsg").value = "";
             closeModal("contactModal");
+            navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
         } else {
             alert("Something went wrong sending your message. Please try again.");
         }
@@ -4699,6 +4705,7 @@ function openTool(tool, prefix){
         closeSidebarMobile();
     }
     setActiveNav(tool);
+    navigateToRoute(TOOL_TO_SLUG[tool] !== undefined ? TOOL_TO_SLUG[tool] : "");
 }
 
 document.querySelectorAll("[data-tool]").forEach(el => {
@@ -6041,17 +6048,76 @@ function renderAccountSwitcher(){
 // /codex, /business-tools) so their "Open in Zyntra AI" button lands
 // the visitor straight in that tool instead of the plain chat screen.
 // ==========================================================
-(function openToolFromUrl(){
-    const validTools = ["chat", "image", "codex", "voice", "business"];
-    const params = new URLSearchParams(window.location.search);
-    const tool = params.get("tool");
-    if(tool && validTools.includes(tool) && tool !== "chat"){
-        openTool(tool);
+// ==========================================================
+// Clean URL routing (like ChatGPT's /c/... — one app, the address
+// bar just reflects what's showing). No separate HTML files involved;
+// Vercel's catch-all already serves index.html for any path, so this
+// just needs to sync the app's state with the visible URL both ways.
+// ==========================================================
+
+const ROUTE_META = {
+    "": { title: "Zyntra AI — AI Chat, Image Generator & Jarvis Voice Assistant", description: "Zyntra AI is your all-in-one AI assistant — chat with AI, generate AI images, talk to Zyntra Jarvis (voice assistant), get coding help with Codex, and grow your business, all in one place." },
+    "image-generator": { title: "AI Image Generator — Zyntra AI", description: "Generate AI images for free with Zyntra AI's Image Generator. Turn any text description into a realistic photo, illustration, or poster in seconds." },
+    "jarvis": { title: "Zyntra Jarvis — AI Voice Assistant | Zyntra AI", description: "Talk to Zyntra Jarvis, a hands-free AI voice assistant. Speak naturally and get spoken answers back." },
+    "codex": { title: "Codex — AI Code Assistant | Zyntra AI", description: "Zyntra Codex is your AI code assistant — write, debug, and explain code, or build a full website from a description." },
+    "business-tools": { title: "AI Business Tools — Zyntra AI", description: "Zyntra AI's Business Tools help you write business plans, pitch ideas, marketing copy, and get startup advice from AI." },
+    "about": { title: "About — Zyntra AI", description: "Zyntra AI is a personal AI assistant built by Ghanchi Moin — AI chat, image generation, a voice assistant, coding help, and business tools, all in one place." },
+    "privacy": { title: "Privacy Policy — Zyntra AI", description: "Zyntra AI's privacy policy — what data we collect, how it's processed, and your choices." },
+    "contact": { title: "Contact — Zyntra AI", description: "Get in touch with the Zyntra AI team — questions, feedback, or bug reports welcome." }
+};
+
+const TOOL_TO_SLUG = { chat: "", image: "image-generator", voice: "jarvis", codex: "codex", business: "business-tools" };
+const SLUG_TO_TOOL = { "": "chat", "image-generator": "image", "jarvis": "voice", "codex": "codex", "business-tools": "business" };
+
+function setRouteMeta(slug){
+    const meta = ROUTE_META[slug] || ROUTE_META[""];
+    document.title = meta.title;
+    const descTag = document.querySelector('meta[name="description"]');
+    if(descTag) descTag.setAttribute("content", meta.description);
+}
+
+let firstRouteSync = true;
+function navigateToRoute(slug){
+    const path = slug ? "/" + slug : "/";
+    if(window.location.pathname !== path || firstRouteSync){
+        if(firstRouteSync){
+            window.history.replaceState({ slug }, "", path);
+        } else {
+            window.history.pushState({ slug }, "", path);
+        }
     }
-    // Clean the query string out of the address bar so the deep link
-    // doesn't linger once the app has taken over — the URL match already
-    // did its job of getting them to the right screen.
-    if(window.history?.replaceState){
-        window.history.replaceState({}, "", window.location.pathname);
+    firstRouteSync = false;
+    setRouteMeta(slug);
+}
+
+function applyRouteFromPath(){
+    const slug = window.location.pathname.replace(/^\/+|\/+$/g, "");
+    if(slug === "about"){
+        showPageView("about");
+        setActiveNav("about");
+        setRouteMeta("about");
+        return;
     }
-})();
+    if(slug === "privacy"){
+        showPageView("privacy");
+        setActiveNav("privacy");
+        setRouteMeta("privacy");
+        return;
+    }
+    if(slug === "contact"){
+        openModal("contactModal");
+        setRouteMeta("contact");
+        return;
+    }
+    if(Object.prototype.hasOwnProperty.call(SLUG_TO_TOOL, slug)){
+        openTool(SLUG_TO_TOOL[slug]);
+        return;
+    }
+    // Unrecognized path — just show the normal home screen without
+    // touching browser history (avoids redirect loops on stray URLs).
+    setRouteMeta("");
+}
+
+window.addEventListener("popstate", applyRouteFromPath);
+
+applyRouteFromPath();
