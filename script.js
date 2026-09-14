@@ -3061,6 +3061,7 @@ document.getElementById("navProjects")?.addEventListener("click", async () => {
     projectsActiveFilter = "all";
     document.querySelectorAll(".page-view-tab").forEach(t => t.classList.toggle("active", t.dataset.projectFilter === "all"));
     showPageView("projects");
+    navigateToRoute("projects");
     closeSidebarMobile();
     document.getElementById("projectsList").classList.add("is-empty");
     document.getElementById("projectsList").innerHTML = '<div class="page-empty-state"><div class="page-empty-state-icon">⏳</div><p>Loading projects…</p></div>';
@@ -3290,6 +3291,7 @@ document.getElementById("navPlugins")?.addEventListener("click", () => {
     renderPluginsConnectionsList();
     refreshAllConnectorStatuses();
     showPageView("plugins");
+    navigateToRoute("plugins");
     closeSidebarMobile();
 });
 
@@ -3433,6 +3435,7 @@ document.getElementById("navScheduled")?.addEventListener("click", () => {
     renderScheduledList();
     renderScheduledRecommended();
     showPageView("scheduled");
+    navigateToRoute("scheduled");
     closeSidebarMobile();
 });
 
@@ -6057,17 +6060,21 @@ function renderAccountSwitcher(){
 
 const ROUTE_META = {
     "": { title: "Zyntra AI — AI Chat, Image Generator & Jarvis Voice Assistant", description: "Zyntra AI is your all-in-one AI assistant — chat with AI, generate AI images, talk to Zyntra Jarvis (voice assistant), get coding help with Codex, and grow your business, all in one place." },
+    "chat": { title: "Zyntra AI — AI Chat, Image Generator & Jarvis Voice Assistant", description: "Zyntra AI is your all-in-one AI assistant — chat with AI, generate AI images, talk to Zyntra Jarvis (voice assistant), get coding help with Codex, and grow your business, all in one place." },
     "image-generator": { title: "AI Image Generator — Zyntra AI", description: "Generate AI images for free with Zyntra AI's Image Generator. Turn any text description into a realistic photo, illustration, or poster in seconds." },
     "jarvis": { title: "Zyntra Jarvis — AI Voice Assistant | Zyntra AI", description: "Talk to Zyntra Jarvis, a hands-free AI voice assistant. Speak naturally and get spoken answers back." },
     "codex": { title: "Codex — AI Code Assistant | Zyntra AI", description: "Zyntra Codex is your AI code assistant — write, debug, and explain code, or build a full website from a description." },
     "business-tools": { title: "AI Business Tools — Zyntra AI", description: "Zyntra AI's Business Tools help you write business plans, pitch ideas, marketing copy, and get startup advice from AI." },
+    "plugins": { title: "Plugins — Zyntra AI", description: "Turn Zyntra AI's capabilities on or off, and connect apps like Google, GitHub, Slack, and Notion." },
+    "projects": { title: "Projects — Zyntra AI", description: "Organize related chats together in Zyntra AI, with shared instructions and easy sharing." },
+    "scheduled": { title: "Scheduled Tasks — Zyntra AI", description: "Set up recurring AI tasks in Zyntra AI that run automatically and wait for you." },
     "about": { title: "About — Zyntra AI", description: "Zyntra AI is a personal AI assistant built by Ghanchi Moin — AI chat, image generation, a voice assistant, coding help, and business tools, all in one place." },
     "privacy": { title: "Privacy Policy — Zyntra AI", description: "Zyntra AI's privacy policy — what data we collect, how it's processed, and your choices." },
     "contact": { title: "Contact — Zyntra AI", description: "Get in touch with the Zyntra AI team — questions, feedback, or bug reports welcome." }
 };
 
-const TOOL_TO_SLUG = { chat: "", image: "image-generator", voice: "jarvis", codex: "codex", business: "business-tools" };
-const SLUG_TO_TOOL = { "": "chat", "image-generator": "image", "jarvis": "voice", "codex": "codex", "business-tools": "business" };
+const TOOL_TO_SLUG = { chat: "chat", image: "image-generator", voice: "jarvis", codex: "codex", business: "business-tools" };
+const SLUG_TO_TOOL = { "": "chat", "chat": "chat", "image-generator": "image", "jarvis": "voice", "codex": "codex", "business-tools": "business" };
 
 function setRouteMeta(slug){
     const meta = ROUTE_META[slug] || ROUTE_META[""];
@@ -6107,6 +6114,18 @@ function applyRouteFromPath(){
     if(slug === "contact"){
         openModal("contactModal");
         setRouteMeta("contact");
+        return;
+    }
+    if(slug === "plugins"){
+        document.getElementById("navPlugins")?.click();
+        return;
+    }
+    if(slug === "projects"){
+        document.getElementById("navProjects")?.click();
+        return;
+    }
+    if(slug === "scheduled"){
+        document.getElementById("navScheduled")?.click();
         return;
     }
     if(Object.prototype.hasOwnProperty.call(SLUG_TO_TOOL, slug)){
