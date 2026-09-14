@@ -7977,23 +7977,88 @@ background:rgba(255,255,255,.02);
 .about-feature-grid{ grid-template-columns:1fr; }
 }
 
-.policy-section{
-margin-top:30px;
-padding-top:22px;
-border-top:1px solid var(--glass-border);
-}
-.policy-section:first-of-type{ border-top:none; margin-top:20px; padding-top:0; }
-.policy-section h3{
+.policy-hero-icon{
+width:56px;
+height:56px;
+border-radius:16px;
+background:var(--accent-grad-soft);
 display:flex;
 align-items:center;
-gap:10px;
-font-size:16px;
-margin:0 0 10px;
+justify-content:center;
+font-size:26px;
+flex-shrink:0;
+}
+
+.policy-lead{
+color:#a8abc8;
+font-size:15px;
+margin:14px 0 24px;
+}
+
+.policy-jumpnav{
+display:flex;
+flex-wrap:wrap;
+gap:8px;
+margin-bottom:36px;
+}
+.policy-jumpnav a{
+padding:7px 14px;
+border-radius:999px;
+border:1px solid var(--glass-border);
+background:rgba(255,255,255,.02);
+color:#c8cae0;
+font-size:13px;
+text-decoration:none;
+transition:background .2s ease, color .2s ease;
+scroll-margin-top:24px;
+}
+.policy-jumpnav a:hover{
+background:var(--glass-hover);
 color:#f0f0f5;
 }
-.policy-section h3 .icon{ font-size:17px; }
-.policy-section p{ margin:0 0 10px; }
+
+.policy-section{
+margin-top:16px;
+padding:24px;
+border:1px solid var(--glass-border);
+border-radius:18px;
+background:rgba(255,255,255,.015);
+scroll-margin-top:24px;
+}
+
+.policy-section-head{
+display:flex;
+align-items:center;
+gap:14px;
+margin-bottom:12px;
+}
+.policy-section h3{
+margin:0;
+font-size:16px;
+color:#f0f0f5;
+}
+.policy-section p{ margin:0 0 10px; color:#b8bad8; }
 .policy-section p:last-child{ margin-bottom:0; }
+
+.policy-icon{
+width:38px;
+height:38px;
+border-radius:12px;
+display:flex;
+align-items:center;
+justify-content:center;
+font-size:17px;
+flex-shrink:0;
+}
+.policy-icon-blue{ background:rgba(94,159,255,.14); }
+.policy-icon-teal{ background:rgba(94,255,220,.12); }
+.policy-icon-purple{ background:rgba(180,92,255,.14); }
+.policy-icon-pink{ background:rgba(255,89,176,.14); }
+.policy-icon-orange{ background:rgba(255,170,94,.14); }
+
+@media(max-width:640px){
+.policy-jumpnav{ display:none; }
+}
 
 /* Back button for page-views reached from a footer link (About/Privacy)
    rather than a dedicated sidebar nav item. */
