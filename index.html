@@ -474,33 +474,64 @@
         <div class="page-view" id="privacyView">
             <div class="page-view-inner">
                 <button type="button" id="privacyBackBtn" class="page-view-back-btn">← Back</button>
-                <span class="tag">PRIVACY POLICY</span>
-                <h1>Privacy <span>Policy</span></h1>
 
-                <p>Zyntra AI ("we", "our", "the app") is a personal AI assistant developed by Ghanchi Moin. This policy explains what information Zyntra AI collects, how it is used, and your choices.</p>
+                <div class="about-hero">
+                    <div class="policy-hero-icon">🔒</div>
+                    <div>
+                        <span class="tag" style="margin:0 0 4px;">PRIVACY POLICY</span>
+                        <h1 style="margin:0;">Your <span>Privacy</span></h1>
+                    </div>
+                </div>
 
-                <div class="policy-section">
-                    <h3><span class="icon">📋</span> Information we collect</h3>
+                <p class="policy-lead">Zyntra AI ("we", "our", "the app") is a personal AI assistant developed by Ghanchi Moin. This policy explains what information Zyntra AI collects, how it is used, and your choices. <span style="color:#7a80a5;">Last updated 2026.</span></p>
+
+                <div class="policy-jumpnav">
+                    <a href="#privacy-collect">Information we collect</a>
+                    <a href="#privacy-processed">Where it's processed</a>
+                    <a href="#privacy-sync">Cloud sync</a>
+                    <a href="#privacy-memory">Memory</a>
+                    <a href="#privacy-connections">Connections</a>
+                    <a href="#privacy-choices">Your choices</a>
+                    <a href="#privacy-contact">Contact</a>
+                </div>
+
+                <div class="policy-section" id="privacy-collect">
+                    <div class="policy-section-head">
+                        <span class="policy-icon policy-icon-blue">📋</span>
+                        <h3>Information we collect</h3>
+                    </div>
                     <p>When you use Zyntra AI, the messages you send to AI Chat, Study Helper, Business Tools and Zyntra Jarvis, along with the prompts and any reference images you provide to Image Generator, are sent to our AI provider to generate a response. If you use web search, your search terms are sent to our search provider to retrieve current results. If you sign in, your email and a unique account ID are used to identify you and sync your data across your devices. If you submit the Contact form, we receive the name, email, and message you provide.</p>
                 </div>
 
-                <div class="policy-section">
-                    <h3><span class="icon">🌐</span> Where your data is processed</h3>
+                <div class="policy-section" id="privacy-processed">
+                    <div class="policy-section-head">
+                        <span class="policy-icon policy-icon-teal">🌐</span>
+                        <h3>Where your data is processed</h3>
+                    </div>
                     <p>Chat, Study Helper, Business Tools and Zyntra Jarvis replies are generated using Groq's AI API. Images are generated using Pollinations AI. Web search results are retrieved using Tavily's search API. Sign-in and account sync are handled using Google Firebase (Authentication and Firestore). These third-party providers process your prompts and data to provide their part of the service; we do not control their servers.</p>
                 </div>
 
-                <div class="policy-section">
-                    <h3><span class="icon">☁️</span> Account sync (cloud storage)</h3>
+                <div class="policy-section" id="privacy-sync">
+                    <div class="policy-section-head">
+                        <span class="policy-icon policy-icon-purple">☁️</span>
+                        <h3>Account sync (cloud storage)</h3>
+                    </div>
                     <p>If you sign in, your profile, chat history, and the facts Zyntra AI remembers about you (see "Memory" below) are stored securely in our database (Firestore), tied to your account, so they follow you across devices instead of staying on one browser. This data is only accessible to your own signed-in account — never to other users.</p>
                 </div>
 
-                <div class="policy-section">
-                    <h3><span class="icon">🧠</span> Memory</h3>
+                <div class="policy-section" id="privacy-memory">
+                    <div class="policy-section-head">
+                        <span class="policy-icon policy-icon-pink">🧠</span>
+                        <h3>Memory</h3>
+                    </div>
                     <p>To make future conversations more helpful, Zyntra AI may remember short, durable facts you share (like your name, job, or an ongoing project) and refer back to them in later chats. You can see everything Zyntra AI has remembered about you, and clear it at any time, from Settings → Data Controls.</p>
                 </div>
 
-                <div class="policy-section">
-                    <h3><span class="icon">🔌</span> Optional account connections</h3>
+                <div class="policy-section" id="privacy-connections">
+                    <div class="policy-section-head">
+                        <span class="policy-icon policy-icon-orange">🔌</span>
+                        <h3>Optional account connections</h3>
+                    </div>
                     <p>If you choose to connect your Google account from the Plugins page, Zyntra AI can send emails, search and read your existing Gmail messages, create email drafts, manage calendar events, and search, read, and create files in your Google Drive on your behalf, using your explicit in-chat requests only. Your Google access token is stored securely on our servers — it is never visible to, or accessible from, your browser. Zyntra AI only requests the permissions needed for these actions and only reads your inbox, calendar, or Drive files when you ask it to in that conversation — it does not run in the background. You can disconnect your Google account at any time from the Plugins page, which permanently deletes the stored access token.</p>
                     <p>If you choose to connect your GitHub account from the Plugins page, Zyntra AI can read your repositories, issues, and pull requests, and create new issues or pull requests on your behalf, using your explicit in-chat requests only. Your GitHub access token is stored securely on our servers, separately from your Google token, and is never visible to, or accessible from, your browser. You can disconnect your GitHub account at any time from the Plugins page, which revokes the access on GitHub's side and deletes the stored token.</p>
                     <p>If you choose to connect your Slack account from the Plugins page, Zyntra AI can read your public and private channels, direct messages, and group direct messages, search your workspace, and send messages on your behalf, using your explicit in-chat requests only. Your Slack access token is stored securely on our servers, separately from your other connected accounts, and is never visible to, or accessible from, your browser. You can disconnect your Slack account at any time from the Plugins page, which revokes the access on Slack's side and deletes the stored token.</p>
@@ -510,27 +541,37 @@
                     <p>If you choose to connect your Outlook account from the Plugins page, Zyntra AI can search, read, send, and draft email on your behalf, using your explicit in-chat requests only. Your Microsoft access token is stored securely on our servers and is never visible to, or accessible from, your browser. Disconnecting from the Plugins page removes our stored copy of the token; Microsoft doesn't provide a simple way for us to revoke just this one app's access on their side, so for full removal you can also visit your Microsoft account's app permissions page and remove Zyntra AI there.</p>
                 </div>
 
-                <div class="policy-section">
-                    <h3><span class="icon">🤖</span> AI-generated content</h3>
+                <div class="policy-section" id="privacy-ai-content">
+                    <div class="policy-section-head">
+                        <span class="policy-icon policy-icon-blue">🤖</span>
+                        <h3>AI-generated content</h3>
+                    </div>
                     <p>Responses and images are generated by AI and may sometimes be inaccurate, incomplete, or inappropriate. You can flag any AI output using the Report button, which sends the flagged content to us via the Contact form.</p>
                 </div>
 
-                <div class="policy-section">
-                    <h3><span class="icon">👶</span> Children's privacy</h3>
+                <div class="policy-section" id="privacy-children">
+                    <div class="policy-section-head">
+                        <span class="policy-icon policy-icon-teal">👶</span>
+                        <h3>Children's privacy</h3>
+                    </div>
                     <p>Zyntra AI is not directed at children under 13, and we do not knowingly collect personal information from children under 13.</p>
                 </div>
 
-                <div class="policy-section">
-                    <h3><span class="icon">✅</span> Your choices</h3>
+                <div class="policy-section" id="privacy-choices">
+                    <div class="policy-section-head">
+                        <span class="policy-icon policy-icon-purple">✅</span>
+                        <h3>Your choices</h3>
+                    </div>
                     <p>You can clear your chat history and everything Zyntra AI remembers about you at any time from Settings → Data Controls, disconnect your Google or GitHub account at any time from the Plugins page → Connections, and sign out at any time from your profile. Clearing your browser data removes anything stored locally on your device, though signed-in account data remains in your account until you delete it from Settings or contact us to request deletion.</p>
                 </div>
 
-                <div class="policy-section">
-                    <h3><span class="icon">✉️</span> Contact</h3>
+                <div class="policy-section" id="privacy-contact">
+                    <div class="policy-section-head">
+                        <span class="policy-icon policy-icon-pink">✉️</span>
+                        <h3>Contact</h3>
+                    </div>
                     <p>If you have questions about this policy, contact Ghanchi Moin using the Contact form on this site.</p>
                 </div>
-
-                <p style="color:#7a80a5; font-size:13px; margin-top:24px;">Last updated: 2026.</p>
             </div>
         </div>
 
