@@ -8075,3 +8075,41 @@ align-items:center;
 gap:6px;
 }
 .page-view-back-btn:hover{ color:#eef0ff; }
+
+/* ==========================================================
+   Data Analysis — Python execution output (Pyodide)
+   ========================================================== */
+.data-exec-box{
+margin-top:14px;
+padding:16px 18px;
+border:1px solid var(--glass-border);
+border-radius:14px;
+background:rgba(255,255,255,.02);
+}
+.data-exec-status{
+color:#a8abc8;
+font-size:13.5px;
+display:flex;
+align-items:center;
+gap:8px;
+}
+.data-exec-output pre, .data-exec-error pre{
+margin:0;
+white-space:pre-wrap;
+word-break:break-word;
+font-family:'SFMono-Regular',Consolas,monospace;
+font-size:13px;
+color:#d8dafa;
+background:rgba(0,0,0,.25);
+padding:12px 14px;
+border-radius:10px;
+}
+.data-exec-error{ color:#ff8fa8; }
+.data-exec-error pre{ color:#ffb3c4; }
+.data-exec-chart{
+max-width:100%;
+margin-top:12px;
+background:rgba(255,255,255,.02);
+border-radius:10px;
+padding:12px;
+}
