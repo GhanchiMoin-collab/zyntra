@@ -11,7 +11,7 @@
 <!-- Google AdSense site verification (meta tag only — the ad script itself
      is disabled in script.js via AD_SLOT_READY until a real ad unit exists) -->
 <meta name="google-adsense-account" content="ca-pub-2270474390846038">
-<meta name="google-site-verification" content="UyLsfGqwou_VnT-uuZVNa69rIJ-l0gFvM09_n1IaNSY" />
+
 <meta property="og:site_name" content="Zyntra AI">
 <meta property="og:title" content="Zyntra AI — AI Chat, Image Generator & Jarvis Voice Assistant">
 <meta property="og:description" content="Chat with AI, create AI images, talk to Zyntra Jarvis (your AI voice assistant), get coding help, learn faster, write better, and build your next big idea — all with Zyntra AI.">
@@ -114,6 +114,7 @@
             <button class="nav-item active" id="navChat" data-tool="chat"><span class="nav-icon">💬</span> AI Chat</button>
             <button class="nav-item" data-tool="image"><span class="nav-icon">🖼️</span> Image Generator</button>
             <button class="nav-item" data-tool="codex"><span class="nav-icon">🧑‍💻</span> Codex</button>
+            <button class="nav-item" data-tool="data"><span class="nav-icon">📊</span> Data Analysis</button>
             <button class="nav-item" data-tool="voice"><span class="nav-icon">🛰️</span> Zyntra Jarvis</button>
             <button class="nav-item" data-tool="business" data-prefix="Give me business ideas for "><span class="nav-icon">💼</span> Business Tools</button>
             <button class="nav-item" id="navPlugins" data-panel="plugins"><span class="nav-icon">🧩</span> Plugins</button>
@@ -1112,6 +1113,10 @@
 <!-- PDF export: turns a chat reply into a downloadable PDF on request
      ("make it a pdf"), entirely in the browser. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<!-- Chart.js: renders charts for the Data Analysis tool (Pyodide itself
+     is lazy-loaded only when that tool is actually used — see script.js). -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 
 <script src="script.js"></script>
 <script>
