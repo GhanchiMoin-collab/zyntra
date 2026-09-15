@@ -3759,6 +3759,7 @@ function resetChatView(){
     updateDeleteChatBtnVisibility();
     if(temporaryChatActive) setTemporaryChatActive(false);
     updateTempChatToggleVisibility();
+    dataAnalysisDataset = null;
 }function updateDeleteChatBtnVisibility(){
     const btn = document.getElementById("deleteChatBtn");
     if(!btn) return;
@@ -3883,6 +3884,7 @@ const userInput = document.getElementById("userInput");
 let chatHistory = [];
 let attachedImage = null;
 let attachedDocument = null; // { name, text } — set once client-side extraction finishes
+let dataAnalysisDataset = null; // { name, columns, rows } — structured data for the Data Analysis tool, persists across messages in the same chat
 
 // ---------- Centered input on empty chat, moves to the bottom once a
 // conversation starts (like ChatGPT's home screen) ----------
@@ -3942,6 +3944,21 @@ document.getElementById("chatFileInput").addEventListener("change", (e) => {
                 text: text.length > MAX_CHARS ? text.slice(0, MAX_CHARS) + "\n\n[...truncated, document continues beyond this point...]" : text,
                 truncated: text.length > MAX_CHARS
             };
+
+            const lower = file.name.toLowerCase();
+            const isTabular = lower.endsWith(".csv") || lower.endsWith(".xlsx") || lower.endsWith(".xls");
+            if(activeChatTool === "data" && isTabular){
+                parseTabularFile(file)
+                    .then(dataset => {
+                        dataAnalysisDataset = { name: file.name, columns: dataset.columns, rows: dataset.rows };
+                        renderAttachPreview();
+                    })
+                    .catch(err => {
+                        console.error("Tabular parse failed:", err);
+                        showToast("⚠️ Couldn't read that spreadsheet's rows — try re-saving it as .csv or .xlsx.");
+                    });
+            }
+
             renderAttachPreview();
         })
         .catch(err => {
@@ -3950,6 +3967,21 @@ document.getElementById("chatFileInput").addEventListener("change", (e) => {
             document.getElementById("chatFileInput").value = "";
         });
 });
+
+// Parses a CSV/XLSX file into structured rows (array of objects, keyed by
+// column header) for the Data Analysis tool — separate from
+// extractDocumentText's flattened text, since Python needs real rows,
+// not a text preview.
+function parseTabularFile(file){
+    return file.arrayBuffer().then(buffer => {
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: null });
+        const MAX_ROWS = 20000; // sane cap so the browser sandbox stays responsive
+        const columns = rows.length ? Object.keys(rows[0]) : [];
+        return { columns, rows: rows.slice(0, MAX_ROWS) };
+    });
+}
 
 // Pulls plain text out of a PDF, Word doc, Excel sheet, or plain text/CSV
 // file — entirely in the browser, so an attached document is ready to
@@ -4128,14 +4160,21 @@ function renderAttachPreview(){
     if(attachedDocument){
         const chip = document.createElement("div");
         chip.className = "attach-doc-chip";
-        const wordCount = attachedDocument.text.split(/\s+/).filter(Boolean).length;
-        chip.innerHTML = `<span class="attach-doc-icon">📄</span>`
+        let infoLine;
+        if(dataAnalysisDataset && dataAnalysisDataset.name === attachedDocument.name){
+            infoLine = `${dataAnalysisDataset.rows.length.toLocaleString()} rows · ${dataAnalysisDataset.columns.length} columns`;
+        } else {
+            const wordCount = attachedDocument.text.split(/\s+/).filter(Boolean).length;
+            infoLine = `${wordCount.toLocaleString()} words extracted${attachedDocument.truncated ? " (truncated)" : ""}`;
+        }
+        chip.innerHTML = `<span class="attach-doc-icon">${dataAnalysisDataset ? "📊" : "📄"}</span>`
             + `<span class="attach-doc-info"><strong>${attachedDocument.name}</strong>`
-            + `<small>${wordCount.toLocaleString()} words extracted${attachedDocument.truncated ? " (truncated)" : ""}</small></span>`;
+            + `<small>${infoLine}</small></span>`;
         const removeBtn = document.createElement("button");
         removeBtn.textContent = "✕";
         removeBtn.addEventListener("click", () => {
             attachedDocument = null;
+            dataAnalysisDataset = null;
             document.getElementById("chatFileInput").value = "";
             renderAttachPreview();
         });
@@ -4436,6 +4475,10 @@ async function sendChatMessage(prefill){
             { type: "text", text: msg || "What is in this image? Please help solve or explain it." },
             { type: "image_url", image_url: { url: attachedImage } }
         ];
+    } else if(activeChatTool === "data" && dataAnalysisDataset){
+        const cols = dataAnalysisDataset.columns.join(", ");
+        const sample = JSON.stringify(dataAnalysisDataset.rows.slice(0, 5));
+        historyContent = `[Dataset attached: "${dataAnalysisDataset.name}" — ${dataAnalysisDataset.rows.length} rows total, columns: ${cols}]\nFirst 5 rows as a sample: ${sample}\n\n${DATA_ANALYSIS_INSTRUCTIONS}\n\nUser's question: ${msg || "Give me a quick summary of this dataset."}`;
     } else if(attachedDocument){
         // Documents aren't multimodal like images — fold the already-
         // extracted text straight into the text the model reads.
@@ -4520,6 +4563,10 @@ async function sendChatMessage(prefill){
             aiTime.className = "msg-time";
             aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
             aiContent.appendChild(aiTime);
+
+            if(activeChatTool === "data" && dataAnalysisDataset){
+                runDataAnalysisCodeIfPresent(accumulated, aiContent);
+            }
         }
     }catch(err){
         aiContent.textContent = friendlyErrorMessage(err);
@@ -4623,6 +4670,12 @@ function setActiveNav(tool){
     if(el) el.classList.add("active");
 }
 
+// Instructions given to the model in Data Analysis mode — a pandas
+// DataFrame called `df` is pre-loaded in a real Python sandbox (Pyodide,
+// running in the browser) with the full uploaded dataset, so the model
+// writes code against it rather than eyeballing numbers from text.
+const DATA_ANALYSIS_INSTRUCTIONS = `You are Zyntra's Data Analysis assistant. A pandas DataFrame called df is already loaded in a real Python sandbox with the FULL dataset (not just the sample shown above) — the columns listed above are exactly df's columns. To answer the user's question: give a short explanation in plain English, then include exactly one \`\`\`python code fence with valid pandas code that computes the answer using df. Use print() for every value, table, or summary you want the user to see — printed output is captured and shown to the user automatically, so don't just compute silently. If a chart would genuinely help, build a dict called chart_data with keys "type" ("bar", "line", or "pie"), "labels" (a list of strings) and "values" (a list of numbers) — assign it as a variable, do not print it, and only include one per response. Never use matplotlib, plt, seaborn, or any plotting library — chart_data is the only way to produce a chart here. Never invent column names that aren't in the list above. If the question doesn't need code (e.g. asking what a column means), just answer directly with no code fence.`;
+
 // Design + behavior instructions for Codex mode, which merges what used to
 // be four separate tools (Poster Maker, Study Helper, Code with Zyntra,
 // Website Builder) into one option that handles both plain coding help and
@@ -4644,7 +4697,8 @@ const TOOL_PLACEHOLDERS = {
     chat: "Ask me anything...",
     business: "Ask a business or growth question...",
     image: "Describe the image you want to create...",
-    codex: "Ask me to code, debug, or build a website/app..."
+    codex: "Ask me to code, debug, or build a website/app...",
+    data: "Upload a spreadsheet, then ask a question about it..."
 };
 
 const TOOL_GREETINGS = {
@@ -4663,6 +4717,10 @@ const TOOL_GREETINGS = {
     codex: {
         heading: '<span>Codex</span>',
         subtitle: "Write and debug code, or describe a website or app and watch it come to life."
+    },
+    data: {
+        heading: '<span>Data Analysis</span>',
+        subtitle: "Upload a CSV or Excel file, then ask questions — I'll write and run real Python to answer them."
     }
 };
 
@@ -6084,6 +6142,7 @@ const ROUTE_META = {
     "jarvis": { title: "Zyntra Jarvis — AI Voice Assistant | Zyntra AI", description: "Talk to Zyntra Jarvis, a hands-free AI voice assistant. Speak naturally and get spoken answers back." },
     "codex": { title: "Codex — AI Code Assistant | Zyntra AI", description: "Zyntra Codex is your AI code assistant — write, debug, and explain code, or build a full website from a description." },
     "business-tools": { title: "AI Business Tools — Zyntra AI", description: "Zyntra AI's Business Tools help you write business plans, pitch ideas, marketing copy, and get startup advice from AI." },
+    "data-analysis": { title: "Data Analysis — Zyntra AI", description: "Upload a spreadsheet and ask questions — Zyntra AI writes and runs real Python to analyze it." },
     "plugins": { title: "Plugins — Zyntra AI", description: "Turn Zyntra AI's capabilities on or off, and connect apps like Google, GitHub, Slack, and Notion." },
     "projects": { title: "Projects — Zyntra AI", description: "Organize related chats together in Zyntra AI, with shared instructions and easy sharing." },
     "scheduled": { title: "Scheduled Tasks — Zyntra AI", description: "Set up recurring AI tasks in Zyntra AI that run automatically and wait for you." },
@@ -6092,8 +6151,8 @@ const ROUTE_META = {
     "contact": { title: "Contact — Zyntra AI", description: "Get in touch with the Zyntra AI team — questions, feedback, or bug reports welcome." }
 };
 
-const TOOL_TO_SLUG = { chat: "chat", image: "image-generator", voice: "jarvis", codex: "codex", business: "business-tools" };
-const SLUG_TO_TOOL = { "": "chat", "chat": "chat", "image-generator": "image", "jarvis": "voice", "codex": "codex", "business-tools": "business" };
+const TOOL_TO_SLUG = { chat: "chat", image: "image-generator", voice: "jarvis", codex: "codex", business: "business-tools", data: "data-analysis" };
+const SLUG_TO_TOOL = { "": "chat", "chat": "chat", "image-generator": "image", "jarvis": "voice", "codex": "codex", "business-tools": "business", "data-analysis": "data" };
 
 function setRouteMeta(slug){
     const meta = ROUTE_META[slug] || ROUTE_META[""];
@@ -6186,3 +6245,133 @@ window.addEventListener("popstate", applyRouteFromPath);
 // attachAuthStateListener above), which waits for the first cloud sync
 // so a pasted /chat/<id> link is checked against real data, not
 // whatever was left over in localStorage before this page load.
+
+// ==========================================================
+// Data Analysis — real Python execution in the browser (Pyodide/WASM),
+// so questions about an uploaded spreadsheet get computed answers
+// instead of the model guessing at numbers from text.
+// ==========================================================
+
+// Pyodide is ~10MB, so it's only fetched the first time someone actually
+// uses Data Analysis mode, not on every page load.
+async function ensurePyodide(){
+    if(window.zyntraPyodideReady) return window.zyntraPyodideReady;
+    window.zyntraPyodideReady = (async () => {
+        if(!window.loadPyodide){
+            await new Promise((resolve, reject) => {
+                const s = document.createElement("script");
+                s.src = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";
+                s.onload = resolve;
+                s.onerror = () => reject(new Error("Failed to load the Python engine"));
+                document.head.appendChild(s);
+            });
+        }
+        const pyodide = await window.loadPyodide();
+        await pyodide.loadPackage(["pandas", "numpy"]);
+        return pyodide;
+    })();
+    return window.zyntraPyodideReady;
+}
+
+function extractPythonCode(text){
+    const match = text.match(/```python\s*([\s\S]*?)```/i);
+    return match ? match[1].trim() : null;
+}
+
+async function runDataAnalysisCodeIfPresent(text, containerEl){
+    const code = extractPythonCode(text);
+    if(!code || !dataAnalysisDataset) return;
+
+    const box = document.createElement("div");
+    box.className = "data-exec-box";
+    box.innerHTML = `<div class="data-exec-status">⚙️ Running Python on your data…</div>`;
+    containerEl.appendChild(box);
+    chatAutoScroll();
+
+    try{
+        const pyodide = await ensurePyodide();
+
+        pyodide.globals.set("__zyntra_rows_json", JSON.stringify(dataAnalysisDataset.rows));
+        await pyodide.runPythonAsync(`
+import pandas as pd, json, sys, io
+df = pd.DataFrame(json.loads(__zyntra_rows_json))
+__zyntra_stdout = io.StringIO()
+sys.stdout = __zyntra_stdout
+`);
+
+        let errorMsg = null;
+        try{
+            await pyodide.runPythonAsync(code);
+        } catch(pyErr){
+            // Keep just the last few lines — the actual error, not Pyodide's
+            // whole internal traceback, which is mostly noise to a user.
+            errorMsg = String(pyErr).trim().split("\n").slice(-4).join("\n");
+        }
+
+        const stdout = pyodide.runPython("__zyntra_stdout.getvalue()");
+        pyodide.runPython("sys.stdout = sys.__stdout__");
+
+        let chartData = null;
+        try{
+            const hasChart = pyodide.runPython("'chart_data' in globals()");
+            if(hasChart){
+                const raw = pyodide.globals.get("chart_data");
+                chartData = raw && raw.toJs ? raw.toJs({ dict_converter: Object.fromEntries }) : raw;
+            }
+        } catch(e){ /* no chart_data this time — fine */ }
+
+        box.innerHTML = "";
+        if(errorMsg){
+            box.innerHTML = `<div class="data-exec-error">⚠️ The code hit an error:<pre>${escapeForDisplay(errorMsg)}</pre></div>`;
+        } else {
+            let wroteSomething = false;
+            if(stdout && stdout.trim()){
+                box.innerHTML += `<div class="data-exec-output"><pre>${escapeForDisplay(stdout.trim())}</pre></div>`;
+                wroteSomething = true;
+            }
+            if(chartData && chartData.labels && chartData.values){
+                const canvas = document.createElement("canvas");
+                canvas.className = "data-exec-chart";
+                box.appendChild(canvas);
+                renderDataChart(canvas, chartData);
+                wroteSomething = true;
+            }
+            if(!wroteSomething){
+                box.innerHTML = `<div class="data-exec-output"><em>Code ran with no printed output.</em></div>`;
+            }
+        }
+    } catch(err){
+        console.error("Pyodide execution failed:", err);
+        box.innerHTML = `<div class="data-exec-error">⚠️ Couldn't run Python in your browser (${escapeForDisplay(err.message || "unknown error")}). Try again in a moment.</div>`;
+    }
+    chatAutoScroll();
+}
+
+function renderDataChart(canvas, chartData){
+    if(!window.Chart){
+        canvas.replaceWith(document.createTextNode("Chart library didn't load."));
+        return;
+    }
+    const palette = ["#6e5cff","#b45cff","#ff59b0","#ff9e5c","#5ce0ff","#7effa0","#ffd95c","#ff7676"];
+    new Chart(canvas, {
+        type: chartData.type === "pie" ? "pie" : (chartData.type === "line" ? "line" : "bar"),
+        data: {
+            labels: chartData.labels,
+            datasets: [{
+                data: chartData.values,
+                backgroundColor: palette,
+                borderColor: chartData.type === "line" ? "#6e5cff" : "transparent",
+                borderWidth: chartData.type === "line" ? 2 : 0,
+                fill: chartData.type === "line" ? false : true
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: chartData.type === "pie", labels: { color: "#c8cae0" } } },
+            scales: chartData.type === "pie" ? {} : {
+                x: { ticks: { color: "#a8abc8" }, grid: { color: "rgba(255,255,255,.05)" } },
+                y: { ticks: { color: "#a8abc8" }, grid: { color: "rgba(255,255,255,.05)" } }
+            }
+        }
+    });
+}
