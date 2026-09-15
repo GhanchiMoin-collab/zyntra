@@ -3657,7 +3657,7 @@ function openChatSession(session){
             const div = document.createElement("div");
             div.className = "ai-message done";
             const avatar = document.createElement("img");
-            avatar.src = "favicon.png";
+            avatar.src = "/favicon.png";
             avatar.alt = "";
             avatar.className = "ai-message-avatar";
             const content = document.createElement("div");
@@ -4312,7 +4312,7 @@ function appendLoadingAiBubble(initialHTML){
     const loadingDiv = document.createElement("div");
     loadingDiv.className = "ai-message";
     const aiAvatar = document.createElement("img");
-    aiAvatar.src = "favicon.png";
+    aiAvatar.src = "/favicon.png";
     aiAvatar.alt = "";
     aiAvatar.className = "ai-message-avatar";
     const aiContent = document.createElement("div");
@@ -4524,7 +4524,7 @@ async function sendChatMessage(prefill){
     const loadingDiv = document.createElement("div");
     loadingDiv.className = "ai-message";
     const aiAvatar = document.createElement("img");
-    aiAvatar.src = "favicon.png";
+    aiAvatar.src = "/favicon.png";
     aiAvatar.alt = "";
     aiAvatar.className = "ai-message-avatar";
     const aiContent = document.createElement("div");
@@ -5808,7 +5808,7 @@ function notifyAIReply(text){
     if(localStorage.getItem("zyntra-notif-desktop") === "1" && "Notification" in window && Notification.permission === "granted"){
         const plain = String(text || "").replace(/[#*`_>\[\]]/g, "").trim().slice(0, 120);
         try{
-            new Notification("Zyntra AI replied", { body: plain || "New message", icon: "favicon.png" });
+            new Notification("Zyntra AI replied", { body: plain || "New message", icon: "/favicon.png" });
         } catch(e){ /* ignore */ }
     }
 }
