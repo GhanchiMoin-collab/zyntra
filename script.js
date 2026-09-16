@@ -54,14 +54,22 @@ function buildFileCardHTML(block){
     const encoded = encodeCodeForCard(block.code);
     return `
         <div class="file-card">
-            <div class="file-card-header" data-code="${encoded}" data-filename="${block.filename}" data-label="${block.label}" title="Open ${block.filename}">
+            <div class="file-card-header">
                 <div class="file-card-icon">&lt;/&gt;</div>
                 <div class="file-card-info">
                     <p class="file-card-title">${block.filename}</p>
                     <p class="file-card-sub">Code · ${block.label}</p>
                 </div>
+                <span class="file-card-chevron">▾</span>
                 ${isPreviewableCode(block) ? `<button class="filecard-play-btn" data-code="${encoded}" title="Run preview">▶</button>` : ""}
-                <button class="filecard-download-btn" data-filename="${block.filename}" data-code="${encoded}" title="Download">⬇</button>
+                <button class="filecard-download-btn" data-filename="${block.filename}" data-code="${encoded}">Download</button>
+            </div>
+            <div class="file-card-preview">
+                <div class="file-card-preview-top">
+                    <span>${block.filename}</span>
+                    <button class="filecard-copy-btn" data-code="${encoded}">📋 Copy</button>
+                </div>
+                <pre><code>${escapeForDisplay(block.code)}</code></pre>
             </div>
         </div>
     `;
@@ -71,109 +79,79 @@ function isPreviewableCode(block){
     return block.filename === "index.html" || block.label === "HTML";
 }
 
-// ---------- Code side panel (Claude/Cursor-style split view) ----------
+function ensureCodePreviewModal(){
+    let modal = document.getElementById("codePreviewModal");
+    if(modal) return modal;
 
-let codePanelState = { code: "", filename: "", label: "", view: "preview", activeCardEl: null };
+    modal = document.createElement("div");
+    modal.id = "codePreviewModal";
+    modal.className = "modal-overlay code-preview-overlay";
+    modal.innerHTML = `
+        <div class="modal-box code-preview-box">
+            <div class="code-preview-header">
+                <span class="tag" style="margin:0;">LIVE PREVIEW</span>
+                <div class="code-preview-header-actions">
+                    <button type="button" class="code-preview-newtab" title="Open in new tab">↗</button>
+                    <button type="button" class="code-preview-close" title="Close">✕</button>
+                </div>
+            </div>
+            <div class="code-preview-frame-wrap">
+                <div class="code-preview-glow-border">
+                    <div class="code-preview-frame-inner">
+                        <iframe class="code-preview-iframe" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"></iframe>
+                        <div class="code-preview-loading" id="codePreviewLoading">
+                            <div class="code-preview-loading-dots">
+                                <span></span><span></span><span></span>
+                            </div>
+                            <p>Loading preview...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
 
-function decodeCardCode(encoded){
-    return decodeURIComponent(escape(atob(encoded)));
-}
-
-function downloadCode(code, filename){
-    const blob = new Blob([code], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-}
-
-function renderCodePanelPreview(){
-    const iframe = document.getElementById("codePanelIframe");
-    const loading = document.getElementById("codePanelLoading");
-    loading.classList.add("show");
-    iframe.onload = () => loading.classList.remove("show");
-    iframe.srcdoc = codePanelState.code;
-}
-
-function renderCodePanelCode(){
-    document.getElementById("codePanelCodeEl").innerHTML = escapeForDisplay(codePanelState.code);
-}
-
-function setCodePanelView(view){
-    codePanelState.view = view;
-    document.getElementById("codePanelPreviewBtn").classList.toggle("active", view === "preview");
-    document.getElementById("codePanelCodeBtn").classList.toggle("active", view === "code");
-    document.getElementById("codePanelPreviewView").style.display = view === "preview" ? "block" : "none";
-    document.getElementById("codePanelCodeView").style.display = view === "code" ? "block" : "none";
-    if(view === "preview") renderCodePanelPreview();
-    else renderCodePanelCode();
-}
-
-function openCodeSidePanel(code, filename, label, cardEl, preferredView){
-    codePanelState.code = code;
-    codePanelState.filename = filename;
-    codePanelState.label = label;
-
-    if(codePanelState.activeCardEl) codePanelState.activeCardEl.classList.remove("panel-active");
-    codePanelState.activeCardEl = cardEl || null;
-    if(codePanelState.activeCardEl) codePanelState.activeCardEl.classList.add("panel-active");
-
-    document.getElementById("codePanelFilename").textContent = filename;
-    document.getElementById("codePanelLabel").textContent = label;
-
-    const previewToggle = document.getElementById("codePanelViewToggle");
-    const previewable = isPreviewableCode({ filename, label });
-    previewToggle.style.display = previewable ? "flex" : "none";
-
-    document.getElementById("codeSidePanel").classList.add("open");
-
-    setCodePanelView(preferredView || (previewable ? "preview" : "code"));
-}
-
-function closeCodeSidePanel(){
-    document.getElementById("codeSidePanel").classList.remove("open", "expanded");
-    if(codePanelState.activeCardEl){
-        codePanelState.activeCardEl.classList.remove("panel-active");
-        codePanelState.activeCardEl = null;
-    }
-    document.getElementById("codePanelIframe").srcdoc = "about:blank";
-}
-
-document.getElementById("codePanelViewToggle").addEventListener("click", (e) => {
-    const btn = e.target.closest(".code-panel-view-btn");
-    if(btn) setCodePanelView(btn.dataset.view);
-});
-
-document.getElementById("codePanelCloseBtn").addEventListener("click", closeCodeSidePanel);
-
-document.getElementById("codePanelExpandBtn").addEventListener("click", () => {
-    document.getElementById("codeSidePanel").classList.toggle("expanded");
-});
-
-document.getElementById("codePanelCopyBtn").addEventListener("click", () => {
-    const btn = document.getElementById("codePanelCopyBtn");
-    navigator.clipboard.writeText(codePanelState.code).then(() => {
-        const original = btn.textContent;
-        btn.textContent = "✅ Copied";
-        setTimeout(() => { btn.textContent = original; }, 1500);
+    modal.querySelector(".code-preview-close").addEventListener("click", () => closeModal("codePreviewModal"));
+    modal.addEventListener("click", (e) => {
+        if(e.target === modal) closeModal("codePreviewModal");
     });
-});
 
-document.getElementById("codePanelDownloadBtn").addEventListener("click", () => {
-    downloadCode(codePanelState.code, codePanelState.filename);
-});
+    return modal;
+}
+
+function openCodePreview(code){
+    const modal = ensureCodePreviewModal();
+    const iframe = modal.querySelector(".code-preview-iframe");
+    const loading = modal.querySelector("#codePreviewLoading");
+    const glowBorder = modal.querySelector(".code-preview-glow-border");
+
+    glowBorder.classList.add("loading");
+    loading.classList.add("show");
+
+    iframe.onload = () => {
+        loading.classList.remove("show");
+        glowBorder.classList.remove("loading");
+    };
+    iframe.srcdoc = code;
+
+    const newTabBtn = modal.querySelector(".code-preview-newtab");
+    newTabBtn.onclick = () => {
+        const blob = new Blob([code], { type: "text/html" });
+        const url = URL.createObjectURL(blob);
+        window.open(url, "_blank");
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+    };
+
+    openModal("codePreviewModal");
+}
 
 document.addEventListener("click", (e) => {
     const playBtn = e.target.closest(".filecard-play-btn");
     if(playBtn){
         try{
-            const header = playBtn.closest(".file-card").querySelector(".file-card-header");
-            const code = decodeCardCode(header.dataset.code);
-            openCodeSidePanel(code, header.dataset.filename, header.dataset.label, playBtn.closest(".file-card"), "preview");
+            const code = decodeURIComponent(escape(atob(playBtn.dataset.code)));
+            openCodePreview(code);
         }catch(err){
             alert("Could not open the preview.");
         }
@@ -183,8 +161,16 @@ document.addEventListener("click", (e) => {
     const downloadBtn = e.target.closest(".filecard-download-btn");
     if(downloadBtn){
         try{
-            const code = decodeCardCode(downloadBtn.dataset.code);
-            downloadCode(code, downloadBtn.dataset.filename);
+            const code = decodeURIComponent(escape(atob(downloadBtn.dataset.code)));
+            const blob = new Blob([code], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = downloadBtn.dataset.filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
         }catch(err){
             alert("Could not download the file.");
         }
@@ -194,7 +180,7 @@ document.addEventListener("click", (e) => {
     const copyBtn = e.target.closest(".filecard-copy-btn");
     if(copyBtn){
         try{
-            const code = decodeCardCode(copyBtn.dataset.code);
+            const code = decodeURIComponent(escape(atob(copyBtn.dataset.code)));
             navigator.clipboard.writeText(code).then(() => {
                 const original = copyBtn.textContent;
                 copyBtn.textContent = "✅ Copied";
@@ -206,10 +192,7 @@ document.addEventListener("click", (e) => {
 
     const header = e.target.closest(".file-card-header");
     if(header){
-        try{
-            const code = decodeCardCode(header.dataset.code);
-            openCodeSidePanel(code, header.dataset.filename, header.dataset.label, header.closest(".file-card"));
-        }catch(err){}
+        header.closest(".file-card").classList.toggle("open");
     }
 });
 
@@ -1320,7 +1303,16 @@ function toggleAccountMenu(forceState){
     const menu = document.getElementById("accountMenu");
     if(!menu) return;
     const show = forceState !== undefined ? forceState : !menu.classList.contains("show");
-    if(show) renderAccountMenu();
+    if(show){
+        renderAccountMenu();
+        const anchor = document.getElementById("sidebarUser");
+        if(anchor){
+            const rect = anchor.getBoundingClientRect();
+            menu.style.left = rect.left + "px";
+            menu.style.width = rect.width + "px";
+            menu.style.bottom = (window.innerHeight - rect.top + 8) + "px";
+        }
+    }
     menu.classList.toggle("show", show);
     document.getElementById("accountMenuBackdrop")?.classList.toggle("show", show);
 }
@@ -1342,7 +1334,7 @@ document.getElementById("sidebarUser")?.addEventListener("click", e => {
 document.addEventListener("click", e => {
     const menu = document.getElementById("accountMenu");
     if(!menu || !menu.classList.contains("show")) return;
-    if(!e.target.closest("#sidebarUser")) toggleAccountMenu(false);
+    if(!e.target.closest("#sidebarUser") && !e.target.closest("#accountMenu")) toggleAccountMenu(false);
 });
 
 document.getElementById("accountMenuProfileBtn")?.addEventListener("click", () => {
@@ -2845,13 +2837,13 @@ document.getElementById("searchChatsInput")?.addEventListener("input", (e) => {
 // Scheduled) occupies the main content area. Only one is visible at a time.
 function showPageView(view){
     document.querySelectorAll(".page-view").forEach(el => el.classList.remove("active"));
-    const workspaceRow = document.getElementById("workspaceRow");
+    const chatEls = [chatArea, document.getElementById("attachPreview"), document.getElementById("adBanner"), document.querySelector(".chat-input-bar")];
 
     if(view === "chat"){
-        if(workspaceRow) workspaceRow.style.display = "";
+        chatEls.forEach(el => { if(el) el.style.display = ""; });
         return;
     }
-    if(workspaceRow) workspaceRow.style.display = "none";
+    chatEls.forEach(el => { if(el) el.style.display = "none"; });
     document.getElementById(view + "View").classList.add("active");
 }
 
