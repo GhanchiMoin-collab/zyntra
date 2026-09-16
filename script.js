@@ -2846,13 +2846,13 @@ document.getElementById("searchChatsInput")?.addEventListener("input", (e) => {
 // Scheduled) occupies the main content area. Only one is visible at a time.
 function showPageView(view){
     document.querySelectorAll(".page-view").forEach(el => el.classList.remove("active"));
-    const chatEls = [chatArea, document.getElementById("attachPreview"), document.getElementById("adBanner"), document.querySelector(".chat-input-bar")];
+    const workspaceRow = document.getElementById("workspaceRow");
 
     if(view === "chat"){
-        chatEls.forEach(el => { if(el) el.style.display = ""; });
+        if(workspaceRow) workspaceRow.style.display = "";
         return;
     }
-    chatEls.forEach(el => { if(el) el.style.display = "none"; });
+    if(workspaceRow) workspaceRow.style.display = "none";
     document.getElementById(view + "View").classList.add("active");
 }
 
