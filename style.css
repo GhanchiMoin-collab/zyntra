@@ -8366,3 +8366,28 @@ padding:12px;
 .sidebar-user{
     position:relative;
 }
+
+/* Fix: cramped inline file-card chip (title truncating to "in...", the
+   "Code · HTML" subtitle wrapping across 3 lines) once the side panel
+   narrows the chat column. Icon-only download here — full labels still
+   live in the side panel header where there's room for them. */
+.file-card-sub{
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+
+.filecard-download-btn{
+    width:34px;
+    height:34px;
+    padding:0;
+    border-radius:50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:14px;
+}
+
+.file-card-header{
+    gap:10px;
+}
