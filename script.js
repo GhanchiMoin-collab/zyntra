@@ -54,22 +54,15 @@ function buildFileCardHTML(block){
     const encoded = encodeCodeForCard(block.code);
     return `
         <div class="file-card">
-            <div class="file-card-header">
+            <div class="file-card-header" data-code="${encoded}" data-filename="${block.filename}" data-label="${block.label}" title="Open ${block.filename}">
                 <div class="file-card-icon">&lt;/&gt;</div>
                 <div class="file-card-info">
                     <p class="file-card-title">${block.filename}</p>
                     <p class="file-card-sub">Code · ${block.label}</p>
                 </div>
-                <span class="file-card-chevron">▾</span>
+                <span class="file-card-open-icon" title="View code">⤢</span>
                 ${isPreviewableCode(block) ? `<button class="filecard-play-btn" data-code="${encoded}" title="Run preview">▶</button>` : ""}
-                <button class="filecard-download-btn" data-filename="${block.filename}" data-code="${encoded}">Download</button>
-            </div>
-            <div class="file-card-preview">
-                <div class="file-card-preview-top">
-                    <span>${block.filename}</span>
-                    <button class="filecard-copy-btn" data-code="${encoded}">📋 Copy</button>
-                </div>
-                <pre><code>${escapeForDisplay(block.code)}</code></pre>
+                <button class="filecard-download-btn" data-filename="${block.filename}" data-code="${encoded}">⬇ Download</button>
             </div>
         </div>
     `;
@@ -79,96 +72,109 @@ function isPreviewableCode(block){
     return block.filename === "index.html" || block.label === "HTML";
 }
 
-function ensureCodePreviewModal(){
-    let modal = document.getElementById("codePreviewModal");
-    if(modal) return modal;
+// ---------- Code side panel (Claude/Cursor-style split view) ----------
 
-    modal = document.createElement("div");
-    modal.id = "codePreviewModal";
-    modal.className = "modal-overlay code-preview-overlay";
-    modal.innerHTML = `
-        <div class="modal-box code-preview-box">
-            <div class="code-preview-header">
-                <span class="tag" style="margin:0;">LIVE PREVIEW</span>
-                <div class="code-preview-header-actions">
-                    <button type="button" class="code-preview-newtab" title="Open in new tab">↗</button>
-                    <button type="button" class="code-preview-close" title="Close">✕</button>
-                </div>
-            </div>
-            <div class="code-preview-frame-wrap">
-                <div class="code-preview-glow-border">
-                    <div class="code-preview-frame-inner">
-                        <iframe class="code-preview-iframe" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"></iframe>
-                        <div class="code-preview-loading" id="codePreviewLoading">
-                            <div class="code-preview-loading-dots">
-                                <span></span><span></span><span></span>
-                            </div>
-                            <p>Loading preview...</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
+let codePanelState = { code: "", filename: "", label: "", view: "preview", activeCardEl: null };
 
-    modal.querySelector(".code-preview-close").addEventListener("click", () => closeModal("codePreviewModal"));
-    modal.addEventListener("click", (e) => {
-        if(e.target === modal) closeModal("codePreviewModal");
-    });
-
-    return modal;
+function decodeCardCode(encoded){
+    return decodeURIComponent(escape(atob(encoded)));
 }
 
-function openCodePreview(code){
-    const modal = ensureCodePreviewModal();
-    const iframe = modal.querySelector(".code-preview-iframe");
-    const loading = modal.querySelector("#codePreviewLoading");
-    const glowBorder = modal.querySelector(".code-preview-glow-border");
+function downloadCode(code, filename){
+    const blob = new Blob([code], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
 
-    glowBorder.classList.add("loading");
+function renderCodePanelPreview(){
+    const iframe = document.getElementById("codePanelIframe");
+    const loading = document.getElementById("codePanelLoading");
     loading.classList.add("show");
-
-    // A static HTML page loads into the iframe almost instantly, which
-    // would make the loading animation flash by unnoticed. Hold the
-    // loading screen for a real minimum duration so it's actually seen,
-    // then reveal the page once both the load AND the timer are done.
-    const MIN_LOADING_MS = 5000;
-    const startedAt = Date.now();
-    let iframeLoaded = false;
-
-    function revealWhenReady(){
-        if(!iframeLoaded) return;
-        const remaining = MIN_LOADING_MS - (Date.now() - startedAt);
-        setTimeout(() => {
-            loading.classList.remove("show");
-            glowBorder.classList.remove("loading");
-        }, Math.max(remaining, 0));
-    }
-
-    iframe.onload = () => {
-        iframeLoaded = true;
-        revealWhenReady();
-    };
-    iframe.srcdoc = code;
-
-    const newTabBtn = modal.querySelector(".code-preview-newtab");
-    newTabBtn.onclick = () => {
-        const blob = new Blob([code], { type: "text/html" });
-        const url = URL.createObjectURL(blob);
-        window.open(url, "_blank");
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
-    };
-
-    openModal("codePreviewModal");
+    iframe.onload = () => loading.classList.remove("show");
+    iframe.srcdoc = codePanelState.code;
 }
+
+function renderCodePanelCode(){
+    document.getElementById("codePanelCodeEl").innerHTML = escapeForDisplay(codePanelState.code);
+}
+
+function setCodePanelView(view){
+    codePanelState.view = view;
+    document.getElementById("codePanelPreviewBtn").classList.toggle("active", view === "preview");
+    document.getElementById("codePanelCodeBtn").classList.toggle("active", view === "code");
+    document.getElementById("codePanelPreviewView").style.display = view === "preview" ? "block" : "none";
+    document.getElementById("codePanelCodeView").style.display = view === "code" ? "block" : "none";
+    if(view === "preview") renderCodePanelPreview();
+    else renderCodePanelCode();
+}
+
+function openCodeSidePanel(code, filename, label, cardEl, preferredView){
+    codePanelState.code = code;
+    codePanelState.filename = filename;
+    codePanelState.label = label;
+
+    if(codePanelState.activeCardEl) codePanelState.activeCardEl.classList.remove("panel-active");
+    codePanelState.activeCardEl = cardEl || null;
+    if(codePanelState.activeCardEl) codePanelState.activeCardEl.classList.add("panel-active");
+
+    document.getElementById("codePanelFilename").textContent = filename;
+    document.getElementById("codePanelLabel").textContent = label;
+
+    const previewToggle = document.getElementById("codePanelViewToggle");
+    const previewable = isPreviewableCode({ filename, label });
+    previewToggle.style.display = previewable ? "flex" : "none";
+
+    document.getElementById("codeSidePanel").classList.add("open");
+
+    setCodePanelView(preferredView || (previewable ? "preview" : "code"));
+}
+
+function closeCodeSidePanel(){
+    document.getElementById("codeSidePanel").classList.remove("open", "expanded");
+    if(codePanelState.activeCardEl){
+        codePanelState.activeCardEl.classList.remove("panel-active");
+        codePanelState.activeCardEl = null;
+    }
+    document.getElementById("codePanelIframe").srcdoc = "about:blank";
+}
+
+document.getElementById("codePanelViewToggle").addEventListener("click", (e) => {
+    const btn = e.target.closest(".code-panel-view-btn");
+    if(btn) setCodePanelView(btn.dataset.view);
+});
+
+document.getElementById("codePanelCloseBtn").addEventListener("click", closeCodeSidePanel);
+
+document.getElementById("codePanelExpandBtn").addEventListener("click", () => {
+    document.getElementById("codeSidePanel").classList.toggle("expanded");
+});
+
+document.getElementById("codePanelCopyBtn").addEventListener("click", () => {
+    const btn = document.getElementById("codePanelCopyBtn");
+    navigator.clipboard.writeText(codePanelState.code).then(() => {
+        const original = btn.textContent;
+        btn.textContent = "✅ Copied";
+        setTimeout(() => { btn.textContent = original; }, 1500);
+    });
+});
+
+document.getElementById("codePanelDownloadBtn").addEventListener("click", () => {
+    downloadCode(codePanelState.code, codePanelState.filename);
+});
 
 document.addEventListener("click", (e) => {
     const playBtn = e.target.closest(".filecard-play-btn");
     if(playBtn){
         try{
-            const code = decodeURIComponent(escape(atob(playBtn.dataset.code)));
-            openCodePreview(code);
+            const header = playBtn.closest(".file-card").querySelector(".file-card-header");
+            const code = decodeCardCode(header.dataset.code);
+            openCodeSidePanel(code, header.dataset.filename, header.dataset.label, playBtn.closest(".file-card"), "preview");
         }catch(err){
             alert("Could not open the preview.");
         }
@@ -178,16 +184,8 @@ document.addEventListener("click", (e) => {
     const downloadBtn = e.target.closest(".filecard-download-btn");
     if(downloadBtn){
         try{
-            const code = decodeURIComponent(escape(atob(downloadBtn.dataset.code)));
-            const blob = new Blob([code], { type: "text/plain" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = downloadBtn.dataset.filename;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
+            const code = decodeCardCode(downloadBtn.dataset.code);
+            downloadCode(code, downloadBtn.dataset.filename);
         }catch(err){
             alert("Could not download the file.");
         }
@@ -197,7 +195,7 @@ document.addEventListener("click", (e) => {
     const copyBtn = e.target.closest(".filecard-copy-btn");
     if(copyBtn){
         try{
-            const code = decodeURIComponent(escape(atob(copyBtn.dataset.code)));
+            const code = decodeCardCode(copyBtn.dataset.code);
             navigator.clipboard.writeText(code).then(() => {
                 const original = copyBtn.textContent;
                 copyBtn.textContent = "✅ Copied";
@@ -209,7 +207,10 @@ document.addEventListener("click", (e) => {
 
     const header = e.target.closest(".file-card-header");
     if(header){
-        header.closest(".file-card").classList.toggle("open");
+        try{
+            const code = decodeCardCode(header.dataset.code);
+            openCodeSidePanel(code, header.dataset.filename, header.dataset.label, header.closest(".file-card"));
+        }catch(err){}
     }
 });
 
