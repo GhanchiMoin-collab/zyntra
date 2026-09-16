@@ -60,9 +60,8 @@ function buildFileCardHTML(block){
                     <p class="file-card-title">${block.filename}</p>
                     <p class="file-card-sub">Code · ${block.label}</p>
                 </div>
-                <span class="file-card-open-icon" title="View code">⤢</span>
                 ${isPreviewableCode(block) ? `<button class="filecard-play-btn" data-code="${encoded}" title="Run preview">▶</button>` : ""}
-                <button class="filecard-download-btn" data-filename="${block.filename}" data-code="${encoded}">⬇ Download</button>
+                <button class="filecard-download-btn" data-filename="${block.filename}" data-code="${encoded}" title="Download">⬇</button>
             </div>
         </div>
     `;
