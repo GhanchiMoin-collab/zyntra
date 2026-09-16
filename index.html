@@ -154,34 +154,34 @@
                     <p class="sidebar-user-name" id="sidebarUserName">Guest</p>
                     <p class="sidebar-user-plan" id="sidebarUserPlan">Sign in</p>
                 </div>
-
-                <div class="account-menu" id="accountMenu">
-                    <button class="account-menu-header" id="accountMenuProfileBtn">
-                        <div class="account-menu-avatar" id="accountMenuAvatar">?</div>
-                        <div class="account-menu-info">
-                            <p class="account-menu-name" id="accountMenuName">Guest</p>
-                            <p class="account-menu-plan">Free</p>
-                        </div>
-                        <span class="account-menu-chevron">›</span>
-                    </button>
-
-                    <div class="account-menu-divider"></div>
-
-                    <button class="account-menu-item" id="accountMenuPersonalization"><span class="account-menu-icon">✨</span> Personalization</button>
-                    <button class="account-menu-item" id="accountMenuProfile"><span class="account-menu-icon">👤</span> Profile</button>
-                    <button class="account-menu-item" id="accountMenuSettings"><span class="account-menu-icon">⚙️</span> Settings</button>
-
-                    <div class="account-menu-divider"></div>
-
-                    <button class="account-menu-item" id="accountMenuHelp"><span class="account-menu-icon">🛟</span> Help <span class="account-menu-chevron account-menu-chevron-right">›</span></button>
-                    <button class="account-menu-item account-menu-item-danger" id="accountMenuLogout"><span class="account-menu-icon">↩</span> Log out</button>
-                </div>
             </div>
         </div>
     </aside>
 
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
     <div class="account-menu-backdrop" id="accountMenuBackdrop"></div>
+
+    <div class="account-menu" id="accountMenu">
+        <button class="account-menu-header" id="accountMenuProfileBtn">
+            <div class="account-menu-avatar" id="accountMenuAvatar">?</div>
+            <div class="account-menu-info">
+                <p class="account-menu-name" id="accountMenuName">Guest</p>
+                <p class="account-menu-plan">Free</p>
+            </div>
+            <span class="account-menu-chevron">›</span>
+        </button>
+
+        <div class="account-menu-divider"></div>
+
+        <button class="account-menu-item" id="accountMenuPersonalization"><span class="account-menu-icon">✨</span> Personalization</button>
+        <button class="account-menu-item" id="accountMenuProfile"><span class="account-menu-icon">👤</span> Profile</button>
+        <button class="account-menu-item" id="accountMenuSettings"><span class="account-menu-icon">⚙️</span> Settings</button>
+
+        <div class="account-menu-divider"></div>
+
+        <button class="account-menu-item" id="accountMenuHelp"><span class="account-menu-icon">🛟</span> Help <span class="account-menu-chevron account-menu-chevron-right">›</span></button>
+        <button class="account-menu-item account-menu-item-danger" id="accountMenuLogout"><span class="account-menu-icon">↩</span> Log out</button>
+    </div>
 
     <!-- ================= MAIN AREA ================= -->
     <main class="main-area">
@@ -203,92 +203,48 @@
             </div>
         </header>
 
-        <div class="workspace-row" id="workspaceRow">
+        <div class="chat-area" id="chatArea">
 
-            <div class="chat-col" id="chatCol">
-
-                <div class="chat-area" id="chatArea">
-
-                    <div id="chatGreeting" class="chat-greeting">
-                        <div class="greeting-logo"><img src="/favicon.png" alt="Zyntra AI"></div>
-                        <h1 id="greetingHeading">Hey, I'm <span>Zyntra AI</span></h1>
-                        <p id="greetingSubtitle">Your personal AI assistant. Ask me anything!</p>
-                        <div id="promptSuggestions" class="prompt-suggestions"></div>
-                        <p id="tempChatDisclaimer" class="temp-chat-disclaimer" style="display:none;">For safety, we may keep a copy of this chat for up to 30 days.</p>
-                    </div>
-
-                    <div id="chatMessages" class="chat-messages"></div>
-
-                    <button id="scrollToLatestBtn" class="scroll-to-latest-btn" title="Jump to latest message" aria-label="Jump to latest message">
-                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
-                    </button>
-                </div>
-
-                <div id="attachPreview" class="attach-preview"></div>
-
-                <div id="adBanner" class="ad-banner-slot">
-                    <!--
-                        TODO once your site is approved: create a Display ad unit in
-                        AdSense, then replace YOUR_AD_SLOT_ID below with its real
-                        data-ad-slot value. Until then this will simply render nothing.
-                    -->
-                    <ins class="adsbygoogle"
-                         style="display:block"
-                         data-ad-client="ca-pub-2270474390846038"
-                         data-ad-slot="YOUR_AD_SLOT_ID"
-                         data-ad-format="auto"
-                         data-full-width-responsive="true"></ins>
-                </div>
-
-                <div class="chat-input-bar">
-                    <div class="chat-input-inner">
-                        <input type="file" id="chatFileInput" accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xlsx,.xls" style="display:none">
-                        <button id="attachBtn" class="attach-btn" title="Attach image or document">＋</button>
-                        <button id="researchBtn" class="attach-btn" title="Research mode — deeper, multi-source answers">🔎</button>
-                        <input id="userInput" type="text" placeholder="Ask me anything...">
-                        <button id="sendMessage" class="send-btn" title="Send">➤</button>
-                    </div>
-                    <p class="input-disclaimer">Zyntra AI can make mistakes. Consider checking important information.</p>
-                </div>
-
+            <div id="chatGreeting" class="chat-greeting">
+                <div class="greeting-logo"><img src="/favicon.png" alt="Zyntra AI"></div>
+                <h1 id="greetingHeading">Hey, I'm <span>Zyntra AI</span></h1>
+                <p id="greetingSubtitle">Your personal AI assistant. Ask me anything!</p>
+                <div id="promptSuggestions" class="prompt-suggestions"></div>
+                <p id="tempChatDisclaimer" class="temp-chat-disclaimer" style="display:none;">For safety, we may keep a copy of this chat for up to 30 days.</p>
             </div>
 
-            <!-- ================= CODE SIDE PANEL ================= -->
-            <div class="code-side-panel" id="codeSidePanel">
-                <div class="code-panel-header">
-                    <div class="code-panel-view-toggle" id="codePanelViewToggle">
-                        <button type="button" class="code-panel-view-btn" data-view="preview" id="codePanelPreviewBtn" title="Preview">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
-                        </button>
-                        <button type="button" class="code-panel-view-btn" data-view="code" id="codePanelCodeBtn" title="Code">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                        </button>
-                    </div>
-                    <div class="code-panel-title">
-                        <span id="codePanelFilename">Index</span>
-                        <span class="code-panel-title-sep">·</span>
-                        <span id="codePanelLabel">HTML</span>
-                    </div>
-                    <div class="code-panel-actions">
-                        <button type="button" class="code-panel-action-btn" id="codePanelCopyBtn" title="Copy code">📋 <span class="code-panel-action-label">Copy</span></button>
-                        <button type="button" class="code-panel-action-btn" id="codePanelDownloadBtn" title="Download file">⬇ <span class="code-panel-action-label">Download</span></button>
-                        <button type="button" class="code-panel-action-btn" id="codePanelExpandBtn" title="Expand panel">⤢</button>
-                        <button type="button" class="code-panel-action-btn code-panel-close-btn" id="codePanelCloseBtn" title="Close panel">✕</button>
-                    </div>
-                </div>
-                <div class="code-panel-body">
-                    <div class="code-panel-preview-view" id="codePanelPreviewView">
-                        <iframe class="code-panel-iframe" id="codePanelIframe" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"></iframe>
-                        <div class="code-panel-loading" id="codePanelLoading">
-                            <div class="code-preview-loading-dots"><span></span><span></span><span></span></div>
-                        </div>
-                    </div>
-                    <div class="code-panel-code-view" id="codePanelCodeView" style="display:none;">
-                        <pre><code id="codePanelCodeEl"></code></pre>
-                    </div>
-                </div>
-            </div>
+            <div id="chatMessages" class="chat-messages"></div>
 
+            <button id="scrollToLatestBtn" class="scroll-to-latest-btn" title="Jump to latest message" aria-label="Jump to latest message">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+            </button>
+        </div>
+
+        <div id="attachPreview" class="attach-preview"></div>
+
+        <div id="adBanner" class="ad-banner-slot">
+            <!--
+                TODO once your site is approved: create a Display ad unit in
+                AdSense, then replace YOUR_AD_SLOT_ID below with its real
+                data-ad-slot value. Until then this will simply render nothing.
+            -->
+            <ins class="adsbygoogle"
+                 style="display:block"
+                 data-ad-client="ca-pub-2270474390846038"
+                 data-ad-slot="YOUR_AD_SLOT_ID"
+                 data-ad-format="auto"
+                 data-full-width-responsive="true"></ins>
+        </div>
+
+        <div class="chat-input-bar">
+            <div class="chat-input-inner">
+                <input type="file" id="chatFileInput" accept="image/*,.pdf,.doc,.docx,.txt,.csv,.xlsx,.xls" style="display:none">
+                <button id="attachBtn" class="attach-btn" title="Attach image or document">＋</button>
+                <button id="researchBtn" class="attach-btn" title="Research mode — deeper, multi-source answers">🔎</button>
+                <input id="userInput" type="text" placeholder="Ask me anything...">
+                <button id="sendMessage" class="send-btn" title="Send">➤</button>
+            </div>
+            <p class="input-disclaimer">Zyntra AI can make mistakes. Consider checking important information.</p>
         </div>
 
         <!-- ================= PROJECTS PAGE ================= -->
