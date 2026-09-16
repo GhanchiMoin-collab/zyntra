@@ -8356,3 +8356,13 @@ padding:12px;
 .code-side-panel.open{
     min-width:340px;
 }
+
+/* Fix: account menu dropdown must position relative to the sidebar-user
+   row it opens from. Without this, the browser falls back to the
+   viewport as the positioning context, which pushes the menu itself
+   off-screen (above the top) while its dark backdrop still covers the
+   whole page — looking like the screen just goes black with nothing
+   clickable. */
+.sidebar-user{
+    position:relative;
+}
