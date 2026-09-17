@@ -8246,3 +8246,35 @@ padding:12px;
     text-decoration:none;
     white-space:nowrap;
 }
+
+/* Instant Deploy — inline "name your site" step before publishing */
+.code-preview-publish-name{
+    flex:1;
+    min-width:80px;
+    background:var(--glass-strong);
+    border:1px solid var(--glass-border);
+    border-radius:var(--r-sm);
+    color:var(--text-1);
+    font-size:12.5px;
+    font-family:"SF Mono",Menlo,Consolas,monospace;
+    padding:6px 10px;
+}
+
+.code-preview-publish-suffix{
+    font-size:12px;
+    color:var(--text-3);
+    font-family:"SF Mono",Menlo,Consolas,monospace;
+    white-space:nowrap;
+}
+
+.code-preview-publish-confirm{
+    font-size:12.5px;
+    font-weight:600;
+    border:none;
+    background:var(--accent-grad);
+    color:#fff;
+    padding:6px 12px;
+    border-radius:var(--r-pill);
+    cursor:pointer;
+    white-space:nowrap;
+}
