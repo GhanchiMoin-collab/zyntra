@@ -1424,7 +1424,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { messages: rawMessages, forceSearch, research, website, lite } = req.body || {};
+    const { messages: rawMessages, forceSearch, research, website, agent, lite } = req.body || {};
 
     if (!Array.isArray(rawMessages)) {
       return res.status(400).json({ error: 'Missing messages array' });
@@ -1880,9 +1880,9 @@ Rules:
       return lastResult;
     }
 
-    async function runAgentLoop(modelChain, includeTools, onDelta) {
+    async function runAgentLoop(modelChain, includeTools, onDelta, onStep) {
       let conversation = [...fullMessages];
-      const maxRounds = research ? 8 : 4; // research mode allows several more search rounds to chain
+      const maxRounds = agent ? 10 : (research ? 8 : 4); // Agent Mode may need to chain several different tools, not just repeated search
       let overallBudget = 45000; // leaves headroom under the 60s function ceiling
       let lastResult = null;
 
@@ -1890,7 +1890,7 @@ Rules:
         const roundStart = Date.now();
         const body = {
           temperature: 0.7,
-          max_tokens: website ? 4096 : (research ? 3072 : 2048), // a full single-file website needs far more room than a normal reply
+          max_tokens: website ? 4096 : ((research || agent) ? 3072 : 2048), // a full single-file website needs far more room than a normal reply
           messages: conversation
         };
         if (includeTools) {
@@ -1920,7 +1920,11 @@ Rules:
         // results, and loop back so it can use them in its next reply.
         conversation = [...conversation, message];
         for (const call of toolCalls) {
+          let parsedArgs = {};
+          try { parsedArgs = JSON.parse(call.function.arguments || "{}"); } catch {}
+          if (onStep) onStep({ phase: "start", name: call.function.name, args: parsedArgs });
           const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient, githubToken, slackToken, discordConnection, notionToken, trelloToken, outlookToken });
+          if (onStep) onStep({ phase: "done", name: call.function.name, ok: !toolResult?.error });
           conversation.push({
             role: "tool",
             tool_call_id: call.id,
@@ -1990,6 +1994,7 @@ Rules:
 
       const sendEvent = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
       const onDelta = (text) => sendEvent({ type: "content", text });
+      const onStep = agent ? (step) => sendEvent({ type: "step", ...step }) : null;
 
       // groq/compound already answered above — send it as a single chunk
       // (it won't animate token-by-token like a real stream, but Research
@@ -2002,7 +2007,7 @@ Rules:
         return res.end();
       }
 
-      let streamResult = await runAgentLoop(primaryModelChain, !hasImage, onDelta);
+      let streamResult = await runAgentLoop(primaryModelChain, !hasImage, onDelta, onStep);
 
       if (!streamResult.ok) {
         console.error('Streaming agent loop failed, retrying without tools:', streamResult.status, streamResult.data?.error?.message);
