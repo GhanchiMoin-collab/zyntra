@@ -18,6 +18,19 @@ function randomSlug(length = 7) {
   return out;
 }
 
+// Turns a user-chosen name into a Vercel-style branded slug, e.g.
+// "My Portfolio!!" -> "my-portfolio-zyntraai-app".
+function slugifyName(name) {
+  const base = String(name || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  if (!base) return null;
+  return `${base}-zyntraai-app`;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -33,7 +46,7 @@ export default async function handler(req, res) {
     const decoded = await getAdminAuth().verifyIdToken(idToken);
     const uid = decoded.uid;
 
-    const { html, title } = req.body || {};
+    const { html, title, name } = req.body || {};
     if (!html || typeof html !== "string" || !html.trim()) {
       return res.status(400).json({ error: "Nothing to publish." });
     }
@@ -44,17 +57,36 @@ export default async function handler(req, res) {
     const db = getAdminDb();
     const collection = db.collection("publishedSites");
 
-    // Slug collisions are astronomically unlikely at this space size, but
-    // a couple of retries costs nothing and makes it a non-issue.
     let slug, ref, snap;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      slug = randomSlug();
-      ref = collection.doc(slug);
-      snap = await ref.get();
-      if (!snap.exists) break;
+    const wantedSlug = slugifyName(name);
+
+    if (wantedSlug) {
+      // Try the exact branded name first, then name-2, name-3, ... before
+      // giving up on it — a taken name shouldn't silently turn into
+      // random letters without at least trying obvious variants.
+      for (let n = 0; n < 6 && !ref; n++) {
+        const candidate = n === 0 ? wantedSlug : `${wantedSlug.replace(/-zyntraai-app$/, "")}-${n + 1}-zyntraai-app`;
+        const candidateRef = collection.doc(candidate);
+        const candidateSnap = await candidateRef.get();
+        if (!candidateSnap.exists) {
+          slug = candidate;
+          ref = candidateRef;
+        }
+      }
     }
-    if (snap && snap.exists) {
-      return res.status(500).json({ error: "Couldn't generate a free link. Please try again." });
+
+    if (!ref) {
+      // No name given, or every branded variant was taken — fall back to
+      // a short random slug (collisions here are astronomically unlikely).
+      for (let attempt = 0; attempt < 5; attempt++) {
+        slug = randomSlug();
+        ref = collection.doc(slug);
+        snap = await ref.get();
+        if (!snap.exists) break;
+      }
+      if (snap && snap.exists) {
+        return res.status(500).json({ error: "Couldn't generate a free link. Please try again." });
+      }
     }
 
     await ref.set({
