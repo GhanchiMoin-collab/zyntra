@@ -8126,3 +8126,65 @@ padding:12px;
     left:auto;
     right:auto;
 }
+
+/* ==========================================================
+   Agent Mode — live tool-call timeline shown above the reply
+   ========================================================== */
+
+.agent-steps{
+    display:none;
+    flex-direction:column;
+    gap:6px;
+    margin-bottom:10px;
+}
+
+.agent-step-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:7px 12px;
+    border-radius:var(--r-pill);
+    background:var(--glass);
+    border:1px solid var(--glass-border);
+    font-size:13px;
+    color:var(--text-2);
+    width:fit-content;
+    transition:opacity .2s ease;
+}
+
+.agent-step-row.done{
+    color:var(--text-1);
+}
+
+.agent-step-row.failed{
+    color:#ff8080;
+    border-color:rgba(255,100,100,.3);
+}
+
+.agent-step-icon{
+    font-size:14px;
+    flex-shrink:0;
+}
+
+.agent-step-label{
+    white-space:nowrap;
+}
+
+.agent-step-spinner{
+    width:12px;
+    height:12px;
+    border-radius:50%;
+    border:2px solid var(--glass-border-strong);
+    border-top-color:var(--accent-solid);
+    animation:agent-step-spin .7s linear infinite;
+    flex-shrink:0;
+}
+
+.agent-step-status{
+    font-size:12px;
+    flex-shrink:0;
+}
+
+@keyframes agent-step-spin{
+    to{ transform:rotate(360deg); }
+}
