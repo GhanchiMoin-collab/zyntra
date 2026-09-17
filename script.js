@@ -149,27 +149,20 @@ function openCodePreview(code){
     publishResult.style.display = "none";
     publishResult.innerHTML = "";
 
-    const publishBtn = modal.querySelector(".code-preview-publish");
-    publishBtn.onclick = async () => {
-        if(!activeAuth().currentUser){
-            alert("Sign in to publish a live link.");
-            return;
-        }
+    async function doPublish(siteName, titleGuess){
         const originalLabel = publishBtn.textContent;
         publishBtn.disabled = true;
         publishBtn.textContent = "Publishing...";
         try{
             const idToken = await activeAuth().currentUser.getIdToken();
-            const titleMatch = code.match(/<title>([^<]*)<\/title>/i);
             const res = await fetch("/api/publish", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
-                body: JSON.stringify({ html: code, title: titleMatch ? titleMatch[1] : "Zyntra site" })
+                body: JSON.stringify({ html: code, title: titleGuess, name: siteName })
             });
             const data = await res.json();
             if(!res.ok) throw new Error(data.error || "Publish failed.");
 
-            publishResult.style.display = "flex";
             publishResult.innerHTML = `
                 <span class="code-preview-publish-url">${data.url}</span>
                 <button type="button" class="code-preview-publish-copy">📋 Copy</button>
@@ -183,10 +176,35 @@ function openCodePreview(code){
             });
         }catch(err){
             alert(err.message || "Could not publish. Please try again.");
+            publishResult.style.display = "none";
         }finally{
             publishBtn.disabled = false;
             publishBtn.textContent = originalLabel;
         }
+    }
+
+    const publishBtn = modal.querySelector(".code-preview-publish");
+    publishBtn.onclick = () => {
+        if(!activeAuth().currentUser){
+            alert("Sign in to publish a live link.");
+            return;
+        }
+        const titleMatch = code.match(/<title>([^<]*)<\/title>/i);
+        const titleGuess = titleMatch ? titleMatch[1] : "Zyntra site";
+        const nameGuess = titleGuess.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "my-site";
+
+        publishResult.style.display = "flex";
+        publishResult.innerHTML = `
+            <input type="text" class="code-preview-publish-name" value="${nameGuess}" maxlength="40" spellcheck="false">
+            <span class="code-preview-publish-suffix">-zyntraai-app</span>
+            <button type="button" class="code-preview-publish-confirm">Publish ✓</button>
+        `;
+        const nameInput = publishResult.querySelector(".code-preview-publish-name");
+        nameInput.focus();
+        nameInput.select();
+        const confirmPublish = () => doPublish(nameInput.value.trim(), titleGuess);
+        publishResult.querySelector(".code-preview-publish-confirm").addEventListener("click", confirmPublish);
+        nameInput.addEventListener("keydown", e => { if(e.key === "Enter") confirmPublish(); });
     };
 
     openModal("codePreviewModal");
