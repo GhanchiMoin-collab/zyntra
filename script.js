@@ -968,7 +968,7 @@ async function callChatAPI(messages, options){
 // it's generated — the caller is responsible for appending it to whatever
 // is shown on screen. Resolves once the reply is complete, with the same
 // sources/memoryWrites shape callChatAPI returns.
-async function streamChatAPI(messages, onDelta, options){
+async function streamChatAPI(messages, onDelta, options, onStep){
     const opts = options || {};
     const headers = { "Content-Type": "application/json" };
     if(activeAuth().currentUser){
@@ -983,6 +983,7 @@ async function streamChatAPI(messages, onDelta, options){
     const payload = { messages, stream: true };
     if(opts.research) payload.research = true;
     if(opts.website) payload.website = true;
+    if(opts.agent) payload.agent = true;
 
     const res = await fetch("/api/chat", {
         method: "POST",
@@ -1026,6 +1027,8 @@ async function streamChatAPI(messages, onDelta, options){
 
             if(payload.type === "content" && payload.text){
                 onDelta(payload.text);
+            } else if(payload.type === "step"){
+                if(onStep) onStep(payload);
             } else if(payload.type === "done"){
                 sources = Array.isArray(payload.sources) ? payload.sources : [];
                 memoryWrites = Array.isArray(payload.memoryWrites) ? payload.memoryWrites : [];
@@ -4500,6 +4503,9 @@ async function sendChatMessage(prefill){
         if(activeChatTool === "codex"){
             note += " " + CODEX_SYSTEM_NOTE;
         }
+        if(activeChatTool === "agent"){
+            note += " " + AGENT_MODE_SYSTEM_NOTE;
+        }
         chatHistory.push({ role: "system", content: note });
     }
 
@@ -4519,13 +4525,38 @@ async function sendChatMessage(prefill){
     aiAvatar.src = "/favicon.png";
     aiAvatar.alt = "";
     aiAvatar.className = "ai-message-avatar";
+    const stepsDiv = document.createElement("div");
+    stepsDiv.className = "agent-steps";
+    stepsDiv.style.display = "none";
     const aiContent = document.createElement("div");
     aiContent.className = "ai-message-content";
-    aiContent.textContent = researchModeEnabled ? "🔎 Researching…" : "Thinking...";
+    aiContent.textContent = researchModeEnabled ? "🔎 Researching…" : (activeChatTool === "agent" ? "🤖 Starting up..." : "Thinking...");
     loadingDiv.appendChild(aiAvatar);
+    loadingDiv.appendChild(stepsDiv);
     loadingDiv.appendChild(aiContent);
     chatMessages.appendChild(loadingDiv);
     chatAutoScroll();
+
+    let stepRows = [];
+    function onAgentStep(step){
+        stepsDiv.style.display = "flex";
+        if(step.phase === "start"){
+            aiContent.textContent = "";
+            const row = document.createElement("div");
+            row.className = "agent-step-row running";
+            const info = describeAgentStep(step.name, step.args);
+            row.innerHTML = `<span class="agent-step-icon">${info.icon}</span><span class="agent-step-label">${info.label}</span><span class="agent-step-spinner"></span>`;
+            stepsDiv.appendChild(row);
+            stepRows.push(row);
+            chatAutoScroll();
+        } else if(step.phase === "done" && stepRows.length){
+            const row = stepRows[stepRows.length - 1];
+            row.classList.remove("running");
+            row.classList.add(step.ok === false ? "failed" : "done");
+            const spinner = row.querySelector(".agent-step-spinner");
+            if(spinner) spinner.outerHTML = `<span class="agent-step-status">${step.ok === false ? "✕" : "✓"}</span>`;
+        }
+    }
 
     try{
         let accumulated = "";
@@ -4538,7 +4569,7 @@ async function sendChatMessage(prefill){
             accumulated += chunk;
             aiContent.innerHTML = formatAIText(accumulated);
             chatAutoScroll();
-        }, { research: researchModeEnabled, website: activeChatTool === "codex" });
+        }, { research: researchModeEnabled, website: activeChatTool === "codex", agent: activeChatTool === "agent" }, onAgentStep);
 
         if(!accumulated){
             aiContent.textContent = "Sorry, I didn't get a response. Please try again.";
@@ -4685,11 +4716,71 @@ You are in Codex mode — Zyntra's unified coding and building assistant. Every 
 If a message is just conversation (thanks, a question about something you already built, a greeting) — reply naturally and briefly, without generating any code at all.
 `;
 
+const AGENT_MODE_SYSTEM_NOTE = `
+You are in Agent Mode — the user has given you a goal, not a single question, and expects you to actually carry it out end-to-end using your tools rather than just describing what could be done.
+
+Work autonomously across as many tool calls and rounds as the goal genuinely needs (you have a much larger round budget than normal chat) — search, read, create, send, or update things using whichever real tools are available to you (web search, Gmail, Calendar, GitHub, Slack, Notion, Trello, Discord, Google Drive, Outlook, memory), chaining them together without stopping to ask "should I proceed?" between routine steps. Only pause to ask the user a direct question when you hit something genuinely ambiguous or high-stakes that you can't reasonably guess (e.g. which of several same-named contacts to email, or a destructive action with no clear target) — don't ask for permission to do the obviously-implied next step.
+
+If a tool you'd need isn't available (not connected, or the goal needs something you don't have access to), say so plainly and do as much of the rest of the goal as you actually can with what you do have, rather than refusing the whole thing.
+
+When you're done, give a clear, honest summary of exactly what you did (not what you "would" do) — what was found, created, sent, or changed, with concrete specifics (names, links, counts) — not a vague recap. If you could only partially complete the goal, say what's done and what's still missing.
+`;
+
+const AGENT_STEP_LABELS = {
+    web_search: { icon: "🔍", label: "Searching the web" },
+    get_current_datetime: { icon: "🕐", label: "Checking the date/time" },
+    remember_fact: { icon: "🧠", label: "Saving a memory" },
+    send_email: { icon: "📧", label: "Sending an email" },
+    search_emails: { icon: "📧", label: "Searching Gmail" },
+    read_email: { icon: "📧", label: "Reading an email" },
+    create_email_draft: { icon: "📧", label: "Drafting an email" },
+    create_calendar_event: { icon: "📅", label: "Creating a calendar event" },
+    list_calendar_events: { icon: "📅", label: "Checking your calendar" },
+    update_calendar_event: { icon: "📅", label: "Updating a calendar event" },
+    cancel_calendar_event: { icon: "📅", label: "Cancelling a calendar event" },
+    search_drive_files: { icon: "📁", label: "Searching Google Drive" },
+    read_drive_file: { icon: "📁", label: "Reading a Drive file" },
+    create_drive_file: { icon: "📁", label: "Creating a Drive file" },
+    list_github_repos: { icon: "🐙", label: "Checking GitHub repos" },
+    list_github_issues: { icon: "🐙", label: "Checking GitHub issues" },
+    create_github_issue: { icon: "🐙", label: "Creating a GitHub issue" },
+    list_github_pull_requests: { icon: "🐙", label: "Checking pull requests" },
+    create_github_pull_request: { icon: "🐙", label: "Opening a pull request" },
+    list_slack_channels: { icon: "💬", label: "Checking Slack channels" },
+    read_slack_messages: { icon: "💬", label: "Reading Slack messages" },
+    send_slack_message: { icon: "💬", label: "Sending a Slack message" },
+    search_slack_messages: { icon: "💬", label: "Searching Slack" },
+    list_slack_users: { icon: "💬", label: "Checking Slack members" },
+    list_discord_channels: { icon: "🎮", label: "Checking Discord channels" },
+    read_discord_messages: { icon: "🎮", label: "Reading Discord messages" },
+    send_discord_message: { icon: "🎮", label: "Sending a Discord message" },
+    search_notion: { icon: "📝", label: "Searching Notion" },
+    read_notion_page: { icon: "📝", label: "Reading a Notion page" },
+    create_notion_page: { icon: "📝", label: "Creating a Notion page" },
+    list_trello_boards: { icon: "📋", label: "Checking Trello boards" },
+    list_trello_lists: { icon: "📋", label: "Checking Trello lists" },
+    list_trello_cards: { icon: "📋", label: "Checking Trello cards" },
+    create_trello_card: { icon: "📋", label: "Creating a Trello card" },
+    search_outlook_emails: { icon: "📧", label: "Searching Outlook" },
+    read_outlook_email: { icon: "📧", label: "Reading an Outlook email" },
+    send_outlook_email: { icon: "📧", label: "Sending an Outlook email" },
+    create_outlook_draft: { icon: "📧", label: "Drafting an Outlook email" }
+};
+
+function describeAgentStep(name){
+    if(AGENT_STEP_LABELS[name]) return AGENT_STEP_LABELS[name];
+    // Unknown/future tool name — fall back to a readable version of the
+    // raw function name rather than a hardcoded label needing upkeep.
+    const label = (name || "tool").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    return { icon: "⚙️", label };
+}
+
 const TOOL_PLACEHOLDERS = {
     chat: "Ask me anything...",
     business: "Ask a business or growth question...",
     image: "Describe the image you want to create...",
     codex: "Ask me to code, debug, or build a website/app...",
+    agent: "Give me a goal and I'll carry it out — e.g. \"find 5 competitors and summarize them\"...",
     data: "Upload a spreadsheet, then ask a question about it..."
 };
 
@@ -4709,6 +4800,10 @@ const TOOL_GREETINGS = {
     codex: {
         heading: '<span>Codex</span>',
         subtitle: "Write and debug code, or describe a website or app and watch it come to life."
+    },
+    agent: {
+        heading: '<span>Agent Mode</span>',
+        subtitle: "Give me a goal, not a question — I'll chain tools together and work it end-to-end."
     },
     data: {
         heading: '<span>Data Analysis</span>',
@@ -6143,8 +6238,8 @@ const ROUTE_META = {
     "contact": { title: "Contact — Zyntra AI", description: "Get in touch with the Zyntra AI team — questions, feedback, or bug reports welcome." }
 };
 
-const TOOL_TO_SLUG = { chat: "chat", image: "image-generator", voice: "jarvis", codex: "codex", business: "business-tools", data: "data-analysis" };
-const SLUG_TO_TOOL = { "": "chat", "chat": "chat", "image-generator": "image", "jarvis": "voice", "codex": "codex", "business-tools": "business", "data-analysis": "data" };
+const TOOL_TO_SLUG = { chat: "chat", image: "image-generator", voice: "jarvis", codex: "codex", agent: "agent-mode", business: "business-tools", data: "data-analysis" };
+const SLUG_TO_TOOL = { "": "chat", "chat": "chat", "image-generator": "image", "jarvis": "voice", "codex": "codex", "agent-mode": "agent", "business-tools": "business", "data-analysis": "data" };
 
 function setRouteMeta(slug){
     const meta = ROUTE_META[slug] || ROUTE_META[""];
