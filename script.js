@@ -91,10 +91,12 @@ function ensureCodePreviewModal(){
             <div class="code-preview-header">
                 <span class="tag" style="margin:0;">LIVE PREVIEW</span>
                 <div class="code-preview-header-actions">
+                    <button type="button" class="code-preview-publish" title="Publish a live public link">🚀 Publish</button>
                     <button type="button" class="code-preview-newtab" title="Open in new tab">↗</button>
                     <button type="button" class="code-preview-close" title="Close">✕</button>
                 </div>
             </div>
+            <div class="code-preview-publish-result" id="codePreviewPublishResult" style="display:none;"></div>
             <div class="code-preview-frame-wrap">
                 <div class="code-preview-glow-border">
                     <div class="code-preview-frame-inner">
@@ -141,6 +143,50 @@ function openCodePreview(code){
         const url = URL.createObjectURL(blob);
         window.open(url, "_blank");
         setTimeout(() => URL.revokeObjectURL(url), 60000);
+    };
+
+    const publishResult = modal.querySelector("#codePreviewPublishResult");
+    publishResult.style.display = "none";
+    publishResult.innerHTML = "";
+
+    const publishBtn = modal.querySelector(".code-preview-publish");
+    publishBtn.onclick = async () => {
+        if(!activeAuth().currentUser){
+            alert("Sign in to publish a live link.");
+            return;
+        }
+        const originalLabel = publishBtn.textContent;
+        publishBtn.disabled = true;
+        publishBtn.textContent = "Publishing...";
+        try{
+            const idToken = await activeAuth().currentUser.getIdToken();
+            const titleMatch = code.match(/<title>([^<]*)<\/title>/i);
+            const res = await fetch("/api/publish", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+                body: JSON.stringify({ html: code, title: titleMatch ? titleMatch[1] : "Zyntra site" })
+            });
+            const data = await res.json();
+            if(!res.ok) throw new Error(data.error || "Publish failed.");
+
+            publishResult.style.display = "flex";
+            publishResult.innerHTML = `
+                <span class="code-preview-publish-url">${data.url}</span>
+                <button type="button" class="code-preview-publish-copy">📋 Copy</button>
+                <a class="code-preview-publish-open" href="${data.url}" target="_blank" rel="noopener">Open ↗</a>
+            `;
+            publishResult.querySelector(".code-preview-publish-copy").addEventListener("click", () => {
+                navigator.clipboard.writeText(data.url);
+                const copyBtn = publishResult.querySelector(".code-preview-publish-copy");
+                copyBtn.textContent = "✅ Copied";
+                setTimeout(() => { copyBtn.textContent = "📋 Copy"; }, 1500);
+            });
+        }catch(err){
+            alert(err.message || "Could not publish. Please try again.");
+        }finally{
+            publishBtn.disabled = false;
+            publishBtn.textContent = originalLabel;
+        }
     };
 
     openModal("codePreviewModal");
