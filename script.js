@@ -704,7 +704,7 @@ function pickVoiceForLang(lang){
         || null;
 }
 
-function speakText(text, lang, onEnd){
+function browserSpeakText(text, lang, onEnd){
     speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
 
@@ -728,6 +728,49 @@ function speakText(text, lang, onEnd){
 
     if(onEnd) utter.onend = onEnd;
     speechSynthesis.speak(utter);
+}
+
+let currentJarvisAudio = null;
+
+// Tries Groq's natural TTS first (sounds like a real voice, not a robot);
+// falls back to the browser's built-in speechSynthesis if that ever fails
+// — e.g. the Groq account hasn't accepted the playai-tts model terms yet,
+// a network hiccup, or a language playai-tts doesn't cover well. Either
+// way the call keeps going instead of going silent.
+async function speakText(text, lang, onEnd){
+    // Someone who's explicitly picked a voice in Settings gets exactly
+    // that voice, always — never silently swapped for the neural one.
+    if(getPreferredVoice()){
+        browserSpeakText(text, lang, onEnd);
+        return;
+    }
+    // Groq's TTS voice used here only covers English well — every other
+    // language already has real per-language system voices via the
+    // browser, so only English gets routed to the neural voice.
+    if(!lang || !lang.startsWith("en")){
+        browserSpeakText(text, lang, onEnd);
+        return;
+    }
+
+    try{
+        const res = await fetch("/api/speak", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text })
+        });
+        if(!res.ok) throw new Error("TTS request failed");
+        const audioBlob = await res.blob();
+        const url = URL.createObjectURL(audioBlob);
+
+        if(currentJarvisAudio){ currentJarvisAudio.pause(); }
+        const audio = new Audio(url);
+        currentJarvisAudio = audio;
+        audio.onended = () => { URL.revokeObjectURL(url); if(onEnd) onEnd(); };
+        audio.onerror = () => { URL.revokeObjectURL(url); browserSpeakText(text, lang, onEnd); };
+        await audio.play();
+    }catch(err){
+        browserSpeakText(text, lang, onEnd);
+    }
 }
 
 // ---------- Voice settings (in Settings modal) ----------
@@ -5391,18 +5434,111 @@ function addVoiceMsg(text, who){
     voiceBox.scrollTop = voiceBox.scrollHeight;
 }
 
-const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+const hasMediaRecorderSupport = !!(navigator.mediaDevices && window.MediaRecorder);
 let voiceHistory = [];
 
-if(!SpeechRecognitionAPI){
+// Records one utterance from an already-open mic stream, auto-stopping
+// once the person stops talking (rather than a fixed duration or a tap
+// to stop) — this is what makes the call feel continuous instead of
+// walkie-talkie. Uses raw volume (RMS) off an AnalyserNode as a simple,
+// dependency-free voice-activity detector.
+function recordJarvisUtterance(stream){
+    return new Promise((resolve, reject) => {
+        const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
+            : (MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "");
+        let recorder;
+        try{
+            recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        }catch(err){
+            reject(err);
+            return;
+        }
+        const chunks = [];
+        recorder.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
+
+        const AudioContextAPI = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContextAPI();
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+
+        const SILENCE_THRESHOLD = 8;      // tuned for typical mic gain/noise floor
+        const SILENCE_DURATION_MS = 900;  // stop this long after speech trails off
+        const MAX_DURATION_MS = 20000;    // hard cap so one long ramble can't hang forever
+        const NO_SPEECH_TIMEOUT_MS = 7000; // give up if nothing is said at all
+
+        let spokeAtLeastOnce = false;
+        let silenceStart = null;
+        const startedAt = Date.now();
+        let stopped = false;
+        let rafId = null;
+
+        function cleanup(){
+            stopped = true;
+            if(rafId) cancelAnimationFrame(rafId);
+            try{ source.disconnect(); }catch{}
+            try{ audioCtx.close(); }catch{}
+        }
+
+        function finish(){
+            if(stopped) return;
+            cleanup();
+            if(recorder.state !== "inactive") recorder.stop();
+            else resolve({ blob: new Blob(chunks, { type: mimeType || "audio/webm" }), spoke: spokeAtLeastOnce });
+        }
+
+        function tick(){
+            if(stopped) return;
+            analyser.getByteTimeDomainData(data);
+            let sumSquares = 0;
+            for(let i = 0; i < data.length; i++){
+                const v = data[i] - 128;
+                sumSquares += v * v;
+            }
+            const rms = Math.sqrt(sumSquares / data.length);
+            const now = Date.now();
+
+            if(rms > SILENCE_THRESHOLD){
+                spokeAtLeastOnce = true;
+                silenceStart = null;
+            } else if(spokeAtLeastOnce){
+                if(silenceStart === null) silenceStart = now;
+                if(now - silenceStart > SILENCE_DURATION_MS){ finish(); return; }
+            }
+
+            if(!spokeAtLeastOnce && now - startedAt > NO_SPEECH_TIMEOUT_MS){ finish(); return; }
+            if(now - startedAt > MAX_DURATION_MS){ finish(); return; }
+            rafId = requestAnimationFrame(tick);
+        }
+
+        recorder.onstop = () => resolve({ blob: new Blob(chunks, { type: mimeType || "audio/webm" }), spoke: spokeAtLeastOnce });
+        recorder.onerror = (e) => { cleanup(); reject(e.error || new Error("Recording failed")); };
+
+        recorder.start();
+        rafId = requestAnimationFrame(tick);
+    });
+}
+
+async function transcribeAudioBlob(blob){
+    const res = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": blob.type || "audio/webm" },
+        body: blob
+    });
+    if(!res.ok) throw new Error("Transcription failed");
+    const data = await res.json();
+    return (data.text || "").trim();
+}
+
+if(!hasMediaRecorderSupport){
     voiceMicBtn.addEventListener("click", () => {
-        document.getElementById("jarvisStatusLabel").textContent = "Voice recognition is not supported in this browser.";
+        document.getElementById("jarvisStatusLabel").textContent = "Voice calls aren't supported in this browser.";
     });
 } else {
-    const recognition = new SpeechRecognitionAPI();
-    recognition.lang = navigator.language || "en-US";
-
     let jarvisContinuousMode = false;
+    let jarvisStream = null;
     let lastJarvisSpoken = null; // { text, lang } — for the "repeat" voice command
     const jarvisStatusLabel = document.getElementById("jarvisStatusLabel");
     const REPEAT_PATTERNS = ["repeat that", "repeat again", "say that again", "can you repeat", "repeat it", "repeat"];
@@ -5411,27 +5547,59 @@ if(!SpeechRecognitionAPI){
         if(jarvisStatusLabel) jarvisStatusLabel.textContent = text;
     }
 
-    function startJarvisListening(){
+    async function getJarvisStream(){
+        if(jarvisStream && jarvisStream.active) return jarvisStream;
+        jarvisStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        return jarvisStream;
+    }
+
+    async function startJarvisListening(){
         setJarvisStatus("Listening…");
         document.getElementById("jarvisOrb")?.classList.add("listening");
-        recognition.start();
+        try{
+            const stream = await getJarvisStream();
+            const { blob, spoke } = await recordJarvisUtterance(stream);
+            document.getElementById("jarvisOrb")?.classList.remove("listening");
+
+            if(!jarvisContinuousMode) return; // call was ended while recording
+
+            if(!spoke){
+                // Routine silence timeout, not a real failure — just listen again.
+                setJarvisStatus("Listening…");
+                if(jarvisContinuousMode) startJarvisListening();
+                return;
+            }
+
+            setJarvisStatus("Thinking…");
+            const said = await transcribeAudioBlob(blob);
+            if(!said){
+                if(jarvisContinuousMode) startJarvisListening();
+                return;
+            }
+            handleJarvisTranscript(said);
+        }catch(err){
+            document.getElementById("jarvisOrb")?.classList.remove("listening");
+            if(jarvisContinuousMode){
+                setJarvisStatus("Listening…");
+                setTimeout(() => { if(jarvisContinuousMode) startJarvisListening(); }, 400);
+            } else {
+                setJarvisStatus('Say "Tap to speak" below to start.');
+            }
+        }
     }
 
     voiceMicBtn.addEventListener("click", () => {
         // Only needed once — this first tap is the user gesture browsers
         // require before mic access / audio playback is allowed. After
-        // this, recognition restarts itself automatically after each
-        // reply, so the conversation continues without any more taps —
-        // closer to a real back-and-forth than a manual tap-per-turn.
+        // this, listening restarts itself automatically after each reply,
+        // so the call continues without any more taps — a real back-and-
+        // forth instead of a walkie-talkie.
         jarvisContinuousMode = true;
         voiceMicBtn.style.display = "none";
         startJarvisListening();
     });
 
-    recognition.onresult = async (e) => {
-        const said = e.results[0][0].transcript;
-        document.getElementById("jarvisOrb")?.classList.remove("listening");
-
+    async function handleJarvisTranscript(said){
         if(REPEAT_PATTERNS.some(p => said.toLowerCase().trim().includes(p))){
             if(lastJarvisSpoken){
                 setJarvisStatus("Repeating…");
@@ -5492,25 +5660,17 @@ if(!SpeechRecognitionAPI){
             setJarvisStatus("Sorry, I couldn't process that.");
             if(jarvisContinuousMode) startJarvisListening();
         }
-    };
+    }
 
     window.stopJarvisConversation = () => {
         jarvisContinuousMode = false;
-        try{ recognition.stop(); }catch{}
+        if(jarvisStream){
+            jarvisStream.getTracks().forEach(track => track.stop());
+            jarvisStream = null;
+        }
+        if(currentJarvisAudio){ currentJarvisAudio.pause(); }
         speechSynthesis.cancel();
         document.getElementById("jarvisOrb")?.classList.remove("listening");
-    };
-
-    recognition.onerror = () => {
-        document.getElementById("jarvisOrb")?.classList.remove("listening");
-        // A brief silence/no-speech timeout is routine in continuous mode,
-        // not a real failure — just listen again instead of stopping.
-        if(jarvisContinuousMode){
-            setJarvisStatus("Listening…");
-            setTimeout(() => { if(jarvisContinuousMode) startJarvisListening(); }, 400);
-        } else {
-            setJarvisStatus('Say "Tap to speak" below to start.');
-        }
     };
 }
 
