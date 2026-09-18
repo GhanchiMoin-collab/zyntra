@@ -92,7 +92,7 @@ function ensureCodePreviewModal(){
                 <span class="tag" style="margin:0;">LIVE PREVIEW</span>
                 <div class="code-preview-header-actions">
                     <button type="button" class="code-preview-publish" title="Publish a live public link">🚀 Publish</button>
-                    <button type="button" class="code-preview-newtab" title="Open in new tab">↗</button>
+                    <button type="button" class="code-preview-newtab" title="Quick local preview — a temporary link only you can open, not shareable">↗</button>
                     <button type="button" class="code-preview-close" title="Close">✕</button>
                 </div>
             </div>
