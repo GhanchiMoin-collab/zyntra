@@ -1,7 +1,7 @@
 {
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/s/(.*)", "destination": "/api/site/$1" },
+    { "source": "/s/:slug", "destination": "/api/site?slug=:slug" },
     { "source": "/trello-bridge.html", "destination": "/trello-bridge.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
