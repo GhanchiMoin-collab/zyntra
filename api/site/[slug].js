@@ -1,4 +1,4 @@
-import { getAdminDb } from "../_lib/firebaseAdmin.js";
+import { getAdminDb } from "./_lib/firebaseAdmin.js";
 
 // Serves back whatever was published via /api/publish. The stored HTML is
 // AI-generated and untrusted, so it's never returned as the top-level
@@ -8,6 +8,13 @@ import { getAdminDb } from "../_lib/firebaseAdmin.js";
 // a unique opaque origin: its own JS still runs fine (buttons, forms,
 // animations, fetch to other sites), it just can never touch anything
 // belonging to the real Zyntra AI origin.
+//
+// This is a plain (non-dynamic) function reached via the /s/:slug ->
+// /api/site?slug=:slug rewrite in vercel.json — a vercel.json rewrite
+// landing on a SECOND dynamic segment (e.g. straight to api/site/[slug].js)
+// is a known Vercel edge case that doesn't always resolve, so the slug is
+// passed as a plain query param instead, which is the documented, reliable
+// pattern for "rewrite -> serverless function".
 
 function escapeHtmlAttr(str) {
   return String(str)
@@ -20,7 +27,7 @@ function escapeHtmlAttr(str) {
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).send('Method not allowed');
 
-  const { slug } = req.query;
+  const slug = req.query?.slug;
   if (!slug || typeof slug !== "string") {
     return res.status(400).send('Missing link.');
   }
