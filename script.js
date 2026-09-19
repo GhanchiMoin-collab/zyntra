@@ -2055,51 +2055,51 @@ const CONNECTORS = [
 
 const CONNECTOR_PROVIDER_CONFIG = {
     google: {
-        statusUrl: "/api/auth/oauth-status?provider=google",
-        startUrl: "/api/auth/oauth-start?provider=google",
-        disconnectUrl: "/api/auth/oauth-disconnect?provider=google",
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=google",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=google",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=google",
         label: data => data.label ? `Connected as ${data.label}` : "Connected",
         disconnectConfirm: "Zyntra will no longer be able to use Gmail, Google Drive, or Google Calendar on your behalf."
     },
     github: {
-        statusUrl: "/api/auth/oauth-status?provider=github",
-        startUrl: "/api/auth/oauth-start?provider=github",
-        disconnectUrl: "/api/auth/oauth-disconnect?provider=github",
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=github",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=github",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=github",
         label: data => data.label ? `Connected as ${data.label}` : "Connected",
         disconnectConfirm: "Zyntra will no longer be able to read your repos or create issues/PRs on your behalf."
     },
     slack: {
-        statusUrl: "/api/auth/oauth-status?provider=slack",
-        startUrl: "/api/auth/oauth-start?provider=slack",
-        disconnectUrl: "/api/auth/oauth-disconnect?provider=slack",
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=slack",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=slack",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=slack",
         label: data => data.label ? `Connected to ${data.label}` : "Connected",
         disconnectConfirm: "Zyntra will no longer be able to read or send Slack messages on your behalf."
     },
     discord: {
-        statusUrl: "/api/auth/oauth-status?provider=discord",
-        startUrl: "/api/auth/oauth-start?provider=discord",
-        disconnectUrl: "/api/auth/oauth-disconnect?provider=discord",
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=discord",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=discord",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=discord",
         label: data => data.label ? `Connected to ${data.label}` : "Connected",
         disconnectConfirm: "Zyntra will no longer be able to read or send messages in your Discord server on your behalf. The bot stays in your server until you remove it yourself from Discord."
     },
     notion: {
-        statusUrl: "/api/auth/oauth-status?provider=notion",
-        startUrl: "/api/auth/oauth-start?provider=notion",
-        disconnectUrl: "/api/auth/oauth-disconnect?provider=notion",
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=notion",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=notion",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=notion",
         label: data => data.label ? `Connected to ${data.label}` : "Connected",
         disconnectConfirm: "Zyntra will no longer be able to search, read, or create pages in your Notion workspace. You can also remove Zyntra's access directly from Notion's own Settings → Connections."
     },
     trello: {
-        statusUrl: "/api/auth/oauth-status?provider=trello",
-        startUrl: "/api/auth/oauth-start?provider=trello",
-        disconnectUrl: "/api/auth/oauth-disconnect?provider=trello",
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=trello",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=trello",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=trello",
         label: data => data.label ? `Connected as ${data.label}` : "Connected",
         disconnectConfirm: "Zyntra will no longer be able to read or create cards on your Trello boards."
     },
     outlook: {
-        statusUrl: "/api/auth/oauth-status?provider=outlook",
-        startUrl: "/api/auth/oauth-start?provider=outlook",
-        disconnectUrl: "/api/auth/oauth-disconnect?provider=outlook",
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=outlook",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=outlook",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=outlook",
         label: data => data.label ? `Connected as ${data.label}` : "Connected",
         disconnectConfirm: "Zyntra will no longer be able to search, read, or send Outlook email on your behalf. You can also remove Zyntra's access directly from your Microsoft account's app permissions page."
     }
