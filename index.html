@@ -197,6 +197,10 @@
                 Zyntra <span>AI</span>
             </div>
             <div class="topbar-right">
+                <button class="persona-pill" id="personaPillBtn" title="Choose a persona">
+                    <span id="personaPillEmoji">🤖</span>
+                    <span id="personaPillName">Assistant</span>
+                </button>
                 <button class="theme-toggle" id="shareChatBtn" title="Share this chat" style="display:none;">🔗</button>
                 <button class="theme-toggle" id="deleteChatBtn" title="Delete this chat" style="display:none;">🗑</button>
                 <button class="temp-chat-toggle-btn" id="tempChatToggleBtn" title="Temporary chat" style="display:none;">
@@ -1020,6 +1024,27 @@
                 </div>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- ================= PERSONAS MODAL ================= -->
+<div class="modal-overlay" id="personaModal">
+    <div class="modal-box" style="max-width:480px;">
+        <button class="modal-close" id="personaModalClose">✕</button>
+        <span class="tag">PERSONAS</span>
+        <h2 style="margin:10px 0 4px;">Choose a persona</h2>
+        <p style="margin:0 0 18px;color:var(--text-2);font-size:13.5px;">Switch how Zyntra behaves, instantly. Create your own or pick a preset.</p>
+        <div id="personaList" class="persona-list"></div>
+        <div id="personaCreateForm" class="persona-create-form" style="display:none;">
+            <input type="text" id="personaFormName" placeholder="Name (e.g. Fitness Coach)" maxlength="40">
+            <input type="text" id="personaFormEmoji" placeholder="Emoji (e.g. 💪)" maxlength="4">
+            <textarea id="personaFormInstructions" placeholder="How should this persona behave? e.g. 'You are a tough but encouraging fitness coach. Keep replies short and motivating.'" rows="3"></textarea>
+            <div style="display:flex;gap:8px;">
+                <button type="button" id="personaFormSaveBtn" class="persona-form-save">Save persona</button>
+                <button type="button" id="personaFormCancelBtn" class="persona-form-cancel">Cancel</button>
+            </div>
+        </div>
+        <button type="button" id="personaAddNewBtn" class="persona-add-new">+ Create new persona</button>
     </div>
 </div>
 
