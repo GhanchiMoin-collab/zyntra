@@ -8404,3 +8404,166 @@ padding:12px;
     justify-content:center;
     padding:32px 0 12px;
 }
+
+/* ==========================================================
+   Custom Personas
+   ========================================================== */
+
+.persona-pill{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    background:var(--glass-strong);
+    border:1px solid var(--glass-border);
+    border-radius:var(--r-pill);
+    color:var(--text-1);
+    font-size:12.5px;
+    font-weight:600;
+    padding:6px 12px;
+    cursor:pointer;
+    max-width:150px;
+    overflow:hidden;
+}
+
+#personaPillName{
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+
+.persona-pill:hover{
+    background:var(--glass-hover);
+}
+
+.persona-list{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    max-height:320px;
+    overflow-y:auto;
+    margin-bottom:14px;
+}
+
+.persona-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:8px;
+    padding:10px 12px;
+    border-radius:var(--r-md);
+    border:1px solid var(--glass-border);
+    background:var(--glass);
+    cursor:pointer;
+}
+
+.persona-row.active{
+    border-color:var(--accent-solid);
+    background:var(--glass-hover);
+}
+
+.persona-row-info{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    flex:1;
+    min-width:0;
+}
+
+.persona-row-emoji{
+    font-size:18px;
+    flex-shrink:0;
+}
+
+.persona-row-name{
+    font-size:14px;
+    color:var(--text-1);
+    font-weight:600;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+
+.persona-row-edit,
+.persona-row-delete{
+    background:none;
+    border:none;
+    color:var(--text-3);
+    font-size:14px;
+    cursor:pointer;
+    padding:4px 6px;
+    border-radius:6px;
+    flex-shrink:0;
+}
+
+.persona-row-edit:hover,
+.persona-row-delete:hover{
+    background:var(--glass-hover);
+    color:var(--text-1);
+}
+
+.persona-add-new{
+    width:100%;
+    padding:11px;
+    border:1px dashed var(--glass-border-strong);
+    border-radius:var(--r-md);
+    background:none;
+    color:var(--text-2);
+    font-size:13.5px;
+    font-weight:600;
+    cursor:pointer;
+}
+
+.persona-add-new:hover{
+    background:var(--glass-hover);
+    color:var(--text-1);
+}
+
+.persona-create-form{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    margin-bottom:14px;
+}
+
+.persona-create-form input,
+.persona-create-form textarea{
+    background:var(--glass-strong);
+    border:1px solid var(--glass-border);
+    border-radius:var(--r-sm);
+    color:var(--text-1);
+    font-size:13.5px;
+    padding:10px 12px;
+    font-family:inherit;
+    resize:vertical;
+}
+
+.persona-form-save{
+    flex:1;
+    border:none;
+    background:var(--accent-grad);
+    color:#fff;
+    font-weight:600;
+    font-size:13.5px;
+    padding:10px;
+    border-radius:var(--r-pill);
+    cursor:pointer;
+}
+
+.persona-form-cancel{
+    border:1px solid var(--glass-border);
+    background:var(--glass);
+    color:var(--text-1);
+    font-size:13.5px;
+    padding:10px 16px;
+    border-radius:var(--r-pill);
+    cursor:pointer;
+}
+
+@media (max-width: 620px){
+    .persona-pill span:last-child{
+        display:none;
+    }
+    .persona-pill{
+        padding:6px 8px;
+    }
+}
