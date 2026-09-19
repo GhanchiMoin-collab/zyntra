@@ -197,6 +197,7 @@
                 Zyntra <span>AI</span>
             </div>
             <div class="topbar-right">
+                <button class="theme-toggle" id="shareChatBtn" title="Share this chat" style="display:none;">🔗</button>
                 <button class="theme-toggle" id="deleteChatBtn" title="Delete this chat" style="display:none;">🗑</button>
                 <button class="temp-chat-toggle-btn" id="tempChatToggleBtn" title="Temporary chat" style="display:none;">
                     <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12c1.2-2.4 3.3-3.6 5-3.6s3 1.2 3 1.2 1.3-1.2 3-1.2 3.8 1.2 5 3.6"/><circle cx="7.5" cy="12.4" r="2.6"/><circle cx="16.5" cy="12.4" r="2.6"/><path d="M10.1 12.4h3.8"/></svg>
@@ -415,6 +416,21 @@
                     <div id="scheduledRecommendedList" class="scheduled-tasks-list"></div>
                 </div>
 
+            </div>
+        </div>
+
+        <div class="page-view" id="shareView">
+            <div class="share-view-header">
+                <img src="/favicon.png" alt="" class="share-view-logo">
+                <div>
+                    <p class="share-view-brand">Zyntra AI</p>
+                    <p class="share-view-title" id="shareViewTitle">Shared conversation</p>
+                </div>
+                <a href="/" class="share-view-cta">Try Zyntra AI free →</a>
+            </div>
+            <div class="share-view-messages" id="shareViewMessages"></div>
+            <div class="share-view-footer">
+                <a href="/" class="share-view-cta">Try Zyntra AI free →</a>
             </div>
         </div>
 
@@ -1129,4 +1145,3 @@
 </script>
 </body>
 </html>
-
