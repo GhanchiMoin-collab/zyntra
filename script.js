@@ -1549,6 +1549,7 @@ function switchSettingsSection(section){
     document.querySelectorAll(".settings-panel").forEach(panel => {
         panel.style.display = panel.dataset.settingsPanel === section ? "block" : "none";
     });
+    navigateToRoute("settings", section);
 }
 
 document.querySelectorAll(".settings-nav-item").forEach(btn => {
@@ -1591,7 +1592,10 @@ function renderProfileModal(){
     renderAccountSwitcher();
 }
 
-document.getElementById("profileModalClose")?.addEventListener("click", () => closeModal("profileModal"));
+document.getElementById("profileModalClose")?.addEventListener("click", () => {
+    closeModal("profileModal");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+});
 
 document.getElementById("profileSigninBtn")?.addEventListener("click", () => {
     closeModal("profileModal");
@@ -2691,7 +2695,7 @@ function logMessageToHistory(role, content){
     if(!currentSessionId){
         currentSessionId = Date.now();
         isNewSession = true;
-        navigateToRoute("chat", currentSessionId);
+        navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "chat", currentSessionId);
         const cleanTitle = stripMarkdownForTitle(content);
         sessions.unshift({
             id: currentSessionId,
@@ -3272,6 +3276,7 @@ function openPluginDetail(type, key){
     pluginDetailCurrent = { type, key };
     renderPluginDetail();
     showPageView("pluginDetail");
+    navigateToRoute("plugins", key);
 }
 
 function renderPluginDetail(){
@@ -3409,6 +3414,7 @@ document.getElementById("pluginDetailPrivacyLink")?.addEventListener("click", (e
 document.getElementById("pluginDetailBackBtn")?.addEventListener("click", () => {
     renderPluginsConnectionsList();
     showPageView("plugins");
+    navigateToRoute("plugins");
 });
 
 document.getElementById("navPlugins")?.addEventListener("click", () => {
@@ -3727,8 +3733,8 @@ document.getElementById("searchChatsClearBtn")?.addEventListener("click", () => 
 
 function openSession(session){
     showPageView("chat");
-    navigateToRoute("chat", session.id);
     const type = session.type || "chat";
+    navigateToRoute(TOOL_TO_SLUG[type] || "chat", session.id);
     if(type === "image" && session.imageUrl){
         openImageSession(session);
     } else if(type === "poster"){
@@ -6616,15 +6622,30 @@ function applyRouteFromPath(){
         loadSharedChat(subId);
         return;
     }
-    if(slug === "chat" && subId){
-        // Deep link to one specific conversation, like /chat/<id>.
-        if(!openSessionById(subId)){
-            // That chat doesn't exist (wrong id, or a guest with nothing
-            // saved locally) — fall back to a normal empty chat instead
-            // of a dead end.
-            showPageView("chat");
+    if(slug === "plugins" && subId){
+        document.getElementById("navPlugins")?.click();
+        const def = CONNECTORS.find(c => c.key === subId) || PLUGIN_DEFS.find(p => p.key === subId);
+        if(def){
+            openPluginDetail(CONNECTORS.includes(def) ? "connector" : "plugin", subId);
         }
-        setRouteMeta("chat");
+        return;
+    }
+    if(slug === "settings" && subId){
+        openModal("profileModal");
+        renderProfileModal();
+        switchSettingsSection(subId);
+        return;
+    }
+    if(Object.prototype.hasOwnProperty.call(SLUG_TO_TOOL, slug) && subId){
+        // Deep link to one specific conversation within a tool, like
+        // /image-generator/<id> or /codex/<id> (not just /chat/<id>).
+        if(!openSessionById(subId)){
+            // That session doesn't exist (wrong id, or a guest with
+            // nothing saved locally) — fall back to that tool's normal
+            // empty state instead of a dead end.
+            openTool(SLUG_TO_TOOL[slug]);
+        }
+        setRouteMeta(slug);
         return;
     }
     if(slug === "about"){
