@@ -1209,6 +1209,47 @@ document.getElementById("aboutBackBtn")?.addEventListener("click", () => {
     navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
 });
 
+// ---------- Discover page ----------
+
+document.getElementById("discoverBtn")?.addEventListener("click", e => {
+    e.preventDefault();
+    showPageView("discover");
+    setActiveNav("discover");
+    navigateToRoute("discover");
+    loadDiscoverList();
+    closeSidebarMobile();
+});
+
+async function loadDiscoverList(){
+    const list = document.getElementById("discoverList");
+    if(!list) return;
+    list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;grid-column:1/-1;">Loading…</p>`;
+    try{
+        const res = await fetch("/api/share-chat?list=1");
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.error || "Could not load Discover.");
+
+        if(!data.items || data.items.length === 0){
+            list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;grid-column:1/-1;">No public conversations yet — be the first to share one!</p>`;
+            return;
+        }
+
+        list.innerHTML = "";
+        data.items.forEach(item => {
+            const card = document.createElement("a");
+            card.href = `/share/${item.id}`;
+            card.className = "discover-card";
+            card.innerHTML = `
+                <p class="discover-card-title">${item.title}</p>
+                <p class="discover-card-preview">${item.preview || ""}</p>
+            `;
+            list.appendChild(card);
+        });
+    }catch(err){
+        list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;grid-column:1/-1;">${err.message}</p>`;
+    }
+}
+
 // ---------- Privacy Policy page ----------
 
 document.getElementById("privacyBtn")?.addEventListener("click", e => {
@@ -3916,8 +3957,34 @@ function ensureShareResultModal(){
     return modal;
 }
 
-document.getElementById("shareChatBtn")?.addEventListener("click", async () => {
-    if(!currentSessionId || !isLoggedIn()) return;
+function ensureShareConfirmModal(){
+    let modal = document.getElementById("shareConfirmModal");
+    if(modal) return modal;
+
+    modal = document.createElement("div");
+    modal.id = "shareConfirmModal";
+    modal.className = "modal-overlay";
+    modal.innerHTML = `
+        <div class="modal-box" style="max-width:440px;">
+            <h3 style="margin:0 0 14px;">🔗 Share this chat</h3>
+            <p style="margin:0 0 14px;color:var(--text-2);font-size:13.5px;">Anyone with the link can view it — no sign-in needed.</p>
+            <label class="share-public-checkbox">
+                <input type="checkbox" id="sharePublicCheckbox">
+                <span>🌐 Also feature this on the public Discover page</span>
+            </label>
+            <div style="display:flex;gap:8px;margin-top:16px;">
+                <button type="button" class="persona-form-save" id="shareConfirmGoBtn" style="flex:1;">Share</button>
+                <button type="button" class="persona-form-cancel" id="shareConfirmCancelBtn">Cancel</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector("#shareConfirmCancelBtn").addEventListener("click", () => closeModal("shareConfirmModal"));
+    modal.addEventListener("click", (e) => { if(e.target === modal) closeModal("shareConfirmModal"); });
+    return modal;
+}
+
+async function doShareChat(makePublic){
     const btn = document.getElementById("shareChatBtn");
     const original = btn.textContent;
     btn.textContent = "…";
@@ -3933,7 +4000,7 @@ document.getElementById("shareChatBtn")?.addEventListener("click", async () => {
         const res = await fetch("/api/share-chat", {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
-            body: JSON.stringify({ messages: cleanMessages, title: session?.title || "A Zyntra AI conversation" })
+            body: JSON.stringify({ messages: cleanMessages, title: session?.title || "A Zyntra AI conversation", makePublic })
         });
         const data = await res.json();
         if(!res.ok) throw new Error(data.error || "Could not share this chat.");
@@ -3952,6 +4019,18 @@ document.getElementById("shareChatBtn")?.addEventListener("click", async () => {
     }finally{
         btn.textContent = original;
     }
+}
+
+document.getElementById("shareChatBtn")?.addEventListener("click", () => {
+    if(!currentSessionId || !isLoggedIn()) return;
+    const modal = ensureShareConfirmModal();
+    modal.querySelector("#sharePublicCheckbox").checked = false;
+    modal.querySelector("#shareConfirmGoBtn").onclick = () => {
+        const makePublic = modal.querySelector("#sharePublicCheckbox").checked;
+        closeModal("shareConfirmModal");
+        doShareChat(makePublic);
+    };
+    openModal("shareConfirmModal");
 });
 
 async function loadSharedChat(id){
@@ -6809,6 +6888,12 @@ function applyRouteFromPath(){
         showPageView("about");
         setActiveNav("about");
         setRouteMeta("about");
+        return;
+    }
+    if(slug === "discover"){
+        showPageView("discover");
+        loadDiscoverList();
+        setRouteMeta("discover");
         return;
     }
     if(slug === "privacy"){
