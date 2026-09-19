@@ -8278,3 +8278,129 @@ padding:12px;
     cursor:pointer;
     white-space:nowrap;
 }
+
+/* Publish button inside the inline (downward-expand) code preview —
+   matches the Copy button next to it, gets an accent to stand out */
+.filecard-publish-btn{
+    background:var(--accent-grad);
+    border:none;
+    border-radius:8px;
+    color:#fff;
+    font-weight:600;
+    font-size:12px;
+    padding:5px 10px;
+    cursor:pointer;
+    margin-left:8px;
+}
+
+/* ==========================================================
+   Share Chat — result modal + public read-only view
+   ========================================================== */
+
+.share-result-row{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    background:var(--glass-strong);
+    border:1px solid var(--glass-border);
+    border-radius:var(--r-sm);
+    padding:8px 10px;
+}
+
+.share-result-url{
+    flex:1;
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    font-family:"SF Mono",Menlo,Consolas,monospace;
+    font-size:12.5px;
+    color:var(--text-1);
+}
+
+.share-result-copy{
+    font-size:12px;
+    border:1px solid var(--glass-border);
+    background:var(--glass);
+    color:var(--text-1);
+    padding:6px 10px;
+    border-radius:var(--r-sm);
+    cursor:pointer;
+    white-space:nowrap;
+}
+
+.modal-close-btn{
+    border:none;
+    background:var(--accent-grad);
+    color:#fff;
+    font-weight:600;
+    font-size:13.5px;
+    padding:10px 16px;
+    border-radius:var(--r-pill);
+    cursor:pointer;
+}
+
+#shareView{
+    max-width:760px;
+    margin:0 auto;
+    width:100%;
+    flex-direction:column;
+}
+
+.share-view-header{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding-bottom:20px;
+    border-bottom:1px solid var(--glass-border);
+    margin-bottom:20px;
+}
+
+.share-view-logo{
+    width:36px;
+    height:36px;
+    border-radius:10px;
+    flex-shrink:0;
+}
+
+.share-view-brand{
+    margin:0;
+    font-weight:700;
+    font-size:13px;
+    color:var(--text-1);
+}
+
+.share-view-title{
+    margin:2px 0 0;
+    font-size:12.5px;
+    color:var(--text-3);
+}
+
+.share-view-header > div{
+    flex:1;
+    min-width:0;
+}
+
+.share-view-cta{
+    flex-shrink:0;
+    background:var(--accent-grad);
+    color:#fff;
+    font-weight:600;
+    font-size:13px;
+    padding:9px 16px;
+    border-radius:var(--r-pill);
+    text-decoration:none;
+    white-space:nowrap;
+}
+
+.share-view-messages{
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+}
+
+.share-view-footer{
+    display:flex;
+    justify-content:center;
+    padding:32px 0 12px;
+}
