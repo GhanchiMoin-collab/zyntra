@@ -4730,6 +4730,12 @@ async function sendChatMessage(prefill){
         if(activeChatTool === "agent"){
             note += " " + AGENT_MODE_SYSTEM_NOTE;
         }
+        const activePersona = getPersonas().find(p => p.id === getActivePersonaId());
+        if(activePersona && !activePersona.builtin){
+            note += ` You are currently acting as the "${activePersona.name}" persona. ${activePersona.instructions}`;
+        } else if(activePersona && activePersona.instructions){
+            note += ` ${activePersona.instructions}`;
+        }
         chatHistory.push({ role: "system", content: note });
     }
 
@@ -4949,6 +4955,157 @@ If a tool you'd need isn't available (not connected, or the goal needs something
 
 When you're done, give a clear, honest summary of exactly what you did (not what you "would" do) — what was found, created, sent, or changed, with concrete specifics (names, links, counts) — not a vague recap. If you could only partially complete the goal, say what's done and what's still missing.
 `;
+
+// ==========================================================
+// Custom Personas — save different AI personalities/instructions and
+// switch between them instantly. Fully client-side (localStorage) —
+// deliberately no new backend endpoint, since Zyntra's serverless
+// function count is already at Vercel's Hobby-plan cap.
+// ==========================================================
+
+const BUILTIN_PERSONAS = [
+    { id: "builtin-assistant", name: "Assistant", emoji: "🤖", instructions: "", builtin: true },
+    { id: "builtin-coding", name: "Coding Mentor", emoji: "🧑‍💻", instructions: "You are a patient, encouraging coding mentor. Explain concepts clearly with small examples, point out mistakes gently, and encourage best practices without being condescending.", builtin: true },
+    { id: "builtin-study", name: "Study Buddy", emoji: "📚", instructions: "You are a supportive study buddy. Break topics into simple, digestible steps, use analogies, quiz the user occasionally to check understanding, and stay encouraging even when they get things wrong.", builtin: true },
+    { id: "builtin-writer", name: "Creative Writer", emoji: "✍️", instructions: "You are an imaginative creative writing collaborator. Be vivid and expressive, offer creative alternatives, and help develop ideas rather than just correcting them.", builtin: true },
+    { id: "builtin-business", name: "Business Advisor", emoji: "💼", instructions: "You are a pragmatic business advisor. Be direct and specific, focus on actionable next steps, and think in terms of cost, risk, and real-world tradeoffs rather than abstract theory.", builtin: true }
+];
+
+function getPersonas(){
+    try{
+        const custom = JSON.parse(localStorage.getItem("zyntra-personas") || "[]");
+        return [...BUILTIN_PERSONAS, ...custom];
+    }catch{
+        return BUILTIN_PERSONAS;
+    }
+}
+
+function getCustomPersonas(){
+    try{
+        return JSON.parse(localStorage.getItem("zyntra-personas") || "[]");
+    }catch{
+        return [];
+    }
+}
+
+function saveCustomPersonas(list){
+    localStorage.setItem("zyntra-personas", JSON.stringify(list));
+}
+
+function getActivePersonaId(){
+    return localStorage.getItem("zyntra-active-persona") || "builtin-assistant";
+}
+
+function setActivePersonaId(id){
+    localStorage.setItem("zyntra-active-persona", id);
+    updatePersonaPill();
+}
+
+function updatePersonaPill(){
+    const persona = getPersonas().find(p => p.id === getActivePersonaId()) || BUILTIN_PERSONAS[0];
+    const emojiEl = document.getElementById("personaPillEmoji");
+    const nameEl = document.getElementById("personaPillName");
+    if(emojiEl) emojiEl.textContent = persona.emoji || "🤖";
+    if(nameEl) nameEl.textContent = persona.name;
+}
+
+function renderPersonaList(){
+    const list = document.getElementById("personaList");
+    if(!list) return;
+    list.innerHTML = "";
+    const activeId = getActivePersonaId();
+
+    getPersonas().forEach(persona => {
+        const row = document.createElement("div");
+        row.className = "persona-row" + (persona.id === activeId ? " active" : "");
+
+        const info = document.createElement("div");
+        info.className = "persona-row-info";
+        info.innerHTML = `<span class="persona-row-emoji">${persona.emoji || "🤖"}</span><span class="persona-row-name">${persona.name}</span>`;
+        info.addEventListener("click", () => {
+            setActivePersonaId(persona.id);
+            renderPersonaList();
+            closeModal("personaModal");
+        });
+        row.appendChild(info);
+
+        if(!persona.builtin){
+            const editBtn = document.createElement("button");
+            editBtn.className = "persona-row-edit";
+            editBtn.textContent = "✎";
+            editBtn.title = "Edit";
+            editBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                showPersonaForm(persona);
+            });
+            row.appendChild(editBtn);
+
+            const delBtn = document.createElement("button");
+            delBtn.className = "persona-row-delete";
+            delBtn.textContent = "🗑";
+            delBtn.title = "Delete";
+            delBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const remaining = getCustomPersonas().filter(p => p.id !== persona.id);
+                saveCustomPersonas(remaining);
+                if(activeId === persona.id) setActivePersonaId("builtin-assistant");
+                renderPersonaList();
+            });
+            row.appendChild(delBtn);
+        }
+
+        list.appendChild(row);
+    });
+}
+
+let personaEditingId = null;
+
+function showPersonaForm(persona){
+    personaEditingId = persona ? persona.id : null;
+    document.getElementById("personaFormName").value = persona ? persona.name : "";
+    document.getElementById("personaFormEmoji").value = persona ? persona.emoji : "";
+    document.getElementById("personaFormInstructions").value = persona ? persona.instructions : "";
+    document.getElementById("personaCreateForm").style.display = "flex";
+    document.getElementById("personaAddNewBtn").style.display = "none";
+}
+
+function hidePersonaForm(){
+    personaEditingId = null;
+    document.getElementById("personaCreateForm").style.display = "none";
+    document.getElementById("personaAddNewBtn").style.display = "block";
+}
+
+document.getElementById("personaPillBtn")?.addEventListener("click", () => {
+    renderPersonaList();
+    hidePersonaForm();
+    openModal("personaModal");
+});
+document.getElementById("personaModalClose")?.addEventListener("click", () => closeModal("personaModal"));
+document.getElementById("personaAddNewBtn")?.addEventListener("click", () => showPersonaForm(null));
+document.getElementById("personaFormCancelBtn")?.addEventListener("click", hidePersonaForm);
+
+document.getElementById("personaFormSaveBtn")?.addEventListener("click", () => {
+    const name = document.getElementById("personaFormName").value.trim();
+    const emoji = document.getElementById("personaFormEmoji").value.trim() || "🤖";
+    const instructions = document.getElementById("personaFormInstructions").value.trim();
+    if(!name || !instructions){
+        alert("Give it a name and some instructions for how it should behave.");
+        return;
+    }
+    const custom = getCustomPersonas();
+    if(personaEditingId){
+        const idx = custom.findIndex(p => p.id === personaEditingId);
+        if(idx !== -1) custom[idx] = { ...custom[idx], name, emoji, instructions };
+    } else {
+        custom.push({ id: "persona-" + Date.now(), name, emoji, instructions, builtin: false });
+    }
+    saveCustomPersonas(custom);
+    hidePersonaForm();
+    renderPersonaList();
+    updatePersonaPill();
+});
+
+updatePersonaPill();
 
 const AGENT_STEP_LABELS = {
     web_search: { icon: "🔍", label: "Searching the web" },
