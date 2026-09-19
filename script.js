@@ -68,6 +68,7 @@ function buildFileCardHTML(block){
                 <div class="file-card-preview-top">
                     <span>${block.filename}</span>
                     <button class="filecard-copy-btn" data-code="${encoded}">📋 Copy</button>
+                    ${isPreviewableCode(block) ? `<button class="filecard-publish-btn" data-code="${encoded}">🚀 Publish</button>` : ""}
                 </div>
                 <pre><code>${escapeForDisplay(block.code)}</code></pre>
             </div>
@@ -92,7 +93,6 @@ function ensureCodePreviewModal(){
                 <span class="tag" style="margin:0;">LIVE PREVIEW</span>
                 <div class="code-preview-header-actions">
                     <button type="button" class="code-preview-publish" title="Publish a live public link">🚀 Publish</button>
-                    <button type="button" class="code-preview-newtab" title="Quick local preview — a temporary link only you can open, not shareable">↗</button>
                     <button type="button" class="code-preview-close" title="Close">✕</button>
                 </div>
             </div>
@@ -136,14 +136,6 @@ function openCodePreview(code){
         glowBorder.classList.remove("loading");
     };
     iframe.srcdoc = code;
-
-    const newTabBtn = modal.querySelector(".code-preview-newtab");
-    newTabBtn.onclick = () => {
-        const blob = new Blob([code], { type: "text/html" });
-        const url = URL.createObjectURL(blob);
-        window.open(url, "_blank");
-        setTimeout(() => URL.revokeObjectURL(url), 60000);
-    };
 
     const publishResult = modal.querySelector("#codePreviewPublishResult");
     publishResult.style.display = "none";
@@ -251,6 +243,20 @@ document.addEventListener("click", (e) => {
                 setTimeout(() => { copyBtn.textContent = original; }, 1500);
             });
         }catch(err){}
+        return;
+    }
+
+    const publishBtn = e.target.closest(".filecard-publish-btn");
+    if(publishBtn){
+        try{
+            const code = decodeURIComponent(escape(atob(publishBtn.dataset.code)));
+            openCodePreview(code);
+            // Same modal, same flow — just also reachable from the inline
+            // card view, not only from the ▶ live-preview popup.
+            document.querySelector("#codePreviewModal .code-preview-publish")?.click();
+        }catch(err){
+            alert("Could not open publishing.");
+        }
         return;
     }
 
@@ -3864,8 +3870,10 @@ function resetChatView(){
     dataAnalysisDataset = null;
 }function updateDeleteChatBtnVisibility(){
     const btn = document.getElementById("deleteChatBtn");
-    if(!btn) return;
-    btn.style.display = (currentSessionId && isLoggedIn()) ? "flex" : "none";
+    const shareBtn = document.getElementById("shareChatBtn");
+    const visible = (currentSessionId && isLoggedIn()) ? "flex" : "none";
+    if(btn) btn.style.display = visible;
+    if(shareBtn) shareBtn.style.display = visible;
 }
 
 document.getElementById("deleteChatBtn")?.addEventListener("click", () => {
@@ -3877,6 +3885,109 @@ document.getElementById("deleteChatBtn")?.addEventListener("click", () => {
         () => deleteChatSession(idToDelete)
     );
 });
+
+function ensureShareResultModal(){
+    let modal = document.getElementById("shareResultModal");
+    if(modal) return modal;
+
+    modal = document.createElement("div");
+    modal.id = "shareResultModal";
+    modal.className = "modal-overlay";
+    modal.innerHTML = `
+        <div class="modal-box" style="max-width:440px;">
+            <h3 style="margin:0 0 14px;">🔗 Chat shared!</h3>
+            <p style="margin:0 0 14px;color:var(--text-2);font-size:13.5px;">Anyone with this link can view this conversation — no sign-in needed.</p>
+            <div class="share-result-row">
+                <span class="share-result-url" id="shareResultUrl"></span>
+                <button type="button" class="share-result-copy" id="shareResultCopyBtn">📋 Copy</button>
+            </div>
+            <button type="button" class="modal-close-btn" id="shareResultCloseBtn" style="margin-top:16px;width:100%;">Done</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector("#shareResultCloseBtn").addEventListener("click", () => closeModal("shareResultModal"));
+    modal.addEventListener("click", (e) => { if(e.target === modal) closeModal("shareResultModal"); });
+    return modal;
+}
+
+document.getElementById("shareChatBtn")?.addEventListener("click", async () => {
+    if(!currentSessionId || !isLoggedIn()) return;
+    const btn = document.getElementById("shareChatBtn");
+    const original = btn.textContent;
+    btn.textContent = "…";
+    try{
+        const cleanMessages = chatHistory
+            .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim());
+        if(cleanMessages.length === 0){
+            alert("Nothing in this chat to share yet.");
+            return;
+        }
+        const session = getSessions().find(s => s.id === currentSessionId);
+        const idToken = await activeAuth().currentUser.getIdToken();
+        const res = await fetch("/api/share-chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: JSON.stringify({ messages: cleanMessages, title: session?.title || "A Zyntra AI conversation" })
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.error || "Could not share this chat.");
+
+        const modal = ensureShareResultModal();
+        modal.querySelector("#shareResultUrl").textContent = data.url;
+        modal.querySelector("#shareResultCopyBtn").onclick = () => {
+            navigator.clipboard.writeText(data.url);
+            const copyBtn = modal.querySelector("#shareResultCopyBtn");
+            copyBtn.textContent = "✅ Copied";
+            setTimeout(() => { copyBtn.textContent = "📋 Copy"; }, 1500);
+        };
+        openModal("shareResultModal");
+    }catch(err){
+        alert(err.message || "Could not share this chat. Please try again.");
+    }finally{
+        btn.textContent = original;
+    }
+});
+
+async function loadSharedChat(id){
+    showPageView("share");
+    const container = document.getElementById("shareViewMessages");
+    const titleEl = document.getElementById("shareViewTitle");
+    container.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;">Loading…</p>`;
+    try{
+        // Same file as the POST that creates a share — one function
+        // handles both GET and POST to save a Vercel function slot.
+        const res = await fetch(`/api/share-chat?id=${encodeURIComponent(id)}`);
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.error || "This shared chat doesn't exist or was removed.");
+
+        titleEl.textContent = data.title;
+        container.innerHTML = "";
+        data.messages.forEach(msg => {
+            if(msg.role === "user"){
+                const div = document.createElement("div");
+                div.className = "user-message";
+                div.textContent = msg.content;
+                container.appendChild(div);
+            } else {
+                const div = document.createElement("div");
+                div.className = "ai-message done";
+                const avatar = document.createElement("img");
+                avatar.src = "/favicon.png";
+                avatar.alt = "";
+                avatar.className = "ai-message-avatar";
+                const content = document.createElement("div");
+                content.className = "ai-message-content";
+                content.innerHTML = formatAIText(msg.content);
+                div.appendChild(avatar);
+                div.appendChild(content);
+                container.appendChild(div);
+            }
+        });
+    }catch(err){
+        titleEl.textContent = "Not found";
+        container.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;">${err.message}</p>`;
+    }
+}
 
 document.getElementById("newChatBtn")?.addEventListener("click", () => {
     currentProjectId = null;
@@ -6501,6 +6612,10 @@ function applyRouteFromPath(){
     const slug = parts[0] || "";
     const subId = parts[1] || null;
 
+    if(slug === "share" && subId){
+        loadSharedChat(subId);
+        return;
+    }
     if(slug === "chat" && subId){
         // Deep link to one specific conversation, like /chat/<id>.
         if(!openSessionById(subId)){
