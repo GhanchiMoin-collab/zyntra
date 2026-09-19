@@ -26,7 +26,7 @@ async function handleCreate(req, res) {
   const decoded = await getAdminAuth().verifyIdToken(idToken);
   const uid = decoded.uid;
 
-  const { messages, title } = req.body || {};
+  const { messages, title, makePublic } = req.body || {};
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: "Nothing to share yet." });
   }
@@ -56,9 +56,14 @@ async function handleCreate(req, res) {
     return res.status(500).json({ error: "Couldn't generate a free link. Please try again." });
   }
 
+  const firstUserMsg = cleanMessages.find(m => m.role === "user");
+  const preview = firstUserMsg ? firstUserMsg.content.slice(0, 140) : "";
+
   await ref.set({
     messages: cleanMessages,
     title: (typeof title === "string" && title.trim()) ? title.trim().slice(0, 120) : "A Zyntra AI conversation",
+    preview,
+    public: !!makePublic,
     uid,
     createdAt: new Date().toISOString()
   });
@@ -88,10 +93,41 @@ async function handleFetch(req, res) {
   });
 }
 
+// Powers the /discover page — recent conversations people explicitly
+// chose to feature publicly. Deliberately just a single-field equality
+// filter (no orderBy on a different field in the query itself) so this
+// never needs a manual Firestore composite index — sorting by recency
+// happens here in JS after the fetch instead.
+async function handleList(req, res) {
+  const snap = await getAdminDb().collection("sharedChats")
+    .where("public", "==", true)
+    .limit(200)
+    .get();
+
+  const items = snap.docs
+    .map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        title: data.title || "A Zyntra AI conversation",
+        preview: data.preview || "",
+        createdAt: data.createdAt || ""
+      };
+    })
+    .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))
+    .slice(0, 30);
+
+  res.setHeader("Cache-Control", "public, max-age=120");
+  return res.status(200).json({ ok: true, items });
+}
+
 export default async function handler(req, res) {
   try {
     if (req.method === "POST") return await handleCreate(req, res);
-    if (req.method === "GET") return await handleFetch(req, res);
+    if (req.method === "GET") {
+      if (req.query?.list !== undefined) return await handleList(req, res);
+      return await handleFetch(req, res);
+    }
     return res.status(405).json({ error: "Method not allowed" });
   } catch (error) {
     console.error("share-chat error:", error);
