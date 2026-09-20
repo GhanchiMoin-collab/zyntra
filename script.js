@@ -1209,47 +1209,6 @@ document.getElementById("aboutBackBtn")?.addEventListener("click", () => {
     navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
 });
 
-// ---------- Discover page ----------
-
-document.getElementById("discoverBtn")?.addEventListener("click", e => {
-    e.preventDefault();
-    showPageView("discover");
-    setActiveNav("discover");
-    navigateToRoute("discover");
-    loadDiscoverList();
-    closeSidebarMobile();
-});
-
-async function loadDiscoverList(){
-    const list = document.getElementById("discoverList");
-    if(!list) return;
-    list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;grid-column:1/-1;">Loading…</p>`;
-    try{
-        const res = await fetch("/api/share-chat?list=1");
-        const data = await res.json();
-        if(!res.ok) throw new Error(data.error || "Could not load Discover.");
-
-        if(!data.items || data.items.length === 0){
-            list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;grid-column:1/-1;">No public conversations yet — be the first to share one!</p>`;
-            return;
-        }
-
-        list.innerHTML = "";
-        data.items.forEach(item => {
-            const card = document.createElement("a");
-            card.href = `/share/${item.id}`;
-            card.className = "discover-card";
-            card.innerHTML = `
-                <p class="discover-card-title">${item.title}</p>
-                <p class="discover-card-preview">${item.preview || ""}</p>
-            `;
-            list.appendChild(card);
-        });
-    }catch(err){
-        list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;grid-column:1/-1;">${err.message}</p>`;
-    }
-}
-
 // ---------- Privacy Policy page ----------
 
 document.getElementById("privacyBtn")?.addEventListener("click", e => {
@@ -2429,6 +2388,10 @@ async function pullCloudToLocal(){
             if(Array.isArray(data.memories)) localStorage.setItem("zyntra-memories", JSON.stringify(data.memories));
             if(data.plugins) localStorage.setItem("zyntra-plugins", JSON.stringify(data.plugins));
             if(Array.isArray(data.scheduledTasks)) localStorage.setItem("zyntra-scheduled", JSON.stringify(data.scheduledTasks));
+            if(Array.isArray(data.notifications)){
+                localStorage.setItem("zyntra-notifications", JSON.stringify(data.notifications));
+                updateNotifBadge();
+            }
         } else {
             // Brand new account in Firestore — seed the cloud with
             // whatever this browser already has (e.g. a first chat sent
@@ -3957,34 +3920,8 @@ function ensureShareResultModal(){
     return modal;
 }
 
-function ensureShareConfirmModal(){
-    let modal = document.getElementById("shareConfirmModal");
-    if(modal) return modal;
-
-    modal = document.createElement("div");
-    modal.id = "shareConfirmModal";
-    modal.className = "modal-overlay";
-    modal.innerHTML = `
-        <div class="modal-box" style="max-width:440px;">
-            <h3 style="margin:0 0 14px;">🔗 Share this chat</h3>
-            <p style="margin:0 0 14px;color:var(--text-2);font-size:13.5px;">Anyone with the link can view it — no sign-in needed.</p>
-            <label class="share-public-checkbox">
-                <input type="checkbox" id="sharePublicCheckbox">
-                <span>🌐 Also feature this on the public Discover page</span>
-            </label>
-            <div style="display:flex;gap:8px;margin-top:16px;">
-                <button type="button" class="persona-form-save" id="shareConfirmGoBtn" style="flex:1;">Share</button>
-                <button type="button" class="persona-form-cancel" id="shareConfirmCancelBtn">Cancel</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    modal.querySelector("#shareConfirmCancelBtn").addEventListener("click", () => closeModal("shareConfirmModal"));
-    modal.addEventListener("click", (e) => { if(e.target === modal) closeModal("shareConfirmModal"); });
-    return modal;
-}
-
-async function doShareChat(makePublic){
+document.getElementById("shareChatBtn")?.addEventListener("click", async () => {
+    if(!currentSessionId || !isLoggedIn()) return;
     const btn = document.getElementById("shareChatBtn");
     const original = btn.textContent;
     btn.textContent = "…";
@@ -4000,7 +3937,7 @@ async function doShareChat(makePublic){
         const res = await fetch("/api/share-chat", {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
-            body: JSON.stringify({ messages: cleanMessages, title: session?.title || "A Zyntra AI conversation", makePublic })
+            body: JSON.stringify({ messages: cleanMessages, title: session?.title || "A Zyntra AI conversation" })
         });
         const data = await res.json();
         if(!res.ok) throw new Error(data.error || "Could not share this chat.");
@@ -4019,18 +3956,6 @@ async function doShareChat(makePublic){
     }finally{
         btn.textContent = original;
     }
-}
-
-document.getElementById("shareChatBtn")?.addEventListener("click", () => {
-    if(!currentSessionId || !isLoggedIn()) return;
-    const modal = ensureShareConfirmModal();
-    modal.querySelector("#sharePublicCheckbox").checked = false;
-    modal.querySelector("#shareConfirmGoBtn").onclick = () => {
-        const makePublic = modal.querySelector("#sharePublicCheckbox").checked;
-        closeModal("shareConfirmModal");
-        doShareChat(makePublic);
-    };
-    openModal("shareConfirmModal");
 });
 
 async function loadSharedChat(id){
@@ -5185,6 +5110,123 @@ document.getElementById("personaFormSaveBtn")?.addEventListener("click", () => {
 });
 
 updatePersonaPill();
+
+// ==========================================================
+// Notifications inbox — bell icon with unread badge. Notifications
+// themselves are written server-side (Admin SDK, bypasses rules) by
+// api/run-scheduled.js (a scheduled task finished) and api/share-project.js
+// (added to a project); the frontend only ever reads them and writes
+// back read/cleared state, riding the same per-user Firestore doc the
+// app already syncs everything else through (getSessions/getMemories/
+// etc.) — no new backend function needed.
+// ==========================================================
+
+function getNotifications(){
+    try{
+        return JSON.parse(localStorage.getItem("zyntra-notifications") || "[]");
+    }catch{
+        return [];
+    }
+}
+
+function saveNotificationsLocal(list){
+    localStorage.setItem("zyntra-notifications", JSON.stringify(list));
+    updateNotifBadge();
+}
+
+function updateNotifBadge(){
+    const badge = document.getElementById("notifBellBadge");
+    if(!badge) return;
+    const unread = getNotifications().filter(n => !n.read).length;
+    if(unread > 0){
+        badge.textContent = unread > 9 ? "9+" : String(unread);
+        badge.style.display = "flex";
+    } else {
+        badge.style.display = "none";
+    }
+}
+
+async function syncNotificationsToCloud(list){
+    const ref = zyntraUserDocRef();
+    if(!ref) return;
+    try{
+        await ref.set({ notifications: list }, { merge: true });
+    }catch(err){
+        console.error("Notification sync failed:", err);
+    }
+}
+
+function renderNotifPanel(){
+    const list = document.getElementById("notifPanelList");
+    if(!list) return;
+    const notifs = [...getNotifications()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if(notifs.length === 0){
+        list.innerHTML = `<p style="text-align:center;color:var(--text-3);font-size:13px;padding:24px 0;">No notifications yet.</p>`;
+        return;
+    }
+    list.innerHTML = "";
+    notifs.forEach(n => {
+        const row = document.createElement(n.link ? "a" : "div");
+        if(n.link) row.href = n.link;
+        row.className = "notif-row" + (n.read ? "" : " unread");
+        row.innerHTML = `
+            <p class="notif-row-title">${n.title || "Notification"}</p>
+            <p class="notif-row-message">${n.message || ""}</p>
+        `;
+        row.addEventListener("click", () => {
+            if(!n.read){
+                const updated = getNotifications().map(x => x.id === n.id ? { ...x, read: true } : x);
+                saveNotificationsLocal(updated);
+                syncNotificationsToCloud(updated);
+                row.classList.remove("unread");
+            }
+        });
+        list.appendChild(row);
+    });
+}
+
+function positionNotifPanel(){
+    const panel = document.getElementById("notifPanel");
+    const btn = document.getElementById("notifBellBtn");
+    if(!panel || !btn) return;
+    const rect = btn.getBoundingClientRect();
+    panel.style.top = (rect.bottom + 8) + "px";
+    panel.style.left = Math.max(8, rect.right - 320) + "px";
+}
+
+document.getElementById("notifBellBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const panel = document.getElementById("notifPanel");
+    const isOpen = panel.classList.contains("open");
+    if(isOpen){
+        panel.classList.remove("open");
+        return;
+    }
+    positionNotifPanel();
+    renderNotifPanel();
+    panel.classList.add("open");
+});
+
+document.addEventListener("click", (e) => {
+    const panel = document.getElementById("notifPanel");
+    if(!panel || !panel.classList.contains("open")) return;
+    if(!e.target.closest("#notifPanel") && !e.target.closest("#notifBellBtn")){
+        panel.classList.remove("open");
+    }
+});
+
+document.getElementById("notifClearAllBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    saveNotificationsLocal([]);
+    syncNotificationsToCloud([]);
+    renderNotifPanel();
+});
+
+updateNotifBadge();
+
+setInterval(() => {
+    if(isLoggedIn()) pullCloudToLocal();
+}, 5 * 60 * 1000);
 
 const AGENT_STEP_LABELS = {
     web_search: { icon: "🔍", label: "Searching the web" },
@@ -6888,12 +6930,6 @@ function applyRouteFromPath(){
         showPageView("about");
         setActiveNav("about");
         setRouteMeta("about");
-        return;
-    }
-    if(slug === "discover"){
-        showPageView("discover");
-        loadDiscoverList();
-        setRouteMeta("discover");
         return;
     }
     if(slug === "privacy"){
