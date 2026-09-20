@@ -1305,6 +1305,82 @@ async function loadDiscoverList(){
     }
 }
 
+// ---------- My Shares (manage/delete) ----------
+
+document.getElementById("mySharesBtn")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if(!isLoggedIn()){
+        alert("Sign in to see your shared chats.");
+        return;
+    }
+    closeSidebarMobile();
+    openModal("mySharesModal");
+    await loadMyShares();
+});
+
+document.getElementById("mySharesModalClose")?.addEventListener("click", () => closeModal("mySharesModal"));
+
+async function loadMyShares(){
+    const list = document.getElementById("mySharesList");
+    if(!list) return;
+    list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:24px 0;">Loading…</p>`;
+    try{
+        const idToken = await activeAuth().currentUser.getIdToken();
+        const res = await fetch("/api/share-chat?mine=1", {
+            headers: { "Authorization": "Bearer " + idToken }
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.error || "Could not load your shares.");
+
+        if(!data.items || data.items.length === 0){
+            list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:24px 0;">You haven't shared any chats yet.</p>`;
+            return;
+        }
+
+        list.innerHTML = "";
+        data.items.forEach(item => {
+            const row = document.createElement("div");
+            row.className = "my-share-row";
+            row.innerHTML = `
+                <div class="my-share-info">
+                    <p class="my-share-title">${item.title}</p>
+                    <p class="my-share-meta">${item.public ? "🌐 Public (on Discover)" : "🔒 Private link only"}</p>
+                </div>
+                <button type="button" class="my-share-copy" title="Copy link">📋</button>
+                <button type="button" class="my-share-delete" title="Delete">🗑</button>
+            `;
+            row.querySelector(".my-share-copy").addEventListener("click", () => {
+                const url = `${window.location.origin}/share/${item.id}`;
+                navigator.clipboard.writeText(url);
+                const btn = row.querySelector(".my-share-copy");
+                btn.textContent = "✅";
+                setTimeout(() => { btn.textContent = "📋"; }, 1200);
+            });
+            row.querySelector(".my-share-delete").addEventListener("click", async () => {
+                if(!confirm(`Delete "${item.title}"? This can't be undone.`)) return;
+                try{
+                    const idToken = await activeAuth().currentUser.getIdToken();
+                    const delRes = await fetch(`/api/share-chat?id=${encodeURIComponent(item.id)}`, {
+                        method: "DELETE",
+                        headers: { "Authorization": "Bearer " + idToken }
+                    });
+                    const delData = await delRes.json();
+                    if(!delRes.ok) throw new Error(delData.error || "Could not delete this share.");
+                    row.remove();
+                    if(list.children.length === 0){
+                        list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:24px 0;">You haven't shared any chats yet.</p>`;
+                    }
+                }catch(err){
+                    alert(err.message || "Could not delete this share.");
+                }
+            });
+            list.appendChild(row);
+        });
+    }catch(err){
+        list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:24px 0;">${err.message}</p>`;
+    }
+}
+
 // ---------- Privacy Policy page ----------
 
 document.getElementById("privacyBtn")?.addEventListener("click", e => {
@@ -4008,10 +4084,16 @@ function ensureShareResultModal(){
                 <button type="button" class="share-result-copy" id="shareResultCopyBtn">📋 Copy</button>
             </div>
             <button type="button" class="modal-close-btn" id="shareResultCloseBtn" style="margin-top:16px;width:100%;">Done</button>
+            <button type="button" id="shareResultManageBtn" style="margin-top:10px;width:100%;background:none;border:none;color:var(--text-3);font-size:12px;cursor:pointer;">Manage your shared chats →</button>
         </div>
     `;
     document.body.appendChild(modal);
     modal.querySelector("#shareResultCloseBtn").addEventListener("click", () => closeModal("shareResultModal"));
+    modal.querySelector("#shareResultManageBtn").addEventListener("click", async () => {
+        closeModal("shareResultModal");
+        openModal("mySharesModal");
+        await loadMyShares();
+    });
     modal.addEventListener("click", (e) => { if(e.target === modal) closeModal("shareResultModal"); });
     return modal;
 }
