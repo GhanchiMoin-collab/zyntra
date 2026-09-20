@@ -8568,70 +8568,117 @@ padding:12px;
     }
 }
 
-/* Fix: account menu opening "behind" the sidebar on mobile — the mobile
-   sidebar panel uses z-index:100 to slide in above everything, but the
-   account menu (and its backdrop) were set lower (60/55), so on mobile
-   specifically the menu rendered underneath the sidebar panel itself.
-   Desktop never showed this since the sidebar has no such z-index there. */
-.account-menu-backdrop{
-    z-index:105;
-}
-.account-menu{
-    z-index:110;
-}
-
 /* ==========================================================
-   Large-screen (TV) and very-small-screen (smartwatch) handling
+   Notifications inbox
    ========================================================== */
 
-/* Every full page (Plugins, Projects, Settings, About, etc.) now stays
-   centered and reasonably narrow instead of stretching edge-to-edge on
-   a huge display — same principle the chat area already used.
-   #shareView/#discoverView keep their own narrower max-width (set
-   elsewhere) since id rules already win over this either way. */
-.page-view{
-    max-width:1100px;
-    width:100%;
-    margin:0 auto;
+.notif-bell-btn{
+    position:relative;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:34px;
+    height:34px;
+    border:1px solid var(--glass-border);
+    background:var(--glass-strong);
+    border-radius:50%;
+    font-size:15px;
+    cursor:pointer;
 }
 
-/* Very large / TV-scale displays: everything above is still correct
-   layout-wise, but base text/controls are sized for a screen viewed
-   from ~2 feet away, not a couch several feet from a TV. Bump the base
-   scale a little and give the chat column slightly more breathing room.
-   Note: real smart-TV browsers vary a lot between brands (Tizen, webOS,
-   Android TV, etc.) — this is a best-effort readability pass based on
-   viewport width, not something tested on an actual TV. */
-@media (min-width: 1600px){
-    html{
-        font-size:112%;
-    }
-    .chat-messages,
-    .chat-input-inner{
-        max-width:920px;
-    }
+.notif-bell-btn:hover{
+    background:var(--glass-hover);
 }
 
-/* Extremely narrow screens (smartwatch-scale browsers, where they
-   exist) — strip down harder than the existing 420px mobile breakpoint
-   so the layout stays usable rather than cramped. Same caveat: this is
-   a best-effort pass, not verified on real watch hardware, since
-   full-browser smartwatches are rare and their viewport reporting
-   varies by device. */
-@media (max-width: 260px){
-    .chat-area{
-        padding:0 8px;
-    }
-    .chat-input-bar{
-        padding:14px 2px 0;
-    }
-    .persona-pill span:last-child{
-        display:none;
-    }
-    .topbar{
-        gap:6px;
-    }
-    .sidebar{
-        max-width:92vw;
-    }
+.notif-bell-badge{
+    position:absolute;
+    top:-4px;
+    right:-4px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-width:16px;
+    height:16px;
+    padding:0 3px;
+    border-radius:999px;
+    background:#ff4757;
+    color:#fff;
+    font-size:10px;
+    font-weight:700;
+}
+
+.notif-panel{
+    display:none;
+    position:fixed;
+    width:320px;
+    max-width:90vw;
+    max-height:420px;
+    overflow-y:auto;
+    background:#17182b;
+    border:1px solid var(--glass-border-strong);
+    border-radius:var(--r-lg);
+    box-shadow:0 16px 40px rgba(0,0,0,.5);
+    z-index:120;
+    padding:8px;
+}
+
+.notif-panel.open{
+    display:block;
+}
+
+.notif-panel-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:8px 8px 12px;
+    font-size:13px;
+    font-weight:700;
+    color:var(--text-1);
+    border-bottom:1px solid var(--glass-border);
+    margin-bottom:6px;
+}
+
+.notif-panel-header button{
+    background:none;
+    border:none;
+    color:var(--text-3);
+    font-size:12px;
+    font-weight:500;
+    cursor:pointer;
+}
+
+.notif-panel-header button:hover{
+    color:var(--text-1);
+}
+
+.notif-row{
+    display:block;
+    padding:10px 8px;
+    border-radius:var(--r-sm);
+    text-decoration:none;
+    cursor:pointer;
+}
+
+.notif-row:hover{
+    background:var(--glass-hover);
+}
+
+.notif-row.unread{
+    background:rgba(124,92,255,.1);
+}
+
+.notif-row-title{
+    margin:0 0 3px;
+    font-size:13px;
+    font-weight:700;
+    color:var(--text-1);
+}
+
+.notif-row-message{
+    margin:0;
+    font-size:12px;
+    color:var(--text-2);
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
 }
