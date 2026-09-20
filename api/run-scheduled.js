@@ -159,6 +159,7 @@ export default async function handler(req, res) {
       usersChecked++;
 
       let changed = false;
+      const notifications = Array.isArray(data.notifications) ? data.notifications : [];
       for (const task of tasks) {
         if (!isDue(task, now)) continue;
         try {
@@ -170,15 +171,27 @@ export default async function handler(req, res) {
           if (task.results.length > 10) task.results = task.results.slice(-10);
           task.lastRunAt = now;
           tasksRun++;
+
+          notifications.push({
+            id: `${task.id}-${now}`,
+            type: "scheduled",
+            title: "Scheduled task finished",
+            message: (task.prompt || "Your task").slice(0, 120),
+            read: false,
+            createdAt: now,
+            link: "/scheduled"
+          });
         } catch (err) {
           console.error(`Scheduled task failed (user ${userDoc.id}, task ${task.id}):`, err.message);
           tasksFailed++;
         }
         changed = true;
       }
+      // Keep the notifications list from growing unbounded over months.
+      const trimmedNotifications = notifications.slice(-50);
 
       if (changed) {
-        await userDoc.ref.update({ scheduledTasks: tasks });
+        await userDoc.ref.update({ scheduledTasks: tasks, notifications: trimmedNotifications });
       }
     }
 
