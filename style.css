@@ -8888,3 +8888,22 @@ padding:12px;
     background:rgba(255,100,100,.15);
     border-color:rgba(255,100,100,.4);
 }
+
+/* Small "My Shares" icon button inside the Discover page header */
+.my-shares-quick-btn{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:34px;
+    height:34px;
+    border-radius:50%;
+    border:1px solid var(--glass-border);
+    background:var(--glass-strong);
+    font-size:15px;
+    cursor:pointer;
+    flex-shrink:0;
+}
+
+.my-shares-quick-btn:hover{
+    background:var(--glass-hover);
+}
