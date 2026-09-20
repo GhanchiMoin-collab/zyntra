@@ -1307,7 +1307,7 @@ async function loadDiscoverList(){
 
 // ---------- My Shares (manage/delete) ----------
 
-document.getElementById("mySharesBtn")?.addEventListener("click", async (e) => {
+document.getElementById("mySharesQuickBtn")?.addEventListener("click", async (e) => {
     e.preventDefault();
     if(!isLoggedIn()){
         alert("Sign in to see your shared chats.");
