@@ -121,10 +121,76 @@ async function handleList(req, res) {
   return res.status(200).json({ ok: true, items });
 }
 
+async function requireAuth(req) {
+  const authHeader = req.headers.authorization || "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!idToken) return null;
+  try {
+    return await getAdminAuth().verifyIdToken(idToken);
+  } catch {
+    return null;
+  }
+}
+
+// Powers a "My Shared Chats" management list — every share the signed-in
+// user has made, public or private, so they can find one to delete.
+// Same single-field-filter-then-sort-in-JS trick as handleList to avoid
+// needing a Firestore composite index.
+async function handleMine(req, res) {
+  const decoded = await requireAuth(req);
+  if (!decoded) return res.status(401).json({ error: "Sign in first." });
+
+  const snap = await getAdminDb().collection("sharedChats")
+    .where("uid", "==", decoded.uid)
+    .limit(200)
+    .get();
+
+  const items = snap.docs
+    .map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        title: data.title || "A Zyntra AI conversation",
+        preview: data.preview || "",
+        public: !!data.public,
+        createdAt: data.createdAt || ""
+      };
+    })
+    .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+
+  return res.status(200).json({ ok: true, items });
+}
+
+// Deletes a share — only the person who created it can remove it. Also
+// takes it off Discover automatically, since it's the same document.
+async function handleDelete(req, res) {
+  const decoded = await requireAuth(req);
+  if (!decoded) return res.status(401).json({ error: "Sign in first." });
+
+  const id = req.query?.id;
+  if (!id || typeof id !== "string") {
+    return res.status(400).json({ error: "Missing link." });
+  }
+
+  const ref = getAdminDb().collection("sharedChats").doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    return res.status(404).json({ error: "That share doesn't exist (maybe already deleted)." });
+  }
+  if (snap.data().uid !== decoded.uid) {
+    return res.status(403).json({ error: "You can only delete your own shared chats." });
+  }
+
+  await ref.delete();
+  return res.status(200).json({ ok: true });
+}
+
 export default async function handler(req, res) {
   try {
     if (req.method === "POST") return await handleCreate(req, res);
+    if (req.method === "DELETE") return await handleDelete(req, res);
     if (req.method === "GET") {
+      if (req.query?.mine !== undefined) return await handleMine(req, res);
       if (req.query?.list !== undefined) return await handleList(req, res);
       return await handleFetch(req, res);
     }
