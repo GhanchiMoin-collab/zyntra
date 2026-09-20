@@ -1375,7 +1375,8 @@ async function executeTool(name, argsJson, ctx) {
 
 // Pulls web_search results out of the running message list so the
 // frontend can show the user what was actually searched, same shape as
-// before (zyntra_sources: [{ title, url }]).
+// before (zyntra_sources: [{ title, url }]) plus a snippet for the
+// click-to-preview card.
 function extractSourcesFromToolMessages(messages, maxSources = 6) {
   const sources = [];
   for (const m of messages) {
@@ -1384,7 +1385,7 @@ function extractSourcesFromToolMessages(messages, maxSources = 6) {
     try { parsed = JSON.parse(m.content); } catch { continue; }
     if (Array.isArray(parsed?.results)) {
       for (const r of parsed.results) {
-        if (r?.url) sources.push({ title: r.title || r.url, url: r.url });
+        if (r?.url) sources.push({ title: r.title || r.url, url: r.url, snippet: r.snippet || "" });
       }
     }
   }
