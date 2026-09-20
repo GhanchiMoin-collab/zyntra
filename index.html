@@ -146,6 +146,7 @@
             <div class="sidebar-links">
                 <a href="#" id="aboutBtn">About</a>
                 <a href="#" id="discoverBtn">Discover</a>
+                <a href="#" id="mySharesBtn">My Shares</a>
                 <a href="#" id="contactBtn">Contact</a>
                 <a href="#privacy" id="privacyBtn">Privacy</a>
             </div>
@@ -446,9 +447,6 @@
                 <a href="/" class="share-view-cta">Try Zyntra AI free →</a>
             </div>
             <div class="share-view-messages" id="shareViewMessages"></div>
-            <div class="share-view-footer">
-                <a href="/" class="share-view-cta">Try Zyntra AI free →</a>
-            </div>
         </div>
 
         <div class="page-view" id="discoverView">
@@ -1050,6 +1048,17 @@
                 </div>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- ================= MY SHARES MODAL ================= -->
+<div class="modal-overlay" id="mySharesModal">
+    <div class="modal-box" style="max-width:520px;">
+        <button class="modal-close" id="mySharesModalClose">✕</button>
+        <span class="tag">MY SHARES</span>
+        <h2 style="margin:10px 0 4px;">Your shared chats</h2>
+        <p style="margin:0 0 18px;color:var(--text-2);font-size:13.5px;">Every conversation you've shared, public or private. Delete any of them here.</p>
+        <div id="mySharesList" class="my-shares-list"></div>
     </div>
 </div>
 
