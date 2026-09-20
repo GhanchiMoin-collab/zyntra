@@ -618,7 +618,6 @@ function buildSourcesRow(sources){
         const a = document.createElement("a");
         a.className = "source-chip";
         a.href = src.url;
-        a.target = "_blank";
         a.rel = "noopener noreferrer";
         a.title = src.url;
 
@@ -643,12 +642,68 @@ function buildSourcesRow(sources){
         textWrap.appendChild(host);
 
         a.appendChild(textWrap);
+        a.addEventListener("click", (e) => {
+            e.preventDefault();
+            toggleSourcePreview(a, src);
+        });
         list.appendChild(a);
     });
 
     wrap.appendChild(toggle);
     wrap.appendChild(list);
     return wrap;
+}
+
+function ensureSourcePreviewCard(){
+    let card = document.getElementById("sourcePreviewCard");
+    if(card) return card;
+    card = document.createElement("div");
+    card.id = "sourcePreviewCard";
+    card.className = "source-preview-card";
+    document.body.appendChild(card);
+    document.addEventListener("click", (e) => {
+        if(!card.classList.contains("open")) return;
+        if(!e.target.closest("#sourcePreviewCard") && !e.target.closest(".source-chip")){
+            card.classList.remove("open");
+        }
+    });
+    return card;
+}
+
+let sourcePreviewOpenFor = null;
+
+function toggleSourcePreview(chipEl, src){
+    const card = ensureSourcePreviewCard();
+
+    if(sourcePreviewOpenFor === chipEl && card.classList.contains("open")){
+        card.classList.remove("open");
+        sourcePreviewOpenFor = null;
+        return;
+    }
+
+    card.innerHTML = `
+        <div class="source-preview-head">
+            <img src="${faviconUrl(src.url)}" alt="" loading="lazy">
+            <span class="source-preview-host">${hostFromUrl(src.url)}</span>
+        </div>
+        <p class="source-preview-title">${src.title || hostFromUrl(src.url)}</p>
+        ${src.snippet ? `<p class="source-preview-snippet">${src.snippet}</p>` : ""}
+        <a href="${src.url}" target="_blank" rel="noopener noreferrer" class="source-preview-open">Open ↗</a>
+    `;
+
+    const rect = chipEl.getBoundingClientRect();
+    card.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 336)) + "px";
+    const spaceBelow = window.innerHeight - rect.bottom;
+    if(spaceBelow < 220){
+        card.style.top = "auto";
+        card.style.bottom = (window.innerHeight - rect.top + 8) + "px";
+    } else {
+        card.style.bottom = "auto";
+        card.style.top = (rect.bottom + 8) + "px";
+    }
+
+    card.classList.add("open");
+    sourcePreviewOpenFor = chipEl;
 }
 
 function stripForSpeech(text){
