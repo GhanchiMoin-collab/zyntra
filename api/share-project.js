@@ -60,6 +60,26 @@ export default async function handler(req, res) {
       memberEmails: [...(project.memberEmails || []), cleanEmail]
     });
 
+    // Let the invitee know — best-effort, doesn't block the invite itself
+    // if it fails for any reason.
+    try {
+      const inviteeRef = db.collection("users").doc(inviteeUser.uid);
+      const inviteeSnap = await inviteeRef.get();
+      const existing = Array.isArray(inviteeSnap.data()?.notifications) ? inviteeSnap.data().notifications : [];
+      const notifications = [...existing, {
+        id: `project-${projectId}-${Date.now()}`,
+        type: "project",
+        title: "Added to a project",
+        message: `You were added to "${project.name || "a project"}".`,
+        read: false,
+        createdAt: Date.now(),
+        link: "/projects"
+      }].slice(-50);
+      await inviteeRef.set({ notifications }, { merge: true });
+    } catch (err) {
+      console.error("Couldn't write project-invite notification:", err.message);
+    }
+
     return res.status(200).json({ ok: true, email: cleanEmail });
   } catch (error) {
     console.error("share-project error:", error);
