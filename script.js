@@ -977,9 +977,7 @@ const MSG_ICONS = {
     check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>',
     feedback: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"></path><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"></path></svg>',
     share: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>',
-    speaker: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>',
-    regenerate: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"></path><path d="M3 21v-5h5"></path></svg>',
-    edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>'
+    speaker: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>'
 };
 
 function addSpeakRepeatButton(container, text, lang){
@@ -1309,7 +1307,7 @@ async function loadDiscoverList(){
 
 // ---------- My Shares (manage/delete) ----------
 
-document.getElementById("mySharesBtn")?.addEventListener("click", async (e) => {
+document.getElementById("mySharesQuickBtn")?.addEventListener("click", async (e) => {
     e.preventDefault();
     if(!isLoggedIn()){
         alert("Sign in to see your shared chats.");
@@ -2769,24 +2767,18 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
         });
 });
 
-function isMobileDevice(){
-    return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-}
-
 document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
     clearSigninError();
     const provider = new firebase.auth.GoogleAuthProvider();
 
-    if(isMobileDevice()){
-        // Marks that a redirect sign-in is in flight, so if we come back
-        // with neither a user nor an error, we can tell the difference
-        // between "just a normal page load" and "the redirect silently
-        // lost its state" — and say something instead of going quiet.
-        sessionStorage.setItem("zyntra-redirect-pending", "1");
-        activeAuth().signInWithRedirect(provider);
-        return;
-    }
-
+    // Popup for everyone, mobile included. signInWithRedirect() relies on
+    // a cross-origin storage handshake with the authDomain
+    // (zyntra-98cad.firebaseapp.com, a different origin from the actual
+    // app on vercel.app) to carry sign-in state across the redirect —
+    // and modern Chrome/Firefox/Safari block that by default unless the
+    // app is hosted directly on Firebase Hosting. This is Firebase's own
+    // documented fix for exactly this setup (a custom/non-Firebase host):
+    // https://firebase.google.com/docs/auth/web/redirect-best-practices
     activeAuth().signInWithPopup(provider)
         .then(result => {
             finishSignin(result.user.email);
@@ -2796,37 +2788,6 @@ document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
             if(msg) showSigninError(msg);
         });
 });
-
-// Catch the result when returning from a mobile redirect sign-in
-const zyntraRedirectWasPending = sessionStorage.getItem("zyntra-redirect-pending") === "1";
-sessionStorage.removeItem("zyntra-redirect-pending");
-
-activeAuth().getRedirectResult()
-    .then(result => {
-        if(result && result.user){
-            finishSignin(result.user.email);
-        } else if(zyntraRedirectWasPending){
-            // A redirect sign-in was just attempted, but nothing came
-            // back — no user, no error either. This usually means the
-            // browser (often an embedded/in-app browser rather than
-            // Chrome/Safari directly) blocked the storage Firebase needs
-            // to carry sign-in state across the redirect. Say so plainly
-            // instead of silently reverting to Guest with no explanation.
-            console.error('Redirect sign-in returned no user and no error — likely blocked storage in an embedded browser.');
-            document.getElementById("signinContext").style.display = "none";
-            openModal("signinModal");
-            showSigninError("Sign-in didn't complete. If you're inside another app's built-in browser, try opening this site in Chrome or Safari directly and sign in again.");
-        }
-    })
-    .catch(err => {
-        console.error('Redirect sign-in error:', err);
-        const msg = firebaseErrorMessage(err.code, err.message);
-        if(msg){
-            document.getElementById("signinContext").style.display = "none";
-            openModal("signinModal");
-            showSigninError(msg);
-        }
-    });
 
 // currentSessionId must be declared before renderAuthNav() runs, since
 // renderAuthNav -> updateDeleteChatBtnVisibility reads it.
@@ -4854,52 +4815,6 @@ async function sendImageOrChatMessage(msg){
     }
 }
 
-function startEditingUserMessage(userDiv, p, originalText){
-    if(userDiv.querySelector(".user-msg-edit-box")) return; // already editing
-
-    const editBox = document.createElement("div");
-    editBox.className = "user-msg-edit-box";
-    editBox.innerHTML = `
-        <textarea class="user-msg-edit-textarea">${originalText.replace(/</g, "&lt;")}</textarea>
-        <div class="user-msg-edit-actions">
-            <button type="button" class="user-msg-edit-cancel">Cancel</button>
-            <button type="button" class="user-msg-edit-save">Save & resend</button>
-        </div>
-    `;
-    p.style.display = "none";
-    userDiv.querySelector(".user-msg-edit-btn").style.display = "none";
-    userDiv.appendChild(editBox);
-
-    const textarea = editBox.querySelector(".user-msg-edit-textarea");
-    textarea.focus();
-    textarea.selectionStart = textarea.value.length;
-
-    editBox.querySelector(".user-msg-edit-cancel").addEventListener("click", () => {
-        editBox.remove();
-        p.style.display = "";
-        userDiv.querySelector(".user-msg-edit-btn").style.display = "";
-    });
-
-    editBox.querySelector(".user-msg-edit-save").addEventListener("click", () => {
-        const newText = textarea.value.trim();
-        if(!newText) return;
-
-        const idx = parseInt(userDiv.dataset.historyIndex, 10);
-        if(!Number.isNaN(idx)) chatHistory.length = idx;
-
-        // Remove this message and everything after it from the visible
-        // chat — the conversation effectively rewinds to just before it.
-        let node = userDiv;
-        while(node){
-            const next = node.nextElementSibling;
-            node.remove();
-            node = next;
-        }
-
-        sendChatMessage(newText);
-    });
-}
-
 async function sendChatMessage(prefill){
     const msg = (prefill !== undefined ? prefill : userInput.value.trim());
     if(!msg && !attachedImage && !attachedDocument) return;
@@ -4941,19 +4856,11 @@ async function sendChatMessage(prefill){
         docChip.innerHTML = `<span>📄</span> ${attachedDocument.name}`;
         userDiv.appendChild(docChip);
     }
-    userDiv.dataset.historyIndex = String(chatHistory.length); // index this message will get once pushed below
     if(msg){
         const p = document.createElement("p");
         p.textContent = msg;
         p.style.margin = "0";
         userDiv.appendChild(p);
-
-        const editBtn = document.createElement("button");
-        editBtn.className = "user-msg-edit-btn";
-        editBtn.title = "Edit & resend";
-        editBtn.innerHTML = MSG_ICONS.edit;
-        editBtn.addEventListener("click", () => startEditingUserMessage(userDiv, p, msg));
-        userDiv.appendChild(editBtn);
     }
     const userTime = document.createElement("span");
     userTime.className = "msg-time";
@@ -5025,18 +4932,8 @@ async function sendChatMessage(prefill){
     document.getElementById("chatFileInput").value = "";
     renderAttachPreview();
 
-    await streamAssistantReply();
-}
-
-// Generates and streams one assistant reply into a new message bubble,
-// using whatever's currently in chatHistory. Shared by normal sending
-// and by Regenerate (which truncates chatHistory back to just after the
-// user's message, then calls this again instead of duplicating all this
-// streaming/UI logic).
-async function streamAssistantReply(){
     const loadingDiv = document.createElement("div");
     loadingDiv.className = "ai-message";
-    loadingDiv.dataset.historyIndex = String(chatHistory.length); // where this reply will land once pushed
     const aiAvatar = document.createElement("img");
     aiAvatar.src = "/favicon.png";
     aiAvatar.alt = "";
@@ -5097,8 +4994,7 @@ async function streamAssistantReply(){
             if(sources && sources.length){
                 aiContent.appendChild(buildSourcesRow(sources));
             }
-            const bar = addMessageActionBar(aiContent, accumulated);
-            addRegenerateButton(bar, loadingDiv);
+            addMessageActionBar(aiContent, accumulated);
             const aiTime = document.createElement("span");
             aiTime.className = "msg-time";
             aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -5112,34 +5008,6 @@ async function streamAssistantReply(){
         aiContent.textContent = friendlyErrorMessage(err);
     }
     chatAutoScroll();
-}
-
-// Truncates chatHistory + the DOM back to right after the user message
-// that led to this reply, then regenerates a fresh one in its place.
-async function regenerateFromMessage(aiMessageDiv){
-    const idx = parseInt(aiMessageDiv.dataset.historyIndex, 10);
-    if(Number.isNaN(idx)) return;
-
-    // Remove this reply and anything after it from the running history...
-    chatHistory.length = idx;
-    // ...and the matching DOM elements, so the chat visually rewinds too.
-    let node = aiMessageDiv;
-    while(node){
-        const next = node.nextElementSibling;
-        node.remove();
-        node = next;
-    }
-
-    await streamAssistantReply();
-}
-
-function addRegenerateButton(bar, aiMessageDiv){
-    const btn = document.createElement("button");
-    btn.className = "msg-action-btn";
-    btn.title = "Regenerate response";
-    btn.innerHTML = MSG_ICONS.regenerate || "🔄";
-    btn.addEventListener("click", () => regenerateFromMessage(aiMessageDiv));
-    bar.appendChild(btn);
 }
 
 document.getElementById("sendMessage").addEventListener("click", () => sendChatMessage());
