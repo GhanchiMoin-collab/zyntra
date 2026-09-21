@@ -8919,3 +8919,164 @@ padding:12px;
 .account-menu{
     z-index:110;
 }
+
+/* Fullscreen + Open-in-tab buttons in the code preview header — neutral
+   styling, deliberately distinct from Publish's accent color so they
+   don't get confused with each other the way they did before */
+.code-preview-fullscreen,
+.code-preview-newtab{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    border:1px solid var(--glass-border);
+    background:var(--glass-strong);
+    color:var(--text-1);
+    font-size:12.5px;
+    font-weight:500;
+    padding:6px 12px;
+    border-radius:var(--r-pill);
+    cursor:pointer;
+    white-space:nowrap;
+}
+
+.code-preview-fullscreen:hover,
+.code-preview-newtab:hover{
+    background:var(--glass-hover);
+}
+
+@media (max-width:640px){
+    .code-preview-fullscreen span,
+    .code-preview-newtab span,
+    .code-preview-publish span{
+        display:none;
+    }
+}
+
+/* ==========================================================
+   Regenerate response + Edit & resend
+   ========================================================== */
+
+.user-message{
+    position:relative;
+}
+
+.user-msg-edit-btn{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:22px;
+    height:22px;
+    border-radius:50%;
+    border:none;
+    background:rgba(0,0,0,.18);
+    color:#fff;
+    cursor:pointer;
+    opacity:0;
+    transition:opacity .15s ease;
+    position:absolute;
+    top:8px;
+    left:-30px;
+}
+
+.user-message:hover .user-msg-edit-btn{
+    opacity:.85;
+}
+
+.user-msg-edit-btn:hover{
+    opacity:1 !important;
+    background:rgba(0,0,0,.3);
+}
+
+.user-msg-edit-box{
+    margin-top:10px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+}
+
+.user-msg-edit-textarea{
+    width:100%;
+    min-height:60px;
+    background:rgba(0,0,0,.2);
+    border:1px solid rgba(255,255,255,.25);
+    border-radius:var(--r-sm);
+    color:#fff;
+    font-size:14px;
+    font-family:inherit;
+    padding:8px 10px;
+    resize:vertical;
+}
+
+.user-msg-edit-actions{
+    display:flex;
+    justify-content:flex-end;
+    gap:8px;
+}
+
+.user-msg-edit-cancel,
+.user-msg-edit-save{
+    font-size:12px;
+    font-weight:600;
+    padding:6px 12px;
+    border-radius:var(--r-pill);
+    cursor:pointer;
+    border:1px solid rgba(255,255,255,.3);
+}
+
+.user-msg-edit-cancel{
+    background:none;
+    color:#fff;
+}
+
+.user-msg-edit-save{
+    background:#fff;
+    color:var(--accent-solid);
+    border-color:#fff;
+}
+
+@media (max-width:760px){
+    .user-msg-edit-btn{
+        left:auto;
+        right:-4px;
+        top:-4px;
+        opacity:.85;
+    }
+}
+
+/* ==========================================================
+   Large-screen (TV) and very-small-screen (smartwatch) handling
+   ========================================================== */
+
+.page-view{
+    max-width:1100px;
+    width:100%;
+    margin:0 auto;
+}
+
+@media (min-width: 1600px){
+    html{
+        font-size:112%;
+    }
+    .chat-messages,
+    .chat-input-inner{
+        max-width:920px;
+    }
+}
+
+@media (max-width: 260px){
+    .chat-area{
+        padding:0 8px;
+    }
+    .chat-input-bar{
+        padding:14px 2px 0;
+    }
+    .persona-pill span:last-child{
+        display:none;
+    }
+    .topbar{
+        gap:6px;
+    }
+    .sidebar{
+        max-width:92vw;
+    }
+}
