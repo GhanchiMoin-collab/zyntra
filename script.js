@@ -3020,7 +3020,11 @@ function renderSearchChatsList(query){
     }
 
     const q = (query || "").trim().toLowerCase();
-    const sessions = getSessions().filter(s => !q || s.title.toLowerCase().includes(q));
+    const sessions = getSessions().filter(s => {
+        if(!q) return true;
+        if(s.title.toLowerCase().includes(q)) return true;
+        return (s.messages || []).some(m => (m.content || "").toLowerCase().includes(q));
+    });
 
     if(sessions.length === 0){
         list.innerHTML = q
@@ -3038,9 +3042,29 @@ function renderSearchChatsList(query){
         icon.className = "search-chats-row-icon";
         icon.textContent = SESSION_TYPE_ICONS[session.type] || SESSION_TYPE_ICONS.chat;
 
+        const textWrap = document.createElement("span");
+        textWrap.className = "search-chats-row-text";
+
         const title = document.createElement("span");
         title.className = "search-chats-row-title";
         title.textContent = session.title;
+        textWrap.appendChild(title);
+
+        // If the match wasn't in the title, show where it actually was —
+        // otherwise a hit deep in a long chat is invisible in the list.
+        if(q && !session.title.toLowerCase().includes(q)){
+            const hit = (session.messages || []).find(m => (m.content || "").toLowerCase().includes(q));
+            if(hit){
+                const lower = hit.content.toLowerCase();
+                const at = lower.indexOf(q);
+                const start = Math.max(0, at - 30);
+                const snippetText = (start > 0 ? "…" : "") + hit.content.slice(start, at + q.length + 40) + "…";
+                const snippet = document.createElement("span");
+                snippet.className = "search-chats-row-snippet";
+                snippet.textContent = snippetText;
+                textWrap.appendChild(snippet);
+            }
+        }
 
         const pinBtn = document.createElement("button");
         pinBtn.type = "button";
@@ -3077,7 +3101,7 @@ function renderSearchChatsList(query){
         });
 
         row.appendChild(icon);
-        row.appendChild(title);
+        row.appendChild(textWrap);
         row.appendChild(pinBtn);
         row.appendChild(deleteBtn);
         row.addEventListener("click", () => {
@@ -4037,9 +4061,11 @@ function resetChatView(){
 }function updateDeleteChatBtnVisibility(){
     const btn = document.getElementById("deleteChatBtn");
     const shareBtn = document.getElementById("shareChatBtn");
+    const exportBtn = document.getElementById("exportChatBtn");
     const visible = (currentSessionId && isLoggedIn()) ? "flex" : "none";
     if(btn) btn.style.display = visible;
     if(shareBtn) shareBtn.style.display = visible;
+    if(exportBtn) exportBtn.style.display = currentSessionId ? "flex" : "none";
 }
 
 document.getElementById("deleteChatBtn")?.addEventListener("click", () => {
@@ -4050,6 +4076,33 @@ document.getElementById("deleteChatBtn")?.addEventListener("click", () => {
         "Are you sure you want to delete this conversation? This can't be undone.",
         () => deleteChatSession(idToDelete)
     );
+});
+
+document.getElementById("exportChatBtn")?.addEventListener("click", () => {
+    const messages = chatHistory.filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim());
+    if(messages.length === 0){
+        alert("Nothing in this chat to export yet.");
+        return;
+    }
+
+    const session = getSessions().find(s => s.id === currentSessionId);
+    const title = session?.title || "Zyntra AI conversation";
+    const dateStr = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+
+    let md = `# ${title}\n\n_Exported from Zyntra AI — ${dateStr}_\n\n---\n\n`;
+    messages.forEach(m => {
+        md += (m.role === "user" ? "### 🧑 You\n\n" : "### 🤖 Zyntra AI\n\n") + m.content.trim() + "\n\n";
+    });
+
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) + ".md";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
 });
 
 function ensureShareResultModal(){
