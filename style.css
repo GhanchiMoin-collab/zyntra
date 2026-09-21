@@ -8889,93 +8889,33 @@ padding:12px;
     border-color:rgba(255,100,100,.4);
 }
 
-/* ==========================================================
-   Regenerate response + Edit & resend
-   ========================================================== */
-
-.user-message{
-    position:relative;
-}
-
-.user-msg-edit-btn{
+/* Small "My Shares" icon button inside the Discover page header */
+.my-shares-quick-btn{
     display:flex;
     align-items:center;
     justify-content:center;
-    width:22px;
-    height:22px;
+    width:34px;
+    height:34px;
     border-radius:50%;
-    border:none;
-    background:rgba(0,0,0,.18);
-    color:#fff;
+    border:1px solid var(--glass-border);
+    background:var(--glass-strong);
+    font-size:15px;
     cursor:pointer;
-    opacity:0;
-    transition:opacity .15s ease;
-    position:absolute;
-    top:8px;
-    left:-30px;
+    flex-shrink:0;
 }
 
-.user-message:hover .user-msg-edit-btn{
-    opacity:.85;
+.my-shares-quick-btn:hover{
+    background:var(--glass-hover);
 }
 
-.user-msg-edit-btn:hover{
-    opacity:1 !important;
-    background:rgba(0,0,0,.3);
+/* Fix: account menu opening "behind" the sidebar on mobile — the mobile
+   sidebar panel uses z-index:100 to slide in above everything, but the
+   account menu (and its backdrop) were set lower (60/55), so on mobile
+   specifically the menu rendered underneath the sidebar panel itself.
+   Desktop never showed this since the sidebar has no such z-index there. */
+.account-menu-backdrop{
+    z-index:105;
 }
-
-.user-msg-edit-box{
-    margin-top:10px;
-    display:flex;
-    flex-direction:column;
-    gap:8px;
-}
-
-.user-msg-edit-textarea{
-    width:100%;
-    min-height:60px;
-    background:rgba(0,0,0,.2);
-    border:1px solid rgba(255,255,255,.25);
-    border-radius:var(--r-sm);
-    color:#fff;
-    font-size:14px;
-    font-family:inherit;
-    padding:8px 10px;
-    resize:vertical;
-}
-
-.user-msg-edit-actions{
-    display:flex;
-    justify-content:flex-end;
-    gap:8px;
-}
-
-.user-msg-edit-cancel,
-.user-msg-edit-save{
-    font-size:12px;
-    font-weight:600;
-    padding:6px 12px;
-    border-radius:var(--r-pill);
-    cursor:pointer;
-    border:1px solid rgba(255,255,255,.3);
-}
-
-.user-msg-edit-cancel{
-    background:none;
-    color:#fff;
-}
-
-.user-msg-edit-save{
-    background:#fff;
-    color:var(--accent-solid);
-    border-color:#fff;
-}
-
-@media (max-width:760px){
-    .user-msg-edit-btn{
-        left:auto;
-        right:-4px;
-        top:-4px;
-        opacity:.85;
-    }
+.account-menu{
+    z-index:110;
 }
