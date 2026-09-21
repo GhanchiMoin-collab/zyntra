@@ -9080,3 +9080,28 @@ padding:12px;
         max-width:92vw;
     }
 }
+
+/* Search chats: message-content matches now show a snippet under the
+   title, so a hit isn't invisible when it wasn't in the title itself */
+.search-chats-row-text{
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+    flex:1;
+    min-width:0;
+}
+
+.search-chats-row-snippet{
+    font-size:11.5px;
+    color:var(--text-3);
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+
+.search-chats-row-title{
+    display:block;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
