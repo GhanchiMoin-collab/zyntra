@@ -4035,8 +4035,7 @@ function openPosterSession(session){
 }
 
 function openVoiceSession(session){
-    showPageView("voice");
-    setActiveNav("voice");
+    openModal("voiceModal");
     voiceHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
     currentVoiceSessionId = session.id;
     voiceBox.innerHTML = "";
@@ -5715,7 +5714,7 @@ function openTool(tool, prefix){
         document.getElementById("jarvisInterface").style.display = jarvisMicGranted ? "" : "none";
         document.getElementById("voiceMicBtn").style.display = "";
         document.getElementById("jarvisStatusLabel").textContent = "Say \"repeat\" any time to hear the last answer again.";
-        showPageView("voice");
+        openModal("voiceModal");
         closeSidebarMobile();
     }
     setActiveNav(tool);
@@ -6108,14 +6107,12 @@ document.getElementById("posterGenBtn")?.addEventListener("click", () => {
 });
 
 // ==========================
-// Jarvis (voice) page
+// Voice modal
 // ==========================
 
-document.getElementById("voiceBackBtn").addEventListener("click", () => {
+document.getElementById("voiceModalClose").addEventListener("click", () => {
     if(typeof window.stopJarvisConversation === "function") window.stopJarvisConversation();
-    showPageView("chat");
-    setActiveNav("chat");
-    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+    closeModal("voiceModal");
 });
 
 const voiceBox = document.getElementById("voiceBox");
@@ -6282,6 +6279,13 @@ if(!hasMediaRecorderSupport){
     let jarvisContinuousMode = false;
     let jarvisStream = null;
     let lastJarvisSpoken = null; // { text, lang } — for the "repeat" voice command
+    let jarvisSpeechQueue = [];
+    let jarvisSpeaking = false;
+    let jarvisStreamDone = false;
+    let jarvisOnTurnDone = null;
+    let jarvisTurnId = 0; // bumped on interrupt so late chunks from an old turn get ignored
+    let jarvisBargeInRaf = null;
+    let jarvisBargeInCtx = null;
     const jarvisStatusLabel = document.getElementById("jarvisStatusLabel");
     const REPEAT_PATTERNS = ["repeat that", "repeat again", "say that again", "can you repeat", "repeat it", "repeat"];
 
@@ -6291,7 +6295,9 @@ if(!hasMediaRecorderSupport){
 
     async function getJarvisStream(){
         if(jarvisStream && jarvisStream.active) return jarvisStream;
-        jarvisStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        jarvisStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true }
+        });
         return jarvisStream;
     }
 
@@ -6341,6 +6347,110 @@ if(!hasMediaRecorderSupport){
         startJarvisListening();
     });
 
+    // Splits a running text buffer into complete sentences plus whatever
+    // incomplete tail is still being generated. Used to start speaking
+    // each sentence as soon as it's ready instead of waiting for the
+    // whole reply — the main latency win.
+    function extractCompleteSentences(buffer){
+        const matches = buffer.match(/[^.!?]+[.!?]+(\s+|$)/g);
+        if(!matches) return { sentences: [], rest: buffer };
+        const joined = matches.join("");
+        return { sentences: matches.map(s => s.trim()).filter(Boolean), rest: buffer.slice(joined.length) };
+    }
+
+    function enqueueJarvisSpeech(text, lang){
+        if(!text || !text.trim()) return;
+        jarvisSpeechQueue.push({ text, lang });
+        if(!jarvisSpeaking) runJarvisSpeechQueue();
+    }
+
+    function runJarvisSpeechQueue(){
+        if(jarvisSpeechQueue.length === 0){
+            jarvisSpeaking = false;
+            stopBargeInMonitor();
+            maybeFinishJarvisTurn();
+            return;
+        }
+        jarvisSpeaking = true;
+        startBargeInMonitor();
+        const { text, lang } = jarvisSpeechQueue.shift();
+        speakText(text, lang, runJarvisSpeechQueue);
+    }
+
+    function maybeFinishJarvisTurn(){
+        if(jarvisSpeechQueue.length === 0 && !jarvisSpeaking && jarvisStreamDone){
+            const cb = jarvisOnTurnDone;
+            jarvisOnTurnDone = null;
+            if(cb) cb();
+        }
+    }
+
+    function clearJarvisSpeechQueue(){
+        jarvisSpeechQueue = [];
+        jarvisSpeaking = false;
+        stopBargeInMonitor();
+        if(currentJarvisAudio){ currentJarvisAudio.pause(); }
+        speechSynthesis.cancel();
+    }
+
+    // Keeps a light watch on the mic while Zyntra is talking. Real
+    // barge-in — sustained speech cuts the reply off immediately instead
+    // of waiting for it to finish. Uses a stricter threshold/longer
+    // sustain than normal listening to avoid false triggers from any
+    // echo of Zyntra's own voice bleeding back into the mic.
+    function startBargeInMonitor(){
+        if(jarvisBargeInRaf || !jarvisStream) return;
+
+        const AudioContextAPI = window.AudioContext || window.webkitAudioContext;
+        jarvisBargeInCtx = new AudioContextAPI();
+        const source = jarvisBargeInCtx.createMediaStreamSource(jarvisStream);
+        const analyser = jarvisBargeInCtx.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+
+        const BARGE_IN_THRESHOLD = 14;
+        const BARGE_IN_SUSTAIN_MS = 280;
+        let aboveSince = null;
+
+        function tick(){
+            if(!jarvisSpeaking){ jarvisBargeInRaf = null; return; }
+            analyser.getByteTimeDomainData(data);
+            let sumSquares = 0;
+            for(let i = 0; i < data.length; i++){
+                const v = data[i] - 128;
+                sumSquares += v * v;
+            }
+            const rms = Math.sqrt(sumSquares / data.length);
+            const now = Date.now();
+
+            if(rms > BARGE_IN_THRESHOLD){
+                if(aboveSince === null) aboveSince = now;
+                if(now - aboveSince > BARGE_IN_SUSTAIN_MS){
+                    handleJarvisInterrupt();
+                    return;
+                }
+            } else {
+                aboveSince = null;
+            }
+            jarvisBargeInRaf = requestAnimationFrame(tick);
+        }
+        jarvisBargeInRaf = requestAnimationFrame(tick);
+    }
+
+    function stopBargeInMonitor(){
+        if(jarvisBargeInRaf){ cancelAnimationFrame(jarvisBargeInRaf); jarvisBargeInRaf = null; }
+        if(jarvisBargeInCtx){ jarvisBargeInCtx.close().catch(() => {}); jarvisBargeInCtx = null; }
+    }
+
+    function handleJarvisInterrupt(){
+        jarvisTurnId++; // any still-arriving chunks/finish handler from the cut-off turn become stale and get ignored
+        jarvisOnTurnDone = null;
+        clearJarvisSpeechQueue();
+        setJarvisStatus("Listening…");
+        if(jarvisContinuousMode) startJarvisListening();
+    }
+
     async function handleJarvisTranscript(said){
         if(REPEAT_PATTERNS.some(p => said.toLowerCase().trim().includes(p))){
             if(lastJarvisSpoken){
@@ -6376,42 +6486,80 @@ if(!hasMediaRecorderSupport){
         addVoiceMsg(said, "user"); // kept invisible (voiceBox is hidden) — still logs for session history/replay elsewhere
         addVoiceMsg("Thinking...", "ai-loading");
         setJarvisStatus("Thinking…");
+
+        const myTurnId = ++jarvisTurnId;
+        jarvisStreamDone = false;
+        jarvisOnTurnDone = () => { if(jarvisContinuousMode) startJarvisListening(); };
+
+        let accumulated = "";
+        let sentenceBuffer = "";
+        let detectedLang = null;
+        let spokeYet = false;
+
         try{
-            const { content: reply } = await callChatAPI(voiceHistory);
-            voiceHistory.push({ role: "assistant", content: reply });
-            logVoiceMessageToHistory("assistant", reply);
+            await streamChatAPI(voiceHistory, (chunk) => {
+                if(myTurnId !== jarvisTurnId) return; // this turn was interrupted — drop stale chunks
+                accumulated += chunk;
+                sentenceBuffer += chunk;
+
+                const { sentences, rest } = extractCompleteSentences(sentenceBuffer);
+                sentenceBuffer = rest;
+                sentences.forEach(sentenceRaw => {
+                    const spoken = stripForSpeech(sentenceRaw);
+                    if(!spoken.trim()) return;
+                    if(!detectedLang) detectedLang = detectSpeechLang(spoken);
+                    enqueueJarvisSpeech(spoken, detectedLang);
+                    if(!spokeYet){ spokeYet = true; setJarvisStatus("Speaking…"); }
+                });
+            }, {});
+
+            if(myTurnId !== jarvisTurnId) return; // interrupted while the stream was still going
+
+            if(sentenceBuffer.trim()){
+                const spoken = stripForSpeech(sentenceBuffer);
+                if(spoken.trim()){
+                    if(!detectedLang) detectedLang = detectSpeechLang(spoken);
+                    enqueueJarvisSpeech(spoken, detectedLang);
+                }
+            }
+            jarvisStreamDone = true;
+
+            voiceHistory.push({ role: "assistant", content: accumulated });
+            logVoiceMessageToHistory("assistant", accumulated);
             voiceBox.removeChild(voiceBox.lastChild);
-            const clean = reply.replace(/\*\*/g, "");
-            const spoken = stripForSpeech(reply);
-            const lang = detectSpeechLang(spoken);
-            lastJarvisSpoken = { text: spoken, lang };
+            const clean = accumulated.replace(/\*\*/g, "");
+            const fullSpoken = stripForSpeech(accumulated);
+            lastJarvisSpoken = { text: fullSpoken, lang: detectedLang || detectSpeechLang(fullSpoken) };
             const aiDiv = document.createElement("div");
             aiDiv.className = "chat-msg ai";
             voiceBox.appendChild(aiDiv);
             typeOutText(aiDiv, clean, voiceBox, () => {
                 aiDiv.classList.add("done");
                 const bar = addMessageActionBar(aiDiv, clean);
-                addSpeakRepeatButton(bar, spoken, lang);
+                addSpeakRepeatButton(bar, lastJarvisSpoken.text, lastJarvisSpoken.lang);
             });
-            setJarvisStatus("Speaking…");
-            speakText(spoken, lang, () => {
-                if(jarvisContinuousMode) startJarvisListening();
-            });
+
+            maybeFinishJarvisTurn();
         }catch(err){
+            if(myTurnId !== jarvisTurnId) return;
             voiceBox.removeChild(voiceBox.lastChild);
             setJarvisStatus("Sorry, I couldn't process that.");
+            jarvisStreamDone = true;
+            jarvisOnTurnDone = null;
+            clearJarvisSpeechQueue();
             if(jarvisContinuousMode) startJarvisListening();
         }
     }
 
     window.stopJarvisConversation = () => {
         jarvisContinuousMode = false;
+        jarvisTurnId++; // invalidate any in-flight turn so late chunks are ignored
+        jarvisOnTurnDone = null;
+        clearJarvisSpeechQueue();
         if(jarvisStream){
             jarvisStream.getTracks().forEach(track => track.stop());
             jarvisStream = null;
         }
-        if(currentJarvisAudio){ currentJarvisAudio.pause(); }
-        speechSynthesis.cancel();
         document.getElementById("jarvisOrb")?.classList.remove("listening");
     };
 }
