@@ -4035,7 +4035,9 @@ function openPosterSession(session){
 }
 
 function openVoiceSession(session){
-    openModal("voiceModal");
+    showPageView("voice");
+    document.getElementById("jarvisPermissionGate").style.display = jarvisMicGranted ? "none" : "";
+    document.getElementById("jarvisInterface").style.display = jarvisMicGranted ? "" : "none";
     voiceHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
     currentVoiceSessionId = session.id;
     voiceBox.innerHTML = "";
@@ -5709,12 +5711,12 @@ function openTool(tool, prefix){
         userInput.focus();
         closeSidebarMobile();
         if(typeof updateTempChatToggleVisibility === "function") updateTempChatToggleVisibility();
-    } else if(tool === "voice"){
+         } else if(tool === "voice"){
+        showPageView("voice");
         document.getElementById("jarvisPermissionGate").style.display = jarvisMicGranted ? "none" : "";
         document.getElementById("jarvisInterface").style.display = jarvisMicGranted ? "" : "none";
         document.getElementById("voiceMicBtn").style.display = "";
         document.getElementById("jarvisStatusLabel").textContent = "Say \"repeat\" any time to hear the last answer again.";
-        openModal("voiceModal");
         closeSidebarMobile();
     }
     setActiveNav(tool);
@@ -6110,9 +6112,11 @@ document.getElementById("posterGenBtn")?.addEventListener("click", () => {
 // Voice modal
 // ==========================
 
-document.getElementById("voiceModalClose").addEventListener("click", () => {
+document.getElementById("voiceBackBtn")?.addEventListener("click", () => {
     if(typeof window.stopJarvisConversation === "function") window.stopJarvisConversation();
-    closeModal("voiceModal");
+    showPageView("chat");
+    setActiveNav("chat");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
 });
 
 const voiceBox = document.getElementById("voiceBox");
