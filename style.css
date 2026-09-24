@@ -8149,18 +8149,25 @@ flex-shrink:0;
 /* Back button for page-views reached from a footer link (About/Privacy)
    rather than a dedicated sidebar nav item. */
 .page-view-back-btn{
-background:none;
-border:none;
-color:#9aa0c0;
-font-size:14px;
+background:var(--glass-strong);
+border:1px solid var(--glass-border-strong);
+color:var(--text-1);
+font-size:13.5px;
+font-weight:600;
 cursor:pointer;
-padding:0;
+padding:9px 18px 9px 14px;
 margin-bottom:18px;
-display:flex;
+border-radius:999px;
+display:inline-flex;
 align-items:center;
-gap:6px;
+gap:7px;
+transition:background .2s ease, border-color .2s ease, transform .15s ease;
 }
-.page-view-back-btn:hover{ color:#eef0ff; }
+.page-view-back-btn:hover{
+background:var(--glass-hover);
+border-color:rgba(180,120,255,.35);
+transform:translateY(-1px);
+}
 
 /* ==========================================================
    Data Analysis — Python execution output (Pyodide)
