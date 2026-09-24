@@ -7415,7 +7415,93 @@ cursor:default;
 @media (prefers-reduced-motion: reduce){
   .jarvis-orb-ring, .jarvis-orb-core{ animation: none; }
 }
+/* ==========================================================
+   Zyntra Jarvis page — glass card styling
+   ========================================================== */
+.jarvis-page-card{
+    text-align:center;
+    background:var(--glass);
+    border:1px solid var(--glass-border-strong);
+    border-radius:var(--r-xl);
+    backdrop-filter:var(--blur-glass);
+    -webkit-backdrop-filter:var(--blur-glass);
+    padding:44px 32px 40px;
+    box-shadow:var(--shadow-lg);
+    margin-top:8px;
+}
 
+.jarvis-page-icon{
+    width:64px;
+    height:64px;
+    margin:0 auto 18px;
+    border-radius:20px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:28px;
+    background:radial-gradient(circle at 30% 30%, rgba(255,255,255,.3), #8c62ff 38%, #4c28ff 100%);
+    box-shadow:0 0 50px rgba(124,92,255,.4), 0 10px 26px rgba(0,0,0,.35);
+}
+
+.jarvis-page-card .tag{
+    display:block;
+}
+
+.jarvis-permission-gate{
+    padding:26px 8px 4px;
+}
+
+.jarvis-permission-icon{
+    width:56px;
+    height:56px;
+    margin:4px auto 20px;
+    border-radius:50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:24px;
+    background:var(--glass-strong);
+    border:1px solid var(--glass-border-strong);
+}
+
+.jarvis-permission-text{
+    color:#c7cae6;
+    font-size:14.5px;
+    line-height:1.7;
+    max-width:400px;
+    margin:0 auto 26px;
+}
+
+.jarvis-permission-text strong{
+    color:#e3d6ff;
+}
+
+.jarvis-enable-mic-btn{
+    padding:13px 30px;
+    border-radius:999px;
+    border:none;
+    background:var(--accent-grad);
+    color:#fff;
+    font-weight:700;
+    font-size:14.5px;
+    cursor:pointer;
+    box-shadow:var(--shadow-glow);
+    transition:filter .2s, transform .15s;
+}
+.jarvis-enable-mic-btn:hover{
+    filter:brightness(1.08);
+    transform:translateY(-1px);
+}
+
+.jarvis-permission-error{
+    color:#ff8fa8;
+    font-size:13px;
+    margin-top:16px;
+}
+
+@media(max-width:600px){
+    .jarvis-page-card{ padding:32px 20px 28px; border-radius:var(--r-lg); }
+}
 /* ==========================================================
    Discord community button (Contact modal)
    ========================================================== */
