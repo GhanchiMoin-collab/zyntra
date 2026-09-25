@@ -1736,13 +1736,14 @@ function applyPlanToUI(plan){
         const btn = card.querySelector(".pricing-card-btn");
         if(!btn) return;
         if(cardPlan === plan){
-            btn.textContent = "Current plan";
+            btn.textContent = "Your current plan";
             btn.disabled = true;
         } else if(cardPlan === "free"){
-            btn.textContent = "Current plan";
+            // Free has no checkout — it's just the floor everyone starts at.
+            btn.textContent = "Included with sign-up";
             btn.disabled = true;
         } else {
-            btn.textContent = "Upgrade";
+            btn.textContent = `Upgrade to ${planDisplayName(cardPlan)}`;
             btn.disabled = false;
         }
     });
