@@ -9220,7 +9220,7 @@ padding:12px;
 
 /* ================= PRICING / UPGRADE MODAL ================= */
 .pricing-modal-box{
-    max-width:860px;
+    max-width:840px;
     width:92vw;
 }
 .pricing-subtitle{
@@ -9232,7 +9232,7 @@ padding:12px;
     display:grid;
     grid-template-columns:repeat(4, 1fr);
     gap:14px;
-    margin-top:22px;
+    margin-top:24px;
 }
 @media (max-width:720px){
     .pricing-grid{
@@ -9242,110 +9242,103 @@ padding:12px;
 .pricing-card{
     position:relative;
     border:1px solid var(--glass-border);
-    border-radius:var(--r-lg);
-    padding:22px 16px 18px;
-    text-align:center;
+    border-radius:14px;
+    padding:22px 18px 20px;
     display:flex;
     flex-direction:column;
-    gap:6px;
-    background:rgba(255,255,255,0.02);
-    overflow:hidden;
-    transition:transform .22s ease, box-shadow .22s ease, border-color .22s ease;
-}
-.pricing-card::before{
-    content:"";
-    position:absolute;
-    top:0; left:0; right:0;
-    height:3px;
-    background:var(--accent-grad);
-    opacity:0;
-    transition:opacity .22s ease;
+    gap:14px;
+    background:rgba(255,255,255,0.015);
+    transition:border-color .18s ease;
 }
 .pricing-card:hover{
-    transform:translateY(-6px);
-    border-color:rgba(255,255,255,0.18);
-    box-shadow:0 14px 32px rgba(0,0,0,0.28);
-}
-.pricing-card:hover::before{
-    opacity:1;
+    border-color:rgba(255,255,255,0.16);
 }
 .pricing-card-highlight{
     border-color:var(--accent-2);
-    background:var(--accent-grad-soft);
-    box-shadow:0 0 0 1px var(--accent-2), 0 18px 40px rgba(110,92,255,0.22);
+    background:rgba(110,92,255,0.05);
 }
-.pricing-card-highlight::before{
-    opacity:1;
-}
-.pricing-card-highlight:hover{
-    transform:translateY(-8px) scale(1.02);
-}
-.pricing-card-ribbon{
+.pricing-card-badge{
     position:absolute;
-    top:10px;
-    right:-30px;
-    transform:rotate(38deg);
-    background:var(--accent-grad);
+    top:-11px;
+    left:18px;
+    background:var(--accent-2);
     color:#fff;
-    font-size:10px;
-    font-weight:700;
-    letter-spacing:.3px;
-    padding:3px 34px;
-    box-shadow:0 4px 10px rgba(0,0,0,0.25);
-}
-.pricing-card-icon{
-    font-size:26px;
-    line-height:1;
-    margin-bottom:2px;
+    font-size:10.5px;
+    font-weight:600;
+    letter-spacing:.2px;
+    padding:3px 10px;
+    border-radius:20px;
 }
 .pricing-card-name{
-    font-weight:700;
-    font-size:15px;
+    font-weight:600;
+    font-size:14px;
+    color:var(--text-2);
+    text-transform:uppercase;
+    letter-spacing:.4px;
 }
 .pricing-card-price{
-    font-size:24px;
-    font-weight:800;
-    background:var(--accent-grad);
-    -webkit-background-clip:text;
-    background-clip:text;
-    -webkit-text-fill-color:transparent;
+    font-size:28px;
+    font-weight:700;
+    letter-spacing:-.5px;
 }
 .pricing-card-price span{
-    font-size:12px;
-    font-weight:500;
+    font-size:13px;
+    font-weight:400;
     color:var(--text-2);
-    -webkit-text-fill-color:var(--text-2);
-}
-.pricing-card-tagline{
-    font-size:11.5px;
-    color:var(--text-2);
-    min-height:28px;
-}
-.pricing-card-msgs{
-    font-size:12.5px;
-    font-weight:600;
-    flex-grow:1;
-    padding:6px 0 4px;
+    letter-spacing:0;
 }
 .pricing-card-btn{
-    border:none;
-    border-radius:10px;
+    border:1px solid var(--glass-border);
+    border-radius:9px;
     padding:10px 0;
-    font-size:13px;
+    font-size:13.5px;
     font-weight:600;
     cursor:pointer;
-    background:var(--accent-grad);
-    color:#fff;
-    transition:transform .15s ease, box-shadow .15s ease;
+    background:transparent;
+    color:var(--text-1);
+    transition:background .15s ease, border-color .15s ease;
 }
 .pricing-card-btn:not(:disabled):hover{
-    transform:translateY(-2px);
-    box-shadow:0 8px 18px rgba(110,92,255,0.35);
+    border-color:rgba(255,255,255,0.3);
+    background:rgba(255,255,255,0.05);
+}
+.pricing-card-highlight .pricing-card-btn:not(:disabled){
+    background:var(--accent-2);
+    border-color:var(--accent-2);
+    color:#fff;
+}
+.pricing-card-highlight .pricing-card-btn:not(:disabled):hover{
+    background:var(--accent-1);
+    border-color:var(--accent-1);
 }
 .pricing-card-btn:disabled{
-    background:rgba(255,255,255,0.08);
     color:var(--text-2);
     cursor:default;
+}
+.pricing-card-features{
+    list-style:none;
+    margin:0;
+    padding:14px 0 0;
+    border-top:1px solid var(--glass-border);
+    display:flex;
+    flex-direction:column;
+    gap:9px;
+    font-size:12.5px;
+    color:var(--text-2);
+}
+.pricing-card-features li{
+    padding-left:20px;
+    position:relative;
+    line-height:1.4;
+}
+.pricing-card-features li::before{
+    content:"✓";
+    position:absolute;
+    left:0;
+    top:0;
+    color:var(--accent-2);
+    font-weight:700;
+    font-size:12px;
 }
 .pricing-status{
     margin-top:16px;
@@ -9354,6 +9347,7 @@ padding:12px;
     min-height:18px;
     color:var(--text-2);
 }
+
 
 /* ---- Success celebration view ---- */
 .pricing-success{
