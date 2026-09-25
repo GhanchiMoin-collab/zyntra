@@ -6358,6 +6358,27 @@ border-radius:var(--r-lg);
 border:1px solid var(--glass-border);
 }
 
+.generated-img-wrap{
+position:relative;
+display:block;
+}
+
+.zyntra-watermark{
+position:absolute;
+right:10px;
+bottom:10px;
+padding:3px 9px;
+font-size:11px;
+font-weight:600;
+letter-spacing:.2px;
+color:rgba(255,255,255,0.92);
+background:rgba(0,0,0,0.38);
+border-radius:6px;
+backdrop-filter:blur(2px);
+pointer-events:none;
+user-select:none;
+}
+
 .loading-text{
 color:var(--text-2);
 font-size:14px;
