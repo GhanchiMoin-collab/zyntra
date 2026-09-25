@@ -168,13 +168,14 @@
             <div class="account-menu-avatar" id="accountMenuAvatar">?</div>
             <div class="account-menu-info">
                 <p class="account-menu-name" id="accountMenuName">Guest</p>
-                <p class="account-menu-plan">Free</p>
+                <p class="account-menu-plan" id="accountMenuPlan">Free</p>
             </div>
             <span class="account-menu-chevron">›</span>
         </button>
 
         <div class="account-menu-divider"></div>
 
+        <button class="account-menu-item" id="accountMenuUpgrade"><span class="account-menu-icon">⭐</span> Upgrade plan</button>
         <button class="account-menu-item" id="accountMenuPersonalization"><span class="account-menu-icon">✨</span> Personalization</button>
         <button class="account-menu-item" id="accountMenuProfile"><span class="account-menu-icon">👤</span> Profile</button>
         <button class="account-menu-item" id="accountMenuSettings"><span class="account-menu-icon">⚙️</span> Settings</button>
@@ -1106,6 +1107,44 @@
                 Join our Discord
             </a>
         </div>
+    </div>
+</div>
+
+<!-- ================= PRICING / UPGRADE MODAL ================= -->
+<div class="modal-overlay" id="pricingModal">
+    <div class="modal-box pricing-modal-box">
+        <button class="modal-close" id="pricingModalClose">✕</button>
+        <span class="tag">PLANS</span>
+        <h1><span>Upgrade your plan</span></h1>
+        <p class="pricing-subtitle">Test mode — no real payment will be charged yet.</p>
+
+        <div class="pricing-grid">
+            <div class="pricing-card" data-plan="free">
+                <p class="pricing-card-name">Free</p>
+                <p class="pricing-card-price">₹0<span>/mo</span></p>
+                <p class="pricing-card-msgs">50 messages/mo</p>
+                <button type="button" class="pricing-card-btn" disabled>Current plan</button>
+            </div>
+            <div class="pricing-card" data-plan="starter">
+                <p class="pricing-card-name">Starter</p>
+                <p class="pricing-card-price">₹99<span>/mo</span></p>
+                <p class="pricing-card-msgs">150 messages/mo</p>
+                <button type="button" class="pricing-card-btn pricing-upgrade-btn" data-plan="starter">Upgrade</button>
+            </div>
+            <div class="pricing-card pricing-card-highlight" data-plan="pro">
+                <p class="pricing-card-name">Pro</p>
+                <p class="pricing-card-price">₹199<span>/mo</span></p>
+                <p class="pricing-card-msgs">500 messages/mo</p>
+                <button type="button" class="pricing-card-btn pricing-upgrade-btn" data-plan="pro">Upgrade</button>
+            </div>
+            <div class="pricing-card" data-plan="ultra">
+                <p class="pricing-card-name">Ultra</p>
+                <p class="pricing-card-price">₹499<span>/mo</span></p>
+                <p class="pricing-card-msgs">1500 messages/mo</p>
+                <button type="button" class="pricing-card-btn pricing-upgrade-btn" data-plan="ultra">Upgrade</button>
+            </div>
+        </div>
+        <p id="pricingModalStatus" class="pricing-status"></p>
     </div>
 </div>
 
