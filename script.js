@@ -303,12 +303,72 @@ function escapeAttr(str){
 function buildImageBlockHTML(image){
     return `
         <div class="ai-image-block">
-            <img class="generated-img" src="${image.url}" alt="${escapeAttr(image.alt)}">
+            <div class="generated-img-wrap">
+                <img class="generated-img" src="${image.url}" alt="${escapeAttr(image.alt)}">
+                <span class="zyntra-watermark">✨ Zyntra AI</span>
+            </div>
             <div class="ai-image-actions">
                 <button class="copy-btn ai-image-download" data-url="${image.url}">⬇ Download</button>
             </div>
         </div>
     `;
+}
+
+// Draws the small corner watermark onto a canvas — shared by every place
+// that bakes the mark into a downloaded file (Gemini-style: visible on
+// screen via CSS, and burned into the actual saved image on download).
+function drawZyntraWatermark(ctx, w, h){
+    const pad = Math.round(w * 0.025);
+    const fontSize = Math.max(14, Math.round(w * 0.03));
+    ctx.font = `600 ${fontSize}px Poppins, Arial, sans-serif`;
+    ctx.textBaseline = "bottom";
+    ctx.textAlign = "right";
+    ctx.shadowColor = "rgba(0,0,0,0.6)";
+    ctx.shadowBlur = fontSize * 0.35;
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.fillText("✨ Zyntra AI", w - pad, h - pad);
+}
+
+// Fetches the image as a blob first (so it's same-origin local data by the
+// time it hits the canvas — sidesteps any CORS/tainted-canvas issues with
+// the pollinations.ai host), stamps the watermark, then downloads the
+// result. Falls back to opening the plain image if anything goes wrong.
+function downloadWatermarkedImage(url, filename){
+    return fetch(url)
+        .then(res => res.blob())
+        .then(blob => new Promise((resolve, reject) => {
+            const objectUrl = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = () => { resolve({ img, objectUrl }); };
+            img.onerror = reject;
+            img.src = objectUrl;
+        }))
+        .then(({ img, objectUrl }) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0);
+            drawZyntraWatermark(ctx, canvas.width, canvas.height);
+            URL.revokeObjectURL(objectUrl);
+
+            return new Promise((resolve) => {
+                canvas.toBlob((watermarkedBlob) => {
+                    const dlUrl = URL.createObjectURL(watermarkedBlob);
+                    const a = document.createElement("a");
+                    a.href = dlUrl;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(dlUrl);
+                    resolve();
+                }, "image/png");
+            });
+        })
+        .catch(() => {
+            window.open(url, "_blank");
+        });
 }
 
 document.addEventListener("click", (e) => {
@@ -317,23 +377,9 @@ document.addEventListener("click", (e) => {
         const url = downloadBtn.dataset.url;
         const original = downloadBtn.textContent;
         downloadBtn.textContent = "Downloading...";
-        fetch(url)
-            .then(res => res.blob())
-            .then(blob => {
-                const objectUrl = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = objectUrl;
-                a.download = "zyntra-ai-image.png";
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                URL.revokeObjectURL(objectUrl);
-                downloadBtn.textContent = original;
-            })
-            .catch(() => {
-                window.open(url, "_blank");
-                downloadBtn.textContent = original;
-            });
+        downloadWatermarkedImage(url, "zyntra-ai-image.png").then(() => {
+            downloadBtn.textContent = original;
+        });
     }
 });
 
@@ -5904,7 +5950,16 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
         img.alt = finalPrompt;
         img.onload = () => {
             result.innerHTML = "";
-            result.appendChild(img);
+
+            const wrap = document.createElement("div");
+            wrap.className = "generated-img-wrap";
+            wrap.appendChild(img);
+            const mark = document.createElement("span");
+            mark.className = "zyntra-watermark";
+            mark.textContent = "✨ Zyntra AI";
+            wrap.appendChild(mark);
+            result.appendChild(wrap);
+
             bumpStat("images");
             logImageToHistory(val || finalPrompt, img.src);
 
@@ -5917,23 +5972,7660 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
             const downloadBtn = document.createElement("button");
             downloadBtn.className = "copy-btn";
             downloadBtn.textContent = "⬇ Download";
-            downloadBtn.addEventListener("click", async () => {
+            downloadBtn.addEventListener("click", () => {
                 downloadBtn.textContent = "Downloading...";
-                try{
-                    const res = await fetch(img.src);
-                    const blob = await res.blob();
-                    const url = URL.createObjectURL(blob);
+                downloadWatermarkedImage(img.src, "zyntra-ai-image.png").then(() => {
+                    downloadBtn.textContent = "⬇ Download";
+                });
+            });
+            actionsRow.appendChild(downloadBtn);
+
+            addReportButton(actionsRow, "Generated image for prompt: \"" + finalPrompt + "\"");
+
+            imgUploadedFile = null;
+            document.getElementById("imgUploadInput").value = "";
+            renderImgUploadPreview();
+        };
+        img.onerror = () => {
+            if(retryCount < 2){
+                showCreatingAnimation(result, waitLabel);
+                setTimeout(() => attemptGenerate(retryCount + 1), 800);
+            } else {
+                result.innerHTML = '<p class="loading-text">Could not generate image right now. Please try again in a moment.</p>';
+            }
+        };
+        const seed = Math.floor(Math.random() * 1000000);
+        img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(finalPrompt) + "?model=flux&enhance=true&seed=" + seed;
+    }
+
+    const waitMs = 2000;
+    setTimeout(() => attemptGenerate(0), waitMs);
+});
+
+// ==========================
+// Poster Maker
+// ==========================
+
+document.getElementById("posterModalClose")?.addEventListener("click", () => closeModal("posterModal"));
+
+const POSTER_SIZES = {
+    portrait: { w: 900, h: 1200 },
+    square: { w: 1000, h: 1000 },
+    landscape: { w: 1200, h: 900 }
+};
+
+// Wraps text inside maxWidth, drawing top-down starting at (x, y). Returns lines drawn.
+function wrapCanvasTextTop(ctx, text, x, y, maxWidth, lineHeight){
+    const words = text.split(" ");
+    let line = "";
+    let linesDrawn = 0;
+    words.forEach(word => {
+        const testLine = line ? line + " " + word : word;
+        if(ctx.measureText(testLine).width > maxWidth && line){
+            ctx.fillText(line, x, y + linesDrawn * lineHeight);
+            linesDrawn++;
+            line = word;
+        } else {
+            line = testLine;
+        }
+    });
+    if(line){
+        ctx.fillText(line, x, y + linesDrawn * lineHeight);
+        linesDrawn++;
+    }
+    return linesDrawn;
+}
+
+document.getElementById("posterGenBtn")?.addEventListener("click", () => {
+    const title = document.getElementById("posterTitleInput").value.trim();
+    const subtitle = document.getElementById("posterSubtitleInput").value.trim();
+    const theme = document.getElementById("posterThemeInput").value.trim();
+    const aspect = document.getElementById("posterAspect").value;
+    const result = document.getElementById("posterResult");
+
+    if(!title && !theme){
+        alert("Please add a title or describe the background style.");
+        return;
+    }
+
+    const size = POSTER_SIZES[aspect] || POSTER_SIZES.portrait;
+    const waitLabel = "Designing poster";
+    showCreatingAnimation(result, waitLabel);
+
+    const wantsRealistic = document.getElementById("posterRealisticToggle")?.checked;
+    const realismSuffix = wantsRealistic
+        ? ", photorealistic, ultra realistic, highly detailed, sharp focus, natural lighting, shot on DSLR, 8k"
+        : "";
+    const promptText = (theme || "abstract poster background") + ", poster background art, no text, no watermark, high detail" + realismSuffix;
+    const seed = Math.floor(Math.random() * 1000000);
+    const bgUrl = "https://image.pollinations.ai/prompt/" + encodeURIComponent(promptText)
+        + "?width=" + size.w + "&height=" + size.h + "&model=flux&enhance=true&seed=" + seed;
+
+    function drawPoster(){
+        fetch(bgUrl)
+            .then(res => res.blob())
+            .then(blob => {
+                const objectUrl = URL.createObjectURL(blob);
+                const bgImg = new Image();
+
+                bgImg.onload = () => {
+                    const canvas = document.createElement("canvas");
+                    canvas.width = size.w;
+                    canvas.height = size.h;
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(bgImg, 0, 0, size.w, size.h);
+                    URL.revokeObjectURL(objectUrl);
+
+                    // Dark gradient at the bottom so text stays readable
+                    const gradient = ctx.createLinearGradient(0, size.h * 0.55, 0, size.h);
+                    gradient.addColorStop(0, "rgba(5,6,16,0)");
+                    gradient.addColorStop(1, "rgba(5,6,16,0.85)");
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, size.h * 0.55, size.w, size.h * 0.45);
+
+                    const padding = size.w * 0.08;
+                    const maxTextWidth = size.w - padding * 2;
+                    let cursorY = size.h * 0.62;
+                    ctx.textBaseline = "top";
+
+                    if(title){
+                        const titleFontSize = Math.round(size.w * 0.075);
+                        ctx.font = "800 " + titleFontSize + "px Inter, sans-serif";
+                        ctx.fillStyle = "#ffffff";
+                        const lineHeight = titleFontSize * 1.15;
+                        const linesUsed = wrapCanvasTextTop(ctx, title, padding, cursorY, maxTextWidth, lineHeight);
+                        cursorY += linesUsed * lineHeight + titleFontSize * 0.4;
+                    }
+
+                    if(subtitle){
+                        const subFontSize = Math.round(size.w * 0.035);
+                        ctx.font = "600 " + subFontSize + "px Inter, sans-serif";
+                        ctx.fillStyle = "#c9a8ff";
+                        wrapCanvasTextTop(ctx, subtitle, padding, cursorY, maxTextWidth, subFontSize * 1.3);
+                    }
+
+                    result.innerHTML = "";
+                    const previewImg = document.createElement("img");
+                    previewImg.className = "generated-img";
+                    previewImg.alt = title || "Generated poster";
+                    const posterDataUrl = canvas.toDataURL("image/png");
+                    previewImg.src = posterDataUrl;
+                    result.appendChild(previewImg);
+                    bumpStat("images");
+                    logPosterToHistory(title || theme, posterDataUrl);
+
+                    const actionsRow = document.createElement("div");
+                    actionsRow.style.display = "flex";
+                    actionsRow.style.gap = "8px";
+                    actionsRow.style.marginTop = "8px";
+                    result.appendChild(actionsRow);
+
+                    const downloadBtn = document.createElement("button");
+                    downloadBtn.className = "copy-btn";
+                    downloadBtn.textContent = "⬇ Download Poster";
+                    downloadBtn.addEventListener("click", () => {
+                        const a = document.createElement("a");
+                        a.href = canvas.toDataURL("image/png");
+                        a.download = "zyntra-ai-poster.png";
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                    });
+                    actionsRow.appendChild(downloadBtn);
+
+                    addReportButton(actionsRow, "Generated poster for: \"" + (title || theme) + "\"");
+                };
+
+                bgImg.onerror = () => {
+                    result.innerHTML = '<p class="loading-text">Could not generate the poster background. Please try again.</p>';
+                };
+
+                bgImg.src = objectUrl;
+            })
+            .catch(() => {
+                result.innerHTML = '<p class="loading-text">Could not generate the poster background. Please try again.</p>';
+            });
+    }
+
+    const waitMs = 2000;
+    setTimeout(drawPoster, waitMs);
+});
+
+// ==========================
+// Voice modal
+// ==========================
+
+document.getElementById("voiceBackBtn")?.addEventListener("click", () => {
+    if(typeof window.stopJarvisConversation === "function") window.stopJarvisConversation();
+    showPageView("chat");
+    setActiveNav("chat");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+});
+
+const voiceBox = document.getElementById("voiceBox");
+const voiceMicBtn = document.getElementById("voiceMicBtn");
+
+// ---------- Jarvis in-app voice commands ----------
+// Real, working navigation commands — NOT a claim of OS-level control.
+// A browser tab can never launch or control desktop apps (Chrome, etc.);
+// this only navigates within Zyntra itself. Checked BEFORE sending
+// anything to the AI, so a recognized command never becomes a chat message.
+const JARVIS_COMMANDS = [
+    { patterns: ["open chat", "open ai chat", "go to chat"], run: () => openTool("chat") },
+    { patterns: ["open image generator", "open images", "open image"], run: () => openTool("image") },
+    { patterns: ["open codex"], run: () => openTool("codex") },
+    { patterns: ["open business tools", "open business"], run: () => openTool("business") },
+    { patterns: ["open plugins"], run: () => document.getElementById("navPlugins")?.click() },
+    { patterns: ["open projects"], run: () => document.getElementById("navProjects")?.click() },
+    { patterns: ["open scheduled"], run: () => document.getElementById("navScheduled")?.click() }
+];
+
+function matchJarvisCommand(said){
+    const text = said.toLowerCase().trim();
+    for(const cmd of JARVIS_COMMANDS){
+        if(cmd.patterns.some(p => text.includes(p))) return cmd;
+    }
+    return null;
+}
+
+// ---------- Microphone permission gate ----------
+// Requested explicitly when the user opens Jarvis (not silently on first
+// mic tap), with plain context on why it's needed — the actual browser
+// permission prompt still comes from getUserMedia itself.
+let jarvisMicGranted = false;
+
+async function requestJarvisMicPermission(){
+    const errorEl = document.getElementById("jarvisPermissionError");
+    errorEl.style.display = "none";
+    try{
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop()); // only needed the permission prompt, not an open mic stream
+        jarvisMicGranted = true;
+        document.getElementById("jarvisPermissionGate").style.display = "none";
+        document.getElementById("jarvisInterface").style.display = "";
+    }catch(err){
+        errorEl.textContent = err.name === "NotAllowedError"
+            ? "Microphone access was denied. You can allow it from your browser's site settings, then try again."
+            : "Couldn't access your microphone: " + err.message;
+        errorEl.style.display = "block";
+    }
+}
+document.getElementById("jarvisEnableMicBtn")?.addEventListener("click", requestJarvisMicPermission);
+
+function addVoiceMsg(text, who){
+    const p = document.createElement("p");
+    p.className = "chat-msg " + who;
+    p.textContent = text;
+    voiceBox.appendChild(p);
+    voiceBox.scrollTop = voiceBox.scrollHeight;
+}
+
+const hasMediaRecorderSupport = !!(navigator.mediaDevices && window.MediaRecorder);
+let voiceHistory = [];
+
+// Records one utterance from an already-open mic stream, auto-stopping
+// once the person stops talking (rather than a fixed duration or a tap
+// to stop) — this is what makes the call feel continuous instead of
+// walkie-talkie. Uses raw volume (RMS) off an AnalyserNode as a simple,
+// dependency-free voice-activity detector.
+function recordJarvisUtterance(stream){
+    return new Promise((resolve, reject) => {
+        const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
+            : (MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "");
+        let recorder;
+        try{
+            recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        }catch(err){
+            reject(err);
+            return;
+        }
+        const chunks = [];
+        recorder.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
+
+        const AudioContextAPI = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContextAPI();
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+
+        const SILENCE_THRESHOLD = 8;      // tuned for typical mic gain/noise floor
+        const SILENCE_DURATION_MS = 900;  // stop this long after speech trails off
+        const MAX_DURATION_MS = 20000;    // hard cap so one long ramble can't hang forever
+        const NO_SPEECH_TIMEOUT_MS = 7000; // give up if nothing is said at all
+
+        let spokeAtLeastOnce = false;
+        let silenceStart = null;
+        const startedAt = Date.now();
+        let stopped = false;
+        let rafId = null;
+
+        function cleanup(){
+            stopped = true;
+            if(rafId) cancelAnimationFrame(rafId);
+            try{ source.disconnect(); }catch{}
+            try{ audioCtx.close(); }catch{}
+        }
+
+        function finish(){
+            if(stopped) return;
+            cleanup();
+            if(recorder.state !== "inactive") recorder.stop();
+            else resolve({ blob: new Blob(chunks, { type: mimeType || "audio/webm" }), spoke: spokeAtLeastOnce });
+        }
+
+        function tick(){
+            if(stopped) return;
+            analyser.getByteTimeDomainData(data);
+            let sumSquares = 0;
+            for(let i = 0; i < data.length; i++){
+                const v = data[i] - 128;
+                sumSquares += v * v;
+            }
+            const rms = Math.sqrt(sumSquares / data.length);
+            const now = Date.now();
+
+            if(rms > SILENCE_THRESHOLD){
+                spokeAtLeastOnce = true;
+                silenceStart = null;
+            } else if(spokeAtLeastOnce){
+                if(silenceStart === null) silenceStart = now;
+                if(now - silenceStart > SILENCE_DURATION_MS){ finish(); return; }
+            }
+
+            if(!spokeAtLeastOnce && now - startedAt > NO_SPEECH_TIMEOUT_MS){ finish(); return; }
+            if(now - startedAt > MAX_DURATION_MS){ finish(); return; }
+            rafId = requestAnimationFrame(tick);
+        }
+
+        recorder.onstop = () => resolve({ blob: new Blob(chunks, { type: mimeType || "audio/webm" }), spoke: spokeAtLeastOnce });
+        recorder.onerror = (e) => { cleanup(); reject(e.error || new Error("Recording failed")); };
+
+        recorder.start();
+        rafId = requestAnimationFrame(tick);
+    });
+}
+
+async function transcribeAudioBlob(blob){
+    const res = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": blob.type || "audio/webm" },
+        body: blob
+    });
+    if(!res.ok) throw new Error("Transcription failed");
+    const data = await res.json();
+    return (data.text || "").trim();
+}
+
+if(!hasMediaRecorderSupport){
+    voiceMicBtn.addEventListener("click", () => {
+        document.getElementById("jarvisStatusLabel").textContent = "Voice calls aren't supported in this browser.";
+    });
+} else {
+    let jarvisContinuousMode = false;
+    let jarvisStream = null;
+    let lastJarvisSpoken = null; // { text, lang } — for the "repeat" voice command
+    let jarvisSpeechQueue = [];
+    let jarvisSpeaking = false;
+    let jarvisStreamDone = false;
+    let jarvisOnTurnDone = null;
+    let jarvisTurnId = 0; // bumped on interrupt so late chunks from an old turn get ignored
+    let jarvisBargeInRaf = null;
+    let jarvisBargeInCtx = null;
+    const jarvisStatusLabel = document.getElementById("jarvisStatusLabel");
+    const REPEAT_PATTERNS = ["repeat that", "repeat again", "say that again", "can you repeat", "repeat it", "repeat"];
+
+    function setJarvisStatus(text){
+        if(jarvisStatusLabel) jarvisStatusLabel.textContent = text;
+    }
+
+    async function getJarvisStream(){
+        if(jarvisStream && jarvisStream.active) return jarvisStream;
+        jarvisStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true }
+        });
+        return jarvisStream;
+    }
+
+    async function startJarvisListening(){
+        setJarvisStatus("Listening…");
+        document.getElementById("jarvisOrb")?.classList.add("listening");
+        try{
+            const stream = await getJarvisStream();
+            const { blob, spoke } = await recordJarvisUtterance(stream);
+            document.getElementById("jarvisOrb")?.classList.remove("listening");
+
+            if(!jarvisContinuousMode) return; // call was ended while recording
+
+            if(!spoke){
+                // Routine silence timeout, not a real failure — just listen again.
+                setJarvisStatus("Listening…");
+                if(jarvisContinuousMode) startJarvisListening();
+                return;
+            }
+
+            setJarvisStatus("Thinking…");
+            const said = await transcribeAudioBlob(blob);
+            if(!said){
+                if(jarvisContinuousMode) startJarvisListening();
+                return;
+            }
+            handleJarvisTranscript(said);
+        }catch(err){
+            document.getElementById("jarvisOrb")?.classList.remove("listening");
+            if(jarvisContinuousMode){
+                setJarvisStatus("Listening…");
+                setTimeout(() => { if(jarvisContinuousMode) startJarvisListening(); }, 400);
+            } else {
+                setJarvisStatus('Say "Tap to speak" below to start.');
+            }
+        }
+    }
+
+    voiceMicBtn.addEventListener("click", () => {
+        // Only needed once — this first tap is the user gesture browsers
+        // require before mic access / audio playback is allowed. After
+        // this, listening restarts itself automatically after each reply,
+        // so the call continues without any more taps — a real back-and-
+        // forth instead of a walkie-talkie.
+        jarvisContinuousMode = true;
+        voiceMicBtn.style.display = "none";
+        startJarvisListening();
+    });
+
+    // Splits a running text buffer into complete sentences plus whatever
+    // incomplete tail is still being generated. Used to start speaking
+    // each sentence as soon as it's ready instead of waiting for the
+    // whole reply — the main latency win.
+    function extractCompleteSentences(buffer){
+        const matches = buffer.match(/[^.!?]+[.!?]+(\s+|$)/g);
+        if(!matches) return { sentences: [], rest: buffer };
+        const joined = matches.join("");
+        return { sentences: matches.map(s => s.trim()).filter(Boolean), rest: buffer.slice(joined.length) };
+    }
+
+    function enqueueJarvisSpeech(text, lang){
+        if(!text || !text.trim()) return;
+        jarvisSpeechQueue.push({ text, lang });
+        if(!jarvisSpeaking) runJarvisSpeechQueue();
+    }
+
+    function runJarvisSpeechQueue(){
+        if(jarvisSpeechQueue.length === 0){
+            jarvisSpeaking = false;
+            stopBargeInMonitor();
+            maybeFinishJarvisTurn();
+            return;
+        }
+        jarvisSpeaking = true;
+        startBargeInMonitor();
+        const { text, lang } = jarvisSpeechQueue.shift();
+        speakText(text, lang, runJarvisSpeechQueue);
+    }
+
+    function maybeFinishJarvisTurn(){
+        if(jarvisSpeechQueue.length === 0 && !jarvisSpeaking && jarvisStreamDone){
+            const cb = jarvisOnTurnDone;
+            jarvisOnTurnDone = null;
+            if(cb) cb();
+        }
+    }
+
+    function clearJarvisSpeechQueue(){
+        jarvisSpeechQueue = [];
+        jarvisSpeaking = false;
+        stopBargeInMonitor();
+        if(currentJarvisAudio){ currentJarvisAudio.pause(); }
+        speechSynthesis.cancel();
+    }
+
+    // Keeps a light watch on the mic while Zyntra is talking. Real
+    // barge-in — sustained speech cuts the reply off immediately instead
+    // of waiting for it to finish. Uses a stricter threshold/longer
+    // sustain than normal listening to avoid false triggers from any
+    // echo of Zyntra's own voice bleeding back into the mic.
+    function startBargeInMonitor(){
+        if(jarvisBargeInRaf || !jarvisStream) return;
+
+        const AudioContextAPI = window.AudioContext || window.webkitAudioContext;
+        jarvisBargeInCtx = new AudioContextAPI();
+        const source = jarvisBargeInCtx.createMediaStreamSource(jarvisStream);
+        const analyser = jarvisBargeInCtx.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+
+        const BARGE_IN_THRESHOLD = 14;
+        const BARGE_IN_SUSTAIN_MS = 280;
+        let aboveSince = null;
+
+        function tick(){
+            if(!jarvisSpeaking){ jarvisBargeInRaf = null; return; }
+            analyser.getByteTimeDomainData(data);
+            let sumSquares = 0;
+            for(let i = 0; i < data.length; i++){
+                const v = data[i] - 128;
+                sumSquares += v * v;
+            }
+            const rms = Math.sqrt(sumSquares / data.length);
+            const now = Date.now();
+
+            if(rms > BARGE_IN_THRESHOLD){
+                if(aboveSince === null) aboveSince = now;
+                if(now - aboveSince > BARGE_IN_SUSTAIN_MS){
+                    handleJarvisInterrupt();
+                    return;
+                }
+            } else {
+                aboveSince = null;
+            }
+            jarvisBargeInRaf = requestAnimationFrame(tick);
+        }
+        jarvisBargeInRaf = requestAnimationFrame(tick);
+    }
+
+    function stopBargeInMonitor(){
+        if(jarvisBargeInRaf){ cancelAnimationFrame(jarvisBargeInRaf); jarvisBargeInRaf = null; }
+        if(jarvisBargeInCtx){ jarvisBargeInCtx.close().catch(() => {}); jarvisBargeInCtx = null; }
+    }
+
+    function handleJarvisInterrupt(){
+        jarvisTurnId++; // any still-arriving chunks/finish handler from the cut-off turn become stale and get ignored
+        jarvisOnTurnDone = null;
+        clearJarvisSpeechQueue();
+        setJarvisStatus("Listening…");
+        if(jarvisContinuousMode) startJarvisListening();
+    }
+
+    async function handleJarvisTranscript(said){
+        if(REPEAT_PATTERNS.some(p => said.toLowerCase().trim().includes(p))){
+            if(lastJarvisSpoken){
+                setJarvisStatus("Repeating…");
+                speakText(lastJarvisSpoken.text, lastJarvisSpoken.lang, () => {
+                    if(jarvisContinuousMode) startJarvisListening();
+                });
+            } else {
+                setJarvisStatus("I haven't said anything yet.");
+                if(jarvisContinuousMode) startJarvisListening();
+            }
+            return;
+        }
+
+        const command = matchJarvisCommand(said);
+        if(command){
+            command.run();
+            setJarvisStatus("Opening that now…");
+            speakText("On it.", "en-US", () => {
+                if(jarvisContinuousMode) startJarvisListening();
+            });
+            return; // recognized as a command, never sent to the AI
+        }
+
+        if(voiceHistory.length === 0){
+            voiceHistory.push({
+                role: "system",
+                content: "Always reply in the same language the user speaks in (for example, reply in Hindi if they speak Hindi, in Spanish if they speak Spanish, and so on — support any language naturally). If the user explicitly asks you to reply or speak in a specific language (for example \"talk in Gujarati\" or \"reply in French\"), you MUST switch to writing your entire response in that requested language from that point on, using its native script, not English. Pay attention to the emotional tone of what the user says (happy, sad, frustrated, excited, worried, etc.) and respond with matching empathy and tone — be warm and supportive if they seem upset or stressed, and match their energy if they're happy or excited. Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process, and do not add unnecessary meta-commentary. Keep replies fairly brief since they will be read aloud."
+            });
+        }
+        voiceHistory.push({ role: "user", content: said });
+        logVoiceMessageToHistory("user", said);
+        addVoiceMsg(said, "user"); // kept invisible (voiceBox is hidden) — still logs for session history/replay elsewhere
+        addVoiceMsg("Thinking...", "ai-loading");
+        setJarvisStatus("Thinking…");
+
+        const myTurnId = ++jarvisTurnId;
+        jarvisStreamDone = false;
+        jarvisOnTurnDone = () => { if(jarvisContinuousMode) startJarvisListening(); };
+
+        let accumulated = "";
+        let sentenceBuffer = "";
+        let detectedLang = null;
+        let spokeYet = false;
+
+        try{
+            await streamChatAPI(voiceHistory, (chunk) => {
+                if(myTurnId !== jarvisTurnId) return; // this turn was interrupted — drop stale chunks
+                accumulated += chunk;
+                sentenceBuffer += chunk;
+
+                const { sentences, rest } = extractCompleteSentences(sentenceBuffer);
+                sentenceBuffer = rest;
+                sentences.forEach(sentenceRaw => {
+                    const spoken = stripForSpeech(sentenceRaw);
+                    if(!spoken.trim()) return;
+                    if(!detectedLang) detectedLang = detectSpeechLang(spoken);
+                    enqueueJarvisSpeech(spoken, detectedLang);
+                    if(!spokeYet){ spokeYet = true; setJarvisStatus("Speaking…"); }
+                });
+            }, {});
+
+            if(myTurnId !== jarvisTurnId) return; // interrupted while the stream was still going
+
+            if(sentenceBuffer.trim()){
+                const spoken = stripForSpeech(sentenceBuffer);
+                if(spoken.trim()){
+                    if(!detectedLang) detectedLang = detectSpeechLang(spoken);
+                    enqueueJarvisSpeech(spoken, detectedLang);
+                }
+            }
+            jarvisStreamDone = true;
+
+            voiceHistory.push({ role: "assistant", content: accumulated });
+            logVoiceMessageToHistory("assistant", accumulated);
+            voiceBox.removeChild(voiceBox.lastChild);
+            const clean = accumulated.replace(/\*\*/g, "");
+            const fullSpoken = stripForSpeech(accumulated);
+            lastJarvisSpoken = { text: fullSpoken, lang: detectedLang || detectSpeechLang(fullSpoken) };
+            const aiDiv = document.createElement("div");
+            aiDiv.className = "chat-msg ai";
+            voiceBox.appendChild(aiDiv);
+            typeOutText(aiDiv, clean, voiceBox, () => {
+                aiDiv.classList.add("done");
+                const bar = addMessageActionBar(aiDiv, clean);
+                addSpeakRepeatButton(bar, lastJarvisSpoken.text, lastJarvisSpoken.lang);
+            });
+
+            maybeFinishJarvisTurn();
+        }catch(err){
+            if(myTurnId !== jarvisTurnId) return;
+            voiceBox.removeChild(voiceBox.lastChild);
+            setJarvisStatus("Sorry, I couldn't process that.");
+            jarvisStreamDone = true;
+            jarvisOnTurnDone = null;
+            clearJarvisSpeechQueue();
+            if(jarvisContinuousMode) startJarvisListening();
+        }
+    }
+
+    window.stopJarvisConversation = () => {
+        jarvisContinuousMode = false;
+        jarvisTurnId++; // invalidate any in-flight turn so late chunks are ignored
+        jarvisOnTurnDone = null;
+        clearJarvisSpeechQueue();
+        if(jarvisStream){
+            jarvisStream.getTracks().forEach(track => track.stop());
+            jarvisStream = null;
+        }
+        document.getElementById("jarvisOrb")?.classList.remove("listening");
+    };
+}
+
+// ---------- Initial render ----------
+
+renderSidebarHistory();
+renderPromptSuggestions();
+applyToolGreeting("chat");
+
+// ==========================================================
+// Scroll-to-latest-message floating button
+// ==========================================================
+(function initScrollToLatestBtn(){
+    const area = document.getElementById("chatArea");
+    const btn = document.getElementById("scrollToLatestBtn");
+    if(!area || !btn) return;
+
+    function positionBtn(){
+        const rect = area.getBoundingClientRect();
+        btn.style.left = (rect.left + rect.width / 2) + "px";
+        btn.style.bottom = (window.innerHeight - rect.bottom + 16) + "px";
+    }
+
+    function updateVisibility(){
+        const distanceFromBottom = area.scrollHeight - area.scrollTop - area.clientHeight;
+        if(distanceFromBottom > 220){
+            btn.classList.add("show");
+        } else {
+            btn.classList.remove("show");
+        }
+        positionBtn();
+    }
+
+    area.addEventListener("scroll", updateVisibility, { passive: true });
+    window.addEventListener("resize", positionBtn);
+
+    // Catch new messages being appended even when scroll position
+    // doesn't change on its own (e.g. streaming replies growing the box).
+    const chatMessagesEl = document.getElementById("chatMessages");
+    if(chatMessagesEl && "MutationObserver" in window){
+        new MutationObserver(updateVisibility).observe(chatMessagesEl, { childList: true, subtree: true });
+    }
+
+    btn.addEventListener("click", () => {
+        area.scrollTo({ top: area.scrollHeight, behavior: "smooth" });
+    });
+
+    positionBtn();
+    updateVisibility();
+})();
+
+// ==========================================================
+// Offline overlay + offline mini-game ("Orb Dash")
+// ==========================================================
+(function initOfflineExperience(){
+    const overlay = document.getElementById("offlineOverlay");
+    if(!overlay) return;
+
+    const mainView = document.getElementById("offlineMainView");
+    const backOnlineView = document.getElementById("offlineBackOnlineView");
+    const gameWrap = document.getElementById("offlineGameWrap");
+    const playBtn = document.getElementById("offlinePlayBtn");
+    const retryBtn = document.getElementById("offlineRetryBtn");
+    const startChatBtn = document.getElementById("offlineStartChatBtn");
+    const gameBackBtn = document.getElementById("offlineGameBackBtn");
+    const statusMsg = document.getElementById("offlineStatusMsg");
+
+    let wasOffline = false;
+
+    function showView(view){
+        mainView.style.display = view === "main" ? "flex" : "none";
+        backOnlineView.style.display = view === "backOnline" ? "flex" : "none";
+        gameWrap.style.display = view === "game" ? "flex" : "none";
+        if(view === "game"){
+            startGame();
+        } else {
+            stopGame();
+        }
+    }
+
+    function openOverlay(){
+        wasOffline = true;
+        overlay.classList.add("show");
+        statusMsg.textContent = "";
+        showView("main");
+    }
+
+    function closeOverlay(){
+        overlay.classList.remove("show");
+        stopGame();
+    }
+
+    window.addEventListener("offline", openOverlay);
+    window.addEventListener("online", () => {
+        if(!wasOffline) return; // only react if we were actually showing the offline screen
+        statusMsg.textContent = "";
+        showView("backOnline");
+    });
+
+    retryBtn.addEventListener("click", () => {
+        if(navigator.onLine){
+            statusMsg.textContent = "";
+            showView("backOnline");
+        } else {
+            statusMsg.textContent = "Still offline — check your connection and try again.";
+        }
+    });
+
+    startChatBtn.addEventListener("click", () => {
+        wasOffline = false;
+        closeOverlay();
+    });
+
+    playBtn.addEventListener("click", () => showView("game"));
+    gameBackBtn.addEventListener("click", () => showView("main"));
+
+    // Check immediately on load in case the app was opened while offline.
+    if(!navigator.onLine){
+        openOverlay();
+    }
+
+    // ---------------- Mini game: Orb Dash ----------------
+    // Tiny original canvas endless-runner: a jumping orb dodges
+    // incoming bars. No external assets, pure canvas drawing.
+    const canvas = document.getElementById("offlineGameCanvas");
+    const scoreEl = document.getElementById("offlineGameScore");
+    const bestEl = document.getElementById("offlineGameBest");
+    const hintEl = document.getElementById("offlineGameHint");
+    let ctx = null;
+    let rafId = null;
+    let gameRunning = false;
+    let gameOver = false;
+    let W = 320, H = 400;
+
+    const GROUND_Y_RATIO = 0.82;
+    let player, obstacles, speed, spawnTimer, score, best;
+
+    function loadBest(){
+        try{ return parseInt(localStorage.getItem("zyntraOfflineGameBest") || "0", 10) || 0; }
+        catch(e){ return 0; }
+    }
+    function saveBest(val){
+        try{ localStorage.setItem("zyntraOfflineGameBest", String(val)); }
+        catch(e){ /* ignore */ }
+    }
+
+    function resizeCanvas(){
+        if(!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        W = rect.width;
+        H = rect.height;
+        canvas.width = W * dpr;
+        canvas.height = H * dpr;
+        ctx = canvas.getContext("2d");
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function resetGame(){
+        best = loadBest();
+        bestEl.textContent = best;
+        score = 0;
+        scoreEl.textContent = "0";
+        speed = 4.2;
+        spawnTimer = 0;
+        obstacles = [];
+        const groundY = H * GROUND_Y_RATIO;
+        player = { x: W * 0.22, y: groundY - 26, size: 26, vy: 0, onGround: true };
+        gameOver = false;
+        hintEl.textContent = "Tap, click or press Space to jump";
+    }
+
+    function jump(){
+        if(!gameRunning) return;
+        if(gameOver){
+            resetGame();
+            return;
+        }
+        if(player.onGround){
+            player.vy = -10.5;
+            player.onGround = false;
+        }
+    }
+
+    function spawnObstacle(){
+        const groundY = H * GROUND_Y_RATIO;
+        const h = 22 + Math.random() * 26;
+        obstacles.push({ x: W + 10, y: groundY - h, w: 16 + Math.random() * 10, h });
+    }
+
+    function update(){
+        const groundY = H * GROUND_Y_RATIO;
+
+        // player physics
+        player.vy += 0.55;
+        player.y += player.vy;
+        if(player.y >= groundY - player.size){
+            player.y = groundY - player.size;
+            player.vy = 0;
+            player.onGround = true;
+        }
+
+        // obstacles
+        spawnTimer -= 1;
+        if(spawnTimer <= 0){
+            spawnObstacle();
+            spawnTimer = 55 - Math.min(25, speed * 4) + Math.random() * 35;
+        }
+        for(let i = obstacles.length - 1; i >= 0; i--){
+            obstacles[i].x -= speed;
+            if(obstacles[i].x + obstacles[i].w < 0){
+                obstacles.splice(i, 1);
+                score += 1;
+                scoreEl.textContent = String(score);
+            }
+        }
+
+        // collision (simple AABB)
+        for(const o of obstacles){
+            const px = player.x, py = player.y, ps = player.size;
+            if(px < o.x + o.w && px + ps > o.x && py < o.y + o.h && py + ps > o.y){
+                gameOver = true;
+                if(score > best){
+                    best = score;
+                    saveBest(best);
+                    bestEl.textContent = best;
+                }
+                hintEl.textContent = "Game over — tap to try again";
+            }
+        }
+
+        speed += 0.0025;
+    }
+
+    function draw(){
+        ctx.clearRect(0, 0, W, H);
+
+        // ground line
+        const groundY = H * GROUND_Y_RATIO;
+        ctx.strokeStyle = "rgba(255,255,255,.14)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, groundY);
+        ctx.lineTo(W, groundY);
+        ctx.stroke();
+
+        // obstacles
+        ctx.fillStyle = "#b45cff";
+        obstacles.forEach(o => {
+            const grad = ctx.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
+            grad.addColorStop(0, "#ff59b0");
+            grad.addColorStop(1, "#6e5cff");
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.roundRect ? ctx.roundRect(o.x, o.y, o.w, o.h, 4) : ctx.rect(o.x, o.y, o.w, o.h);
+            ctx.fill();
+        });
+
+        // player orb
+        const grad2 = ctx.createRadialGradient(
+            player.x + player.size/2, player.y + player.size/2, 2,
+            player.x + player.size/2, player.y + player.size/2, player.size
+        );
+        grad2.addColorStop(0, "#ffffff");
+        grad2.addColorStop(0.4, "#6e5cff");
+        grad2.addColorStop(1, "#b45cff");
+        ctx.fillStyle = grad2;
+        ctx.beginPath();
+        ctx.arc(player.x + player.size/2, player.y + player.size/2, player.size/2, 0, Math.PI * 2);
+        ctx.fill();
+
+        if(gameOver){
+            ctx.fillStyle = "rgba(5,5,7,.55)";
+            ctx.fillRect(0, 0, W, H);
+            ctx.fillStyle = "#f5f5f7";
+            ctx.textAlign = "center";
+            ctx.font = "700 20px sans-serif";
+            ctx.fillText("Game Over", W/2, H/2 - 8);
+            ctx.font = "500 13px sans-serif";
+            ctx.fillText("Score: " + score, W/2, H/2 + 16);
+        }
+    }
+
+    function loop(){
+        if(!gameRunning) return;
+        if(!gameOver) update();
+        draw();
+        rafId = requestAnimationFrame(loop);
+    }
+
+    function startGame(){
+        if(!canvas) return;
+        resizeCanvas();
+        resetGame();
+        gameRunning = true;
+        if(rafId) cancelAnimationFrame(rafId);
+        loop();
+    }
+
+    function stopGame(){
+        gameRunning = false;
+        if(rafId){ cancelAnimationFrame(rafId); rafId = null; }
+    }
+
+    if(canvas){
+        canvas.addEventListener("pointerdown", jump);
+        window.addEventListener("keydown", (e) => {
+            if(gameWrap.style.display === "flex" && (e.code === "Space" || e.key === " ")){
+                e.preventDefault();
+                jump();
+            }
+        });
+        window.addEventListener("resize", () => {
+            if(gameWrap.style.display === "flex"){
+                resizeCanvas();
+            }
+        });
+    }
+})();
+
+// ==========================================================
+// Temporary Chat
+// ==========================================================
+function setTemporaryChatActive(active){
+    temporaryChatActive = active;
+    const btn = document.getElementById("tempChatToggleBtn");
+    const disclaimer = document.getElementById("tempChatDisclaimer");
+    const suggestions = document.getElementById("promptSuggestions");
+    if(btn) btn.classList.toggle("active", active);
+    if(disclaimer) disclaimer.style.display = active ? "" : "none";
+    if(active){
+        document.getElementById("greetingHeading").textContent = "Temporary chat";
+        document.getElementById("greetingSubtitle").textContent = "This chat will ignore memory, plugins, and custom instructions, and it won't appear in your history.";
+        if(suggestions) suggestions.style.display = "none";
+    } else {
+        applyToolGreeting(activeChatTool);
+        if(suggestions) suggestions.style.display = "";
+    }
+}
+
+function updateTempChatToggleVisibility(){
+    const btn = document.getElementById("tempChatToggleBtn");
+    const greeting = document.getElementById("chatGreeting");
+    if(!btn || !greeting) return;
+    const isNewChat = greeting.style.display !== "none" && chatMessages.children.length === 0;
+    btn.style.display = (isNewChat && activeChatTool === "chat") ? "flex" : "none";
+}
+
+document.getElementById("tempChatToggleBtn")?.addEventListener("click", () => {
+    setTemporaryChatActive(!temporaryChatActive);
+});
+
+// Keep the toggle's visibility in sync with the greeting screen — it
+// should only ever be offered before the first message of a brand-new
+// chat, on the main Chat tool (matches setTemporaryChatActive's reset
+// path in resetChatView, and openTool's tab switches below).
+(function watchTempChatToggleVisibility(){
+    const greeting = document.getElementById("chatGreeting");
+    if(!greeting) return;
+    if("MutationObserver" in window){
+        new MutationObserver(updateTempChatToggleVisibility)
+            .observe(greeting, { attributes: true, attributeFilter: ["style"] });
+        if(chatMessages){
+            new MutationObserver(updateTempChatToggleVisibility)
+                .observe(chatMessages, { childList: true });
+        }
+    }
+    updateTempChatToggleVisibility();
+})();
+
+// ==========================================================
+// Sidebar collapse/expand toggle (desktop)
+// ==========================================================
+(function initSidebarToggle(){
+    const innerBtn = document.getElementById("sidebarToggleBtnInner");
+    const outerBtn = document.getElementById("sidebarToggleBtnOuter");
+    if(!innerBtn && !outerBtn) return;
+
+    function applyCollapsed(collapsed){
+        document.body.classList.toggle("sidebar-collapsed", collapsed);
+        localStorage.setItem("zyntra-sidebar-collapsed", collapsed ? "1" : "0");
+    }
+
+    // Restore the user's last choice, but only on desktop widths — the
+    // mobile sidebar already has its own separate open/close handling.
+    applyCollapsed(window.innerWidth > 900 && localStorage.getItem("zyntra-sidebar-collapsed") === "1");
+
+    function toggle(){
+        applyCollapsed(!document.body.classList.contains("sidebar-collapsed"));
+    }
+    innerBtn?.addEventListener("click", toggle);
+    outerBtn?.addEventListener("click", toggle);
+
+    // If the window shrinks into mobile range while collapsed, undo the
+    // collapse so the mobile slide-over sidebar isn't left hidden/broken.
+    window.addEventListener("resize", () => {
+        if(window.innerWidth <= 900 && document.body.classList.contains("sidebar-collapsed")){
+            document.body.classList.remove("sidebar-collapsed");
+        }
+    });
+})();
+
+// ==========================================================
+// Settings: Chat Behavior
+// ==========================================================
+function chatAutoScroll(){
+    if(localStorage.getItem("zyntra-autoscroll") === "0") return;
+    chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function renderChatBehaviorSettings(){
+    const toggle = document.getElementById("settingsAutoScrollToggle");
+    if(!toggle) return;
+    toggle.checked = localStorage.getItem("zyntra-autoscroll") !== "0";
+}
+
+document.getElementById("settingsAutoScrollToggle")?.addEventListener("change", e => {
+    localStorage.setItem("zyntra-autoscroll", e.target.checked ? "1" : "0");
+});
+
+// ==========================================================
+// Settings: Notifications
+// ==========================================================
+function playNotifSound(){
+    try{
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.4);
+    } catch(e){ /* audio not available — ignore */ }
+}
+
+function notifyAIReply(text){
+    if(!document.hidden) return; // only nudge the user when they're not looking at the tab
+
+    if(localStorage.getItem("zyntra-notif-sound") === "1"){
+        playNotifSound();
+    }
+    if(localStorage.getItem("zyntra-notif-desktop") === "1" && "Notification" in window && Notification.permission === "granted"){
+        const plain = String(text || "").replace(/[#*`_>\[\]]/g, "").trim().slice(0, 120);
+        try{
+            new Notification("Zyntra AI replied", { body: plain || "New message", icon: "/favicon.png" });
+        } catch(e){ /* ignore */ }
+    }
+}
+
+function renderNotificationSettings(){
+    const soundToggle = document.getElementById("settingsSoundToggle");
+    const desktopToggle = document.getElementById("settingsDesktopNotifToggle");
+    if(!soundToggle || !desktopToggle) return;
+    soundToggle.checked = localStorage.getItem("zyntra-notif-sound") === "1";
+    desktopToggle.checked = localStorage.getItem("zyntra-notif-desktop") === "1" && "Notification" in window && Notification.permission === "granted";
+}
+
+document.getElementById("settingsSoundToggle")?.addEventListener("change", e => {
+    localStorage.setItem("zyntra-notif-sound", e.target.checked ? "1" : "0");
+    if(e.target.checked) playNotifSound();
+});
+
+document.getElementById("settingsDesktopNotifToggle")?.addEventListener("change", async e => {
+    const hint = document.getElementById("notifPermissionHint");
+    if(!("Notification" in window)){
+        e.target.checked = false;
+        if(hint){ hint.style.display = "block"; hint.textContent = "Your browser doesn't support desktop notifications."; }
+        return;
+    }
+    if(e.target.checked){
+        const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+        if(permission !== "granted"){
+            e.target.checked = false;
+            localStorage.setItem("zyntra-notif-desktop", "0");
+            if(hint){ hint.style.display = "block"; hint.textContent = "Notifications are blocked for this site — enable them in your browser's site settings to turn this on."; }
+            return;
+        }
+        if(hint) hint.style.display = "none";
+    }
+    localStorage.setItem("zyntra-notif-desktop", e.target.checked ? "1" : "0");
+});
+
+// ==========================================================
+// Settings: Data export
+// ==========================================================
+document.getElementById("settingsExportDataBtn")?.addEventListener("click", () => {
+    const data = {
+        exportedAt: new Date().toISOString(),
+        profile: getProfile(),
+        sessions: getSessions(),
+        memories: getMemories(),
+        projects: getProjects()
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "zyntra-ai-data-export.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    const btn = document.getElementById("settingsExportDataBtn");
+    const original = btn.textContent;
+    btn.textContent = "Downloaded ✓";
+    setTimeout(() => { btn.textContent = original; }, 1800);
+});
+
+// ==========================================================
+// Settings: Security (change password / delete account)
+// ==========================================================
+function renderSecuritySettings(){
+    const user = (typeof firebase !== "undefined") ? activeAuth().currentUser : null;
+    const passwordSection = document.getElementById("securityPasswordSection");
+    const googleNote = document.getElementById("securityGoogleOnlyNote");
+    if(!passwordSection || !googleNote) return;
+
+    const hasPasswordProvider = !!user?.providerData?.some(p => p.providerId === "password");
+    passwordSection.style.display = hasPasswordProvider ? "block" : "none";
+    googleNote.style.display = hasPasswordProvider ? "none" : "block";
+
+    document.getElementById("securityCurrentPassword").value = "";
+    document.getElementById("securityNewPassword").value = "";
+    document.getElementById("securityConfirmPassword").value = "";
+    document.getElementById("securityPasswordMsg").textContent = "";
+    document.getElementById("securityDeleteMsg").textContent = "";
+}
+
+document.getElementById("securityChangePasswordBtn")?.addEventListener("click", () => {
+    const msg = document.getElementById("securityPasswordMsg");
+    const user = activeAuth().currentUser;
+    const current = document.getElementById("securityCurrentPassword").value;
+    const next = document.getElementById("securityNewPassword").value;
+    const confirm = document.getElementById("securityConfirmPassword").value;
+
+    if(!current || !next || !confirm){
+        msg.style.color = "#ff8fa8";
+        msg.textContent = "Fill in all three fields.";
+        return;
+    }
+    if(next.length < 6){
+        msg.style.color = "#ff8fa8";
+        msg.textContent = "New password must be at least 6 characters.";
+        return;
+    }
+    if(next !== confirm){
+        msg.style.color = "#ff8fa8";
+        msg.textContent = "New password and confirmation don't match.";
+        return;
+    }
+
+    const btn = document.getElementById("securityChangePasswordBtn");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Updating…";
+
+    const credential = firebase.auth.EmailAuthProvider.credential(user.email, current);
+    user.reauthenticateWithCredential(credential)
+        .then(() => user.updatePassword(next))
+        .then(() => {
+            msg.style.color = "#7ee7a8";
+            msg.textContent = "Password updated ✓";
+            document.getElementById("securityCurrentPassword").value = "";
+            document.getElementById("securityNewPassword").value = "";
+            document.getElementById("securityConfirmPassword").value = "";
+        })
+        .catch(err => {
+            msg.style.color = "#ff8fa8";
+            msg.textContent = firebaseErrorMessage(err.code, err.message);
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = original;
+        });
+});
+
+document.getElementById("securityDeleteAccountBtn")?.addEventListener("click", () => {
+    openModal("deleteAccountModal");
+});
+document.getElementById("deleteAccountModalClose")?.addEventListener("click", () => closeModal("deleteAccountModal"));
+document.getElementById("deleteAccountCancel")?.addEventListener("click", () => closeModal("deleteAccountModal"));
+
+document.getElementById("deleteAccountConfirm")?.addEventListener("click", () => {
+    const user = activeAuth().currentUser;
+    if(!user) return;
+    const btn = document.getElementById("deleteAccountConfirm");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Deleting…";
+
+    user.delete()
+        .then(() => {
+            localStorage.clear();
+            closeModal("deleteAccountModal");
+            closeModal("profileModal");
+            window.location.reload();
+        })
+        .catch(err => {
+            btn.disabled = false;
+            btn.textContent = original;
+            const dmsg = document.getElementById("securityDeleteMsg");
+            if(err.code === "auth/requires-recent-login"){
+                closeModal("deleteAccountModal");
+                if(dmsg){
+                    dmsg.style.color = "#ff8fa8";
+                    dmsg.textContent = "For your security, please sign out and sign back in, then try deleting your account again.";
+                }
+            } else if(dmsg){
+                dmsg.style.color = "#ff8fa8";
+                dmsg.textContent = firebaseErrorMessage(err.code, err.message);
+            }
+        });
+});
+
+// ==========================================================
+// Multi-account: add + switch between two signed-in accounts
+// ==========================================================
+
+function initSecondaryFirebaseApp(){
+    if(!firebase.apps.some(a => a.name === "secondary")){
+        const secondaryApp = firebase.initializeApp(window.zyntraFirebaseConfig, "secondary");
+        attachAuthStateListener(secondaryApp.auth(), "secondary");
+    }
+    return firebase.app("secondary");
+}
+
+function getKnownAccounts(){
+    try{
+        return JSON.parse(localStorage.getItem("zyntra-known-accounts") || "{}");
+    } catch(e){
+        return {};
+    }
+}
+function saveKnownAccount(slot, email){
+    if(!email) return;
+    const known = getKnownAccounts();
+    known[slot] = { email, letter: email.charAt(0).toUpperCase() };
+    localStorage.setItem("zyntra-known-accounts", JSON.stringify(known));
+    renderAccountSwitcher();
+}
+function removeKnownAccount(slot){
+    const known = getKnownAccounts();
+    delete known[slot];
+    localStorage.setItem("zyntra-known-accounts", JSON.stringify(known));
+    renderAccountSwitcher();
+}
+
+// Kicks off adding a second account: stashes which slot is currently
+// active (in case the user backs out), spins up the secondary Firebase
+// app if this is the first time, marks it as the one about to be signed
+// into, then opens the existing sign-in modal — every sign-in path in
+// that modal already goes through activeAuth(), so it transparently
+// signs into the secondary app without any changes to the modal itself.
+function startAddAccountFlow(){
+    accountAddPreviousSlot = activeAccountSlot;
+    localStorage.setItem("zyntra-account-add-previous-slot", accountAddPreviousSlot);
+    initSecondaryFirebaseApp();
+    activeAccountSlot = "secondary";
+    localStorage.setItem("zyntra-active-slot", "secondary");
+    document.getElementById("signinContext").style.display = "none";
+    resetSigninModalUI();
+    openModal("signinModal");
+}
+
+document.getElementById("addAccountBtn")?.addEventListener("click", startAddAccountFlow);
+
+// If the sign-in modal gets closed without completing the add-account
+// flow, put the active slot back so nothing changes underneath the user.
+document.getElementById("signinModalClose")?.addEventListener("click", () => {
+    if(accountAddPreviousSlot !== null){
+        const secondaryUser = firebase.apps.some(a => a.name === "secondary") ? firebase.app("secondary").auth().currentUser : null;
+        if(!secondaryUser){
+            activeAccountSlot = accountAddPreviousSlot;
+            localStorage.setItem("zyntra-active-slot", activeAccountSlot);
+        }
+        accountAddPreviousSlot = null;
+        localStorage.removeItem("zyntra-account-add-previous-slot");
+        openModal("profileModal");
+        renderProfileModal();
+    }
+});
+
+async function switchToSlot(slot){
+    if(slot === activeAccountSlot) return;
+    const msg = document.getElementById("accountSwitcherMsg");
+    if(msg) msg.textContent = "Switching…";
+
+    await pushLocalToCloud(); // save whatever's active right now before leaving it
+
+    activeAccountSlot = slot;
+    localStorage.setItem("zyntra-active-slot", slot);
+
+    const user = activeAuth().currentUser;
+    if(user) localStorage.setItem("zyntra-user", user.email);
+
+    await pullCloudToLocal();
+    refreshProjectsCache();
+    resetChatView();
+    renderAuthNav();
+    renderSidebarHistory();
+    applyPluginVisibility();
+    renderProfileModal();
+
+    if(msg) msg.textContent = "";
+}
+
+function renderAccountSwitcher(){
+    const list = document.getElementById("accountSwitcherList");
+    if(!list) return;
+    let known = getKnownAccounts();
+
+    // Self-heal a duplicate from before this was blocked: if both slots
+    // ended up pointing at the same email, there's nothing to actually
+    // switch to — drop the non-active one and sign its background
+    // session out so it doesn't linger pointlessly.
+    if(known.default && known.secondary && known.default.email.toLowerCase() === known.secondary.email.toLowerCase()){
+        const staleSlot = activeAccountSlot === "secondary" ? "default" : "secondary";
+        if(staleSlot === "secondary" && firebase.apps.some(a => a.name === "secondary")){
+            firebase.app("secondary").auth().signOut().catch(() => {});
+        }
+        delete known[staleSlot];
+        localStorage.setItem("zyntra-known-accounts", JSON.stringify(known));
+    }
+
+    list.innerHTML = "";
+
+    ["default", "secondary"].forEach(slot => {
+        const account = known[slot];
+        if(!account) return;
+
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid #232a4d; border-radius:12px;";
+        const isActive = slot === activeAccountSlot;
+
+        row.innerHTML = `
+            <div style="width:34px; height:34px; border-radius:50%; background:var(--accent-grad); display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; flex-shrink:0;">${account.letter}</div>
+            <p style="flex:1; margin:0; font-size:14px; color:#e8e9f5; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${account.email}</p>
+        `;
+
+        if(isActive){
+            const badge = document.createElement("span");
+            badge.textContent = "Active";
+            badge.style.cssText = "font-size:12px; color:#7ee7a8; font-weight:700; flex-shrink:0;";
+            row.appendChild(badge);
+        } else {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = "Switch";
+            btn.style.cssText = "padding:7px 14px; border:1px solid #2b3154; border-radius:10px; background:#171d3d; color:white; font-weight:600; cursor:pointer; flex-shrink:0;";
+            btn.addEventListener("click", () => switchToSlot(slot));
+            row.appendChild(btn);
+        }
+
+        list.appendChild(row);
+    });
+}
+
+// ==========================================================
+// Deep-link into a specific tool via ?tool=image / ?tool=voice / etc.
+// Used by the dedicated SEO landing pages (/image-generator, /jarvis,
+// /codex, /business-tools) so their "Open in Zyntra AI" button lands
+// the visitor straight in that tool instead of the plain chat screen.
+// ==========================================================
+// ==========================================================
+// Clean URL routing (like ChatGPT's /c/... — one app, the address
+// bar just reflects what's showing). No separate HTML files involved;
+// Vercel's catch-all already serves index.html for any path, so this
+// just needs to sync the app's state with the visible URL both ways.
+// ==========================================================
+
+const ROUTE_META = {
+    "": { title: "Zyntra AI — AI Chat, Image Generator & Jarvis Voice Assistant", description: "Zyntra AI is your all-in-one AI assistant — chat with AI, generate AI images, talk to Zyntra Jarvis (voice assistant), get coding help with Codex, and grow your business, all in one place." },
+    "chat": { title: "Zyntra AI — AI Chat, Image Generator & Jarvis Voice Assistant", description: "Zyntra AI is your all-in-one AI assistant — chat with AI, generate AI images, talk to Zyntra Jarvis (voice assistant), get coding help with Codex, and grow your business, all in one place." },
+    "image-generator": { title: "AI Image Generator — Zyntra AI", description: "Generate AI images for free with Zyntra AI's Image Generator. Turn any text description into a realistic photo, illustration, or poster in seconds." },
+    "jarvis": { title: "Zyntra Jarvis — AI Voice Assistant | Zyntra AI", description: "Talk to Zyntra Jarvis, a hands-free AI voice assistant. Speak naturally and get spoken answers back." },
+    "codex": { title: "Codex — AI Code Assistant | Zyntra AI", description: "Zyntra Codex is your AI code assistant — write, debug, and explain code, or build a full website from a description." },
+    "business-tools": { title: "AI Business Tools — Zyntra AI", description: "Zyntra AI's Business Tools help you write business plans, pitch ideas, marketing copy, and get startup advice from AI." },
+    "data-analysis": { title: "Data Analysis — Zyntra AI", description: "Upload a spreadsheet and ask questions — Zyntra AI writes and runs real Python to analyze it." },
+    "plugins": { title: "Plugins — Zyntra AI", description: "Turn Zyntra AI's capabilities on or off, and connect apps like Google, GitHub, Slack, and Notion." },
+    "projects": { title: "Projects — Zyntra AI", description: "Organize related chats together in Zyntra AI, with shared instructions and easy sharing." },
+    "scheduled": { title: "Scheduled Tasks — Zyntra AI", description: "Set up recurring AI tasks in Zyntra AI that run automatically and wait for you." },
+    "about": { title: "About — Zyntra AI", description: "Zyntra AI is a personal AI assistant built by Ghanchi Moin — AI chat, image generation, a voice assistant, coding help, and business tools, all in one place." },
+    "privacy": { title: "Privacy Policy — Zyntra AI", description: "Zyntra AI's privacy policy — what data we collect, how it's processed, and your choices." },
+    "contact": { title: "Contact — Zyntra AI", description: "Get in touch with the Zyntra AI team — questions, feedback, or bug reports welcome." }
+};
+
+const TOOL_TO_SLUG = { chat: "chat", image: "image-generator", voice: "jarvis", codex: "codex", agent: "agent-mode", business: "business-tools", data: "data-analysis" };
+const SLUG_TO_TOOL = { "": "chat", "chat": "chat", "image-generator": "image", "jarvis": "voice", "codex": "codex", "agent-mode": "agent", "business-tools": "business", "data-analysis": "data" };
+
+function setRouteMeta(slug){
+    const meta = ROUTE_META[slug] || ROUTE_META[""];
+    document.title = meta.title;
+    const descTag = document.querySelector('meta[name="description"]');
+    if(descTag) descTag.setAttribute("content", meta.description);
+}
+
+let firstRouteSync = true;
+function navigateToRoute(slug, id){
+    let path = slug ? "/" + slug : "/";
+    if(id) path += "/" + id;
+    if(window.location.pathname !== path || firstRouteSync){
+        if(firstRouteSync){
+            window.history.replaceState({ slug, id }, "", path);
+        } else {
+            window.history.pushState({ slug, id }, "", path);
+        }
+    }
+    firstRouteSync = false;
+    setRouteMeta(slug);
+}
+
+function openSessionById(id){
+    const session = getSessions().find(s => String(s.id) === String(id));
+    if(session){
+        openSession(session);
+        return true;
+    }
+    return false;
+}
+
+function applyRouteFromPath(){
+    const parts = window.location.pathname.replace(/^\/+|\/+$/g, "").split("/");
+    const slug = parts[0] || "";
+    const subId = parts[1] || null;
+
+    if(slug === "share" && subId){
+        loadSharedChat(subId);
+        return;
+    }
+    if(slug === "plugins" && subId){
+        document.getElementById("navPlugins")?.click();
+        const def = CONNECTORS.find(c => c.key === subId) || PLUGIN_DEFS.find(p => p.key === subId);
+        if(def){
+            openPluginDetail(CONNECTORS.includes(def) ? "connector" : "plugin", subId);
+        }
+        return;
+    }
+    if(slug === "settings" && subId){
+        openModal("profileModal");
+        renderProfileModal();
+        switchSettingsSection(subId);
+        return;
+    }
+    if(Object.prototype.hasOwnProperty.call(SLUG_TO_TOOL, slug) && subId){
+        // Deep link to one specific conversation within a tool, like
+        // /image-generator/<id> or /codex/<id> (not just /chat/<id>).
+        if(!openSessionById(subId)){
+            // That session doesn't exist (wrong id, or a guest with
+            // nothing saved locally) — fall back to that tool's normal
+            // empty state instead of a dead end.
+            openTool(SLUG_TO_TOOL[slug]);
+        }
+        setRouteMeta(slug);
+        return;
+    }
+    if(slug === "about"){
+        showPageView("about");
+        setActiveNav("about");
+        setRouteMeta("about");
+        return;
+    }
+    if(slug === "discover"){
+        showPageView("discover");
+        loadDiscoverList();
+        setRouteMeta("discover");
+        return;
+    }
+    if(slug === "privacy"){
+        showPageView("privacy");
+        setActiveNav("privacy");
+        setRouteMeta("privacy");
+        return;
+    }
+    if(slug === "contact"){
+        openModal("contactModal");
+        setRouteMeta("contact");
+        return;
+    }
+    if(slug === "plugins"){
+        document.getElementById("navPlugins")?.click();
+        return;
+    }
+    if(slug === "projects"){
+        document.getElementById("navProjects")?.click();
+        return;
+    }
+    if(slug === "scheduled"){
+        document.getElementById("navScheduled")?.click();
+        return;
+    }
+    if(Object.prototype.hasOwnProperty.call(SLUG_TO_TOOL, slug)){
+        openTool(SLUG_TO_TOOL[slug]);
+        return;
+    }
+    // Unrecognized path — just show the normal home screen without
+    // touching browser history (avoids redirect loops on stray URLs).
+    setRouteMeta("");
+}
+
+window.addEventListener("popstate", applyRouteFromPath);
+
+// Initial route resolution now happens via tryApplyInitialRoute (see
+// attachAuthStateListener above), which waits for the first cloud sync
+// so a pasted /chat/<id> link is checked against real data, not
+// whatever was left over in localStorage before this page load.
+
+// ==========================================================
+// Data Analysis — real Python execution in the browser (Pyodide/WASM),
+// so questions about an uploaded spreadsheet get computed answers
+// instead of the model guessing at numbers from text.
+// ==========================================================
+
+// Pyodide is ~10MB, so it's only fetched the first time someone actually
+// uses Data Analysis mode, not on every page load.
+async function ensurePyodide(){
+    if(window.zyntraPyodideReady) return window.zyntraPyodideReady;
+    window.zyntraPyodideReady = (async () => {
+        if(!window.loadPyodide){
+            await new Promise((resolve, reject) => {
+                const s = document.createElement("script");
+                s.src = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";
+                s.onload = resolve;
+                s.onerror = () => reject(new Error("Failed to load the Python engine"));
+                document.head.appendChild(s);
+            });
+        }
+        const pyodide = await window.loadPyodide();
+        await pyodide.loadPackage(["pandas", "numpy"]);
+        return pyodide;
+    })();
+    return window.zyntraPyodideReady;
+}
+
+function extractPythonCode(text){
+    const match = text.match(/```python\s*([\s\S]*?)```/i);
+    return match ? match[1].trim() : null;
+}
+
+async function runDataAnalysisCodeIfPresent(text, containerEl){
+    const code = extractPythonCode(text);
+    if(!code || !dataAnalysisDataset) return;
+
+    const box = document.createElement("div");
+    box.className = "data-exec-box";
+    box.innerHTML = `<div class="data-exec-status">⚙️ Running Python on your data…</div>`;
+    containerEl.appendChild(box);
+    chatAutoScroll();
+
+    try{
+        const pyodide = await ensurePyodide();
+
+        pyodide.globals.set("__zyntra_rows_json", JSON.stringify(dataAnalysisDataset.rows));
+        await pyodide.runPythonAsync(`
+import pandas as pd, json, sys, io
+df = pd.DataFrame(json.loads(__zyntra_rows_json))
+__zyntra_stdout = io.StringIO()
+sys.stdout = __zyntra_stdout
+`);
+
+        let errorMsg = null;
+        try{
+            await pyodide.runPythonAsync(code);
+        } catch(pyErr){
+            // Keep just the last few lines — the actual error, not Pyodide's
+            // whole internal traceback, which is mostly noise to a user.
+            errorMsg = String(pyErr).trim().split("\n").slice(-4).join("\n");
+        }
+
+        const stdout = pyodide.runPython("__zyntra_stdout.getvalue()");
+        pyodide.runPython("sys.stdout = sys.__stdout__");
+
+        let chartData = null;
+        try{
+            const hasChart = pyodide.runPython("'chart_data' in globals()");
+            if(hasChart){
+                const raw = pyodide.globals.get("chart_data");
+                chartData = raw && raw.toJs ? raw.toJs({ dict_converter: Object.fromEntries }) : raw;
+            }
+        } catch(e){ /* no chart_data this time — fine */ }
+
+        box.innerHTML = "";
+        if(errorMsg){
+            box.innerHTML = `<div class="data-exec-error">⚠️ The code hit an error:<pre>${escapeForDisplay(errorMsg)}</pre></div>`;
+        } else {
+            let wroteSomething = false;
+            if(stdout && stdout.trim()){
+                box.innerHTML += `<div class="data-exec-output"><pre>${escapeForDisplay(stdout.trim())}</pre></div>`;
+                wroteSomething = true;
+            }
+            if(chartData && chartData.labels && chartData.values){
+                const canvas = document.createElement("canvas");
+                canvas.className = "data-exec-chart";
+                box.appendChild(canvas);
+                renderDataChart(canvas, chartData);
+                wroteSomething = true;
+            }
+            if(!wroteSomething){
+                box.innerHTML = `<div class="data-exec-output"><em>Code ran with no printed output.</em></div>`;
+            }
+        }
+    } catch(err){
+        console.error("Pyodide execution failed:", err);
+        box.innerHTML = `<div class="data-exec-error">⚠️ Couldn't run Python in your browser (${escapeForDisplay(err.message || "unknown error")}). Try again in a moment.</div>`;
+    }
+    chatAutoScroll();
+}
+
+function renderDataChart(canvas, chartData){
+    if(!window.Chart){
+        canvas.replaceWith(document.createTextNode("Chart library didn't load."));
+        return;
+    }
+    const palette = ["#6e5cff","#b45cff","#ff59b0","#ff9e5c","#5ce0ff","#7effa0","#ffd95c","#ff7676"];
+    new Chart(canvas, {
+        type: chartData.type === "pie" ? "pie" : (chartData.type === "line" ? "line" : "bar"),
+        data: {
+            labels: chartData.labels,
+            datasets: [{
+                data: chartData.values,
+                backgroundColor: palette,
+                borderColor: chartData.type === "line" ? "#6e5cff" : "transparent",
+                borderWidth: chartData.type === "line" ? 2 : 0,
+                fill: chartData.type === "line" ? false : true
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: chartData.type === "pie", labels: { color: "#c8cae0" } } },
+            scales: chartData.type === "pie" ? {} : {
+                x: { ticks: { color: "#a8abc8" }, grid: { color: "rgba(255,255,255,.05)" } },
+                y: { ticks: { color: "#a8abc8" }, grid: { color: "rgba(255,255,255,.05)" } }
+            }
+        }
+    });
+}// ==========================
+// Zyntra AI — main script
+// ==========================
+
+// ---------- Helpers ----------
+
+const CODE_FILE_MAP = {
+    html: { filename: "index.html", label: "HTML" },
+    css: { filename: "style.css", label: "CSS" },
+    js: { filename: "script.js", label: "JS" },
+    javascript: { filename: "script.js", label: "JavaScript" },
+    jsx: { filename: "component.jsx", label: "JSX" },
+    ts: { filename: "script.ts", label: "TypeScript" },
+    tsx: { filename: "component.tsx", label: "TSX" },
+    python: { filename: "script.py", label: "Python" },
+    py: { filename: "script.py", label: "Python" },
+    json: { filename: "data.json", label: "JSON" },
+    java: { filename: "Main.java", label: "Java" },
+    cpp: { filename: "main.cpp", label: "C++" },
+    c: { filename: "main.c", label: "C" },
+    sql: { filename: "query.sql", label: "SQL" },
+    php: { filename: "index.php", label: "PHP" },
+    bash: { filename: "script.sh", label: "Bash" },
+    sh: { filename: "script.sh", label: "Shell" },
+    yaml: { filename: "config.yaml", label: "YAML" },
+    xml: { filename: "data.xml", label: "XML" }
+};
+
+function encodeCodeForCard(code){
+    return btoa(unescape(encodeURIComponent(code)));
+}
+
+function extractCodeBlocks(text){
+    const blocks = [];
+    let index = 0;
+    const withPlaceholders = text.replace(/```(\w+)?\n?([\s\S]*?)```/g, (match, lang, code) => {
+        const key = (lang || "").toLowerCase();
+        const meta = CODE_FILE_MAP[key] || { filename: "code.txt", label: key ? key.toUpperCase() : "TEXT" };
+        const id = "codeblock-" + Date.now() + "-" + (index++);
+        blocks.push({ id, filename: meta.filename, label: meta.label, code: code.trim() });
+        return "\n%%" + id + "%%\n";
+    });
+    return { withPlaceholders, blocks };
+}
+
+function escapeForDisplay(code){
+    return code
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+
+function buildFileCardHTML(block){
+    const encoded = encodeCodeForCard(block.code);
+    return `
+        <div class="file-card">
+            <div class="file-card-header">
+                <div class="file-card-icon">&lt;/&gt;</div>
+                <div class="file-card-info">
+                    <p class="file-card-title">${block.filename}</p>
+                    <p class="file-card-sub">Code · ${block.label}</p>
+                </div>
+                <span class="file-card-chevron">▾</span>
+                ${isPreviewableCode(block) ? `<button class="filecard-play-btn" data-code="${encoded}" title="Run preview">▶</button>` : ""}
+                <button class="filecard-download-btn" data-filename="${block.filename}" data-code="${encoded}">Download</button>
+            </div>
+            <div class="file-card-preview">
+                <div class="file-card-preview-top">
+                    <span>${block.filename}</span>
+                    <button class="filecard-copy-btn" data-code="${encoded}">📋 Copy</button>
+                    ${isPreviewableCode(block) ? `<button class="filecard-publish-btn" data-code="${encoded}">🚀 Publish</button>` : ""}
+                </div>
+                <pre><code>${escapeForDisplay(block.code)}</code></pre>
+            </div>
+        </div>
+    `;
+}
+
+function isPreviewableCode(block){
+    return block.filename === "index.html" || block.label === "HTML";
+}
+
+function ensureCodePreviewModal(){
+    let modal = document.getElementById("codePreviewModal");
+    if(modal) return modal;
+
+    modal = document.createElement("div");
+    modal.id = "codePreviewModal";
+    modal.className = "modal-overlay code-preview-overlay";
+    modal.innerHTML = `
+        <div class="modal-box code-preview-box">
+            <div class="code-preview-header">
+                <span class="tag" style="margin:0;">LIVE PREVIEW</span>
+                <div class="code-preview-header-actions">
+                    <button type="button" class="code-preview-fullscreen" title="Try it fullscreen">⛶ <span>Fullscreen</span></button>
+                    <button type="button" class="code-preview-newtab" title="Open in a new browser tab — temporary, just for you, not published">↗ <span>Open in tab</span></button>
+                    <button type="button" class="code-preview-publish" title="Publish a live public link">🚀 <span>Publish</span></button>
+                    <button type="button" class="code-preview-close" title="Close">✕</button>
+                </div>
+            </div>
+            <div class="code-preview-publish-result" id="codePreviewPublishResult" style="display:none;"></div>
+            <div class="code-preview-frame-wrap">
+                <div class="code-preview-glow-border">
+                    <div class="code-preview-frame-inner">
+                        <iframe class="code-preview-iframe" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"></iframe>
+                        <div class="code-preview-loading" id="codePreviewLoading">
+                            <div class="code-preview-loading-dots">
+                                <span></span><span></span><span></span>
+                            </div>
+                            <p>Loading preview...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.querySelector(".code-preview-close").addEventListener("click", () => closeModal("codePreviewModal"));
+    modal.addEventListener("click", (e) => {
+        if(e.target === modal) closeModal("codePreviewModal");
+    });
+
+    return modal;
+}
+
+function openCodePreview(code){
+    const modal = ensureCodePreviewModal();
+    const iframe = modal.querySelector(".code-preview-iframe");
+    const loading = modal.querySelector("#codePreviewLoading");
+    const glowBorder = modal.querySelector(".code-preview-glow-border");
+
+    glowBorder.classList.add("loading");
+    loading.classList.add("show");
+
+    iframe.onload = () => {
+        loading.classList.remove("show");
+        glowBorder.classList.remove("loading");
+    };
+    iframe.srcdoc = code;
+
+    const fullscreenBtn = modal.querySelector(".code-preview-fullscreen");
+    fullscreenBtn.onclick = () => {
+        if(iframe.requestFullscreen) iframe.requestFullscreen();
+        else if(iframe.webkitRequestFullscreen) iframe.webkitRequestFullscreen();
+        else alert("Fullscreen isn't supported in this browser.");
+    };
+
+    const newTabBtn = modal.querySelector(".code-preview-newtab");
+    newTabBtn.onclick = () => {
+        const blob = new Blob([code], { type: "text/html" });
+        const url = URL.createObjectURL(blob);
+        window.open(url, "_blank");
+        // Not revoked immediately — the new tab needs the blob to stay
+        // valid while it's open. Cleaned up after a while instead.
+        setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
+    };
+
+    const publishResult = modal.querySelector("#codePreviewPublishResult");
+    publishResult.style.display = "none";
+    publishResult.innerHTML = "";
+
+    async function doPublish(siteName, titleGuess){
+        const originalLabel = publishBtn.textContent;
+        publishBtn.disabled = true;
+        publishBtn.textContent = "Publishing...";
+        try{
+            const idToken = await activeAuth().currentUser.getIdToken();
+            const res = await fetch("/api/publish", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+                body: JSON.stringify({ html: code, title: titleGuess, name: siteName })
+            });
+            const data = await res.json();
+            if(!res.ok) throw new Error(data.error || "Publish failed.");
+
+            publishResult.innerHTML = `
+                <span class="code-preview-publish-url">${data.url}</span>
+                <button type="button" class="code-preview-publish-copy">📋 Copy</button>
+                <a class="code-preview-publish-open" href="${data.url}" target="_blank" rel="noopener">Open ↗</a>
+            `;
+            publishResult.querySelector(".code-preview-publish-copy").addEventListener("click", () => {
+                navigator.clipboard.writeText(data.url);
+                const copyBtn = publishResult.querySelector(".code-preview-publish-copy");
+                copyBtn.textContent = "✅ Copied";
+                setTimeout(() => { copyBtn.textContent = "📋 Copy"; }, 1500);
+            });
+        }catch(err){
+            alert(err.message || "Could not publish. Please try again.");
+            publishResult.style.display = "none";
+        }finally{
+            publishBtn.disabled = false;
+            publishBtn.textContent = originalLabel;
+        }
+    }
+
+    const publishBtn = modal.querySelector(".code-preview-publish");
+    publishBtn.onclick = () => {
+        if(!activeAuth().currentUser){
+            alert("Sign in to publish a live link.");
+            return;
+        }
+        const titleMatch = code.match(/<title>([^<]*)<\/title>/i);
+        const titleGuess = titleMatch ? titleMatch[1] : "Zyntra site";
+        const nameGuess = titleGuess.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "my-site";
+
+        publishResult.style.display = "flex";
+        publishResult.innerHTML = `
+            <input type="text" class="code-preview-publish-name" value="${nameGuess}" maxlength="40" spellcheck="false">
+            <span class="code-preview-publish-suffix">-zyntraai-app</span>
+            <button type="button" class="code-preview-publish-confirm">Publish ✓</button>
+        `;
+        const nameInput = publishResult.querySelector(".code-preview-publish-name");
+        nameInput.focus();
+        nameInput.select();
+        const confirmPublish = () => doPublish(nameInput.value.trim(), titleGuess);
+        publishResult.querySelector(".code-preview-publish-confirm").addEventListener("click", confirmPublish);
+        nameInput.addEventListener("keydown", e => { if(e.key === "Enter") confirmPublish(); });
+    };
+
+    openModal("codePreviewModal");
+}
+
+document.addEventListener("click", (e) => {
+    const playBtn = e.target.closest(".filecard-play-btn");
+    if(playBtn){
+        try{
+            const code = decodeURIComponent(escape(atob(playBtn.dataset.code)));
+            openCodePreview(code);
+        }catch(err){
+            alert("Could not open the preview.");
+        }
+        return;
+    }
+
+    const downloadBtn = e.target.closest(".filecard-download-btn");
+    if(downloadBtn){
+        try{
+            const code = decodeURIComponent(escape(atob(downloadBtn.dataset.code)));
+            const blob = new Blob([code], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = downloadBtn.dataset.filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }catch(err){
+            alert("Could not download the file.");
+        }
+        return;
+    }
+
+    const copyBtn = e.target.closest(".filecard-copy-btn");
+    if(copyBtn){
+        try{
+            const code = decodeURIComponent(escape(atob(copyBtn.dataset.code)));
+            navigator.clipboard.writeText(code).then(() => {
+                const original = copyBtn.textContent;
+                copyBtn.textContent = "✅ Copied";
+                setTimeout(() => { copyBtn.textContent = original; }, 1500);
+            });
+        }catch(err){}
+        return;
+    }
+
+    const publishBtn = e.target.closest(".filecard-publish-btn");
+    if(publishBtn){
+        try{
+            const code = decodeURIComponent(escape(atob(publishBtn.dataset.code)));
+            openCodePreview(code);
+            // Same modal, same flow — just also reachable from the inline
+            // card view, not only from the ▶ live-preview popup.
+            document.querySelector("#codePreviewModal .code-preview-publish")?.click();
+        }catch(err){
+            alert("Could not open publishing.");
+        }
+        return;
+    }
+
+    const header = e.target.closest(".file-card-header");
+    if(header){
+        header.closest(".file-card").classList.toggle("open");
+    }
+});
+
+function extractImageBlocks(text){
+    const images = [];
+    let index = 0;
+    const withPlaceholders = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (match, alt, url) => {
+        const id = "imgblock-" + Date.now() + "-" + (index++);
+        images.push({ id, alt: alt || "Generated image", url });
+        return "\n%%" + id + "%%\n";
+    });
+    return { withPlaceholders, images };
+}
+
+function escapeAttr(str){
+    return escapeForDisplay(str).replace(/"/g, "&quot;");
+}
+
+function buildImageBlockHTML(image){
+    return `
+        <div class="ai-image-block">
+            <div class="generated-img-wrap">
+                <img class="generated-img" src="${image.url}" alt="${escapeAttr(image.alt)}">
+                <span class="zyntra-watermark">✨ Zyntra AI</span>
+            </div>
+            <div class="ai-image-actions">
+                <button class="copy-btn ai-image-download" data-url="${image.url}">⬇ Download</button>
+            </div>
+        </div>
+    `;
+}
+
+// Draws the small corner watermark onto a canvas — shared by every place
+// that bakes the mark into a downloaded file (Gemini-style: visible on
+// screen via CSS, and burned into the actual saved image on download).
+function drawZyntraWatermark(ctx, w, h){
+    const pad = Math.round(w * 0.025);
+    const fontSize = Math.max(14, Math.round(w * 0.03));
+    ctx.font = `600 ${fontSize}px Poppins, Arial, sans-serif`;
+    ctx.textBaseline = "bottom";
+    ctx.textAlign = "right";
+    ctx.shadowColor = "rgba(0,0,0,0.6)";
+    ctx.shadowBlur = fontSize * 0.35;
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.fillText("✨ Zyntra AI", w - pad, h - pad);
+}
+
+// Fetches the image as a blob first (so it's same-origin local data by the
+// time it hits the canvas — sidesteps any CORS/tainted-canvas issues with
+// the pollinations.ai host), stamps the watermark, then downloads the
+// result. Falls back to opening the plain image if anything goes wrong.
+function downloadWatermarkedImage(url, filename){
+    return fetch(url)
+        .then(res => res.blob())
+        .then(blob => new Promise((resolve, reject) => {
+            const objectUrl = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = () => { resolve({ img, objectUrl }); };
+            img.onerror = reject;
+            img.src = objectUrl;
+        }))
+        .then(({ img, objectUrl }) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0);
+            drawZyntraWatermark(ctx, canvas.width, canvas.height);
+            URL.revokeObjectURL(objectUrl);
+
+            return new Promise((resolve) => {
+                canvas.toBlob((watermarkedBlob) => {
+                    const dlUrl = URL.createObjectURL(watermarkedBlob);
                     const a = document.createElement("a");
-                    a.href = url;
-                    a.download = "zyntra-ai-image.png";
+                    a.href = dlUrl;
+                    a.download = filename;
                     document.body.appendChild(a);
                     a.click();
                     a.remove();
-                    URL.revokeObjectURL(url);
+                    URL.revokeObjectURL(dlUrl);
+                    resolve();
+                }, "image/png");
+            });
+        })
+        .catch(() => {
+            window.open(url, "_blank");
+        });
+}
+
+document.addEventListener("click", (e) => {
+    const downloadBtn = e.target.closest(".ai-image-download");
+    if(downloadBtn){
+        const url = downloadBtn.dataset.url;
+        const original = downloadBtn.textContent;
+        downloadBtn.textContent = "Downloading...";
+        downloadWatermarkedImage(url, "zyntra-ai-image.png").then(() => {
+            downloadBtn.textContent = original;
+        });
+    }
+});
+
+// Turns markdown links [text](url) and bare https:// URLs into real,
+// clickable <a> tags. Runs on already HTML-escaped text, so it's safe to
+// insert raw <a> markup without re-escaping it.
+function linkifyText(escapedText){
+    let out = escapedText.replace(
+        /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+        (m, label, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="ai-link">${label}</a>`
+    );
+    // Bare URLs — only ones not already sitting inside an href="" we just
+    // added (those are preceded by a quote or ">", neither of which this
+    // pattern's required leading context [\s(] matches).
+    out = out.replace(
+        /(^|[\s(])(https?:\/\/[^\s<]+[^\s<.,;:'")\]])/g,
+        (m, pre, url) => `${pre}<a href="${url}" target="_blank" rel="noopener noreferrer" class="ai-link">${url}</a>`
+    );
+    return out;
+}
+
+function formatAIText(text){
+    const { withPlaceholders: withCodePlaceholders, blocks } = extractCodeBlocks(text);
+    const { withPlaceholders, images } = extractImageBlocks(withCodePlaceholders);
+
+    let safe = withPlaceholders
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;");
+
+    safe = safe.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    safe = linkifyText(safe);
+
+    const lines = safe.split(/\n+/).filter(l => l.trim() !== "");
+    let html = "";
+    let inList = false;
+    let listType = null; // "ul" or "ol"
+
+    function closeList(){
+        if(inList){
+            html += listType === "ol" ? "</ol>" : "</ul>";
+            inList = false;
+            listType = null;
+        }
+    }
+
+    function isTableRow(line){
+        return /^\|.*\|$/.test(line.trim());
+    }
+    function isTableSeparator(line){
+        return /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$/.test(line.trim());
+    }
+    function parseTableRow(line){
+        return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+    }
+
+    let i = 0;
+    while(i < lines.length){
+        const trimmed = lines[i].trim();
+
+        // Horizontal rule (---)
+        if(/^-{3,}$/.test(trimmed)){
+            closeList();
+            html += "<hr>";
+            i++;
+            continue;
+        }
+
+        // Markdown table
+        if(isTableRow(trimmed) && i + 1 < lines.length && isTableSeparator(lines[i + 1])){
+            closeList();
+            const headerCells = parseTableRow(trimmed);
+            let tableHtml = "<div class=\"table-wrap\"><table><thead><tr>"
+                + headerCells.map(c => "<th>" + c + "</th>").join("")
+                + "</tr></thead><tbody>";
+            i += 2;
+            while(i < lines.length && isTableRow(lines[i].trim())){
+                const rowCells = parseTableRow(lines[i].trim());
+                tableHtml += "<tr>" + rowCells.map(c => "<td>" + c + "</td>").join("") + "</tr>";
+                i++;
+            }
+            tableHtml += "</tbody></table></div>";
+            html += tableHtml;
+            continue;
+        }
+
+        const headerMatch = trimmed.match(/^#{1,6}\s+(.*)$/);
+        const numberedMatch = trimmed.match(/^(\d+)[.)]\s+(.*)$/);
+        const bulletMatch = /^[-*•]\s+/.test(trimmed);
+
+        if(headerMatch){
+            closeList();
+            html += "<h4>" + headerMatch[1] + "</h4>";
+        } else if(numberedMatch){
+            if(inList && listType !== "ol") closeList();
+            if(!inList){ html += "<ol>"; inList = true; listType = "ol"; }
+            html += "<li>" + numberedMatch[2] + "</li>";
+        } else if(bulletMatch){
+            if(inList && listType !== "ul") closeList();
+            if(!inList){ html += "<ul>"; inList = true; listType = "ul"; }
+            html += "<li>" + trimmed.replace(/^[-*•]\s+/, "") + "</li>";
+        } else {
+            closeList();
+            html += "<p>" + trimmed + "</p>";
+        }
+        i++;
+    }
+    closeList();
+    if(!html) html = "<p>" + safe + "</p>";
+
+    blocks.forEach(block => {
+        const placeholder = "%%" + block.id + "%%";
+        html = html.replace("<p>" + placeholder + "</p>", buildFileCardHTML(block));
+        html = html.replace(placeholder, buildFileCardHTML(block));
+    });
+
+    images.forEach(image => {
+        const placeholder = "%%" + image.id + "%%";
+        html = html.replace("<p>" + placeholder + "</p>", buildImageBlockHTML(image));
+        html = html.replace(placeholder, buildImageBlockHTML(image));
+    });
+
+    return html;
+}
+
+const FREE_MESSAGE_LIMIT = 10;
+const LOCKOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+function getChatUsage(){
+    return JSON.parse(localStorage.getItem("zyntra-chat-usage") || '{"count":0,"lockoutUntil":0}');
+}
+
+function saveChatUsage(usage){
+    localStorage.setItem("zyntra-chat-usage", JSON.stringify(usage));
+}
+
+function isLockedOut(){
+    return getChatUsage().lockoutUntil > Date.now();
+}
+
+function recordFreeMessage(){
+    const usage = getChatUsage();
+    usage.count = (usage.count || 0) + 1;
+    if(usage.count >= FREE_MESSAGE_LIMIT){
+        usage.lockoutUntil = Date.now() + LOCKOUT_MS;
+        usage.count = 0;
+    }
+    saveChatUsage(usage);
+}
+
+let lockCountdownInterval = null;
+
+function formatCountdown(ms){
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const h = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
+    const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");
+    const s = String(totalSeconds % 60).padStart(2, "0");
+    return `${h}:${m}:${s}`;
+}
+
+function showChatLockedModal(){
+    openModal("chatLockedModal");
+
+    const countdownEl = document.getElementById("lockCountdown");
+
+    function tick(){
+        const usage = getChatUsage();
+        const remaining = usage.lockoutUntil - Date.now();
+        if(remaining <= 0){
+            countdownEl.textContent = "00:00:00";
+            clearInterval(lockCountdownInterval);
+            saveChatUsage({ count: 0, lockoutUntil: 0 });
+            closeModal("chatLockedModal");
+            return;
+        }
+        countdownEl.textContent = formatCountdown(remaining);
+    }
+
+    tick();
+    clearInterval(lockCountdownInterval);
+    lockCountdownInterval = setInterval(tick, 1000);
+}
+
+document.getElementById("lockWatchAdBtn")?.addEventListener("click", () => {
+    const btn = document.getElementById("lockWatchAdBtn");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "🎬 Watching ad...";
+    setTimeout(() => {
+        saveChatUsage({ count: 0, lockoutUntil: 0 });
+        clearInterval(lockCountdownInterval);
+        closeModal("chatLockedModal");
+        btn.textContent = original;
+        btn.disabled = false;
+    }, 3000);
+});
+
+function typeOutText(el, fullText, scrollContainer, onDone){
+    const words = fullText.split(" ");
+    const speed = 8;
+    let i = 0;
+
+    function step(){
+        i++;
+        const isLast = i >= words.length;
+        el.innerHTML = formatAIText(isLast ? fullText : words.slice(0, i).join(" "));
+        if(scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        if(!isLast){
+            setTimeout(step, speed);
+        } else if(onDone){
+            onDone();
+        }
+    }
+    step();
+}
+
+function addCopyButton(container, textToCopy){
+    const btn = document.createElement("button");
+    btn.className = "copy-btn";
+    btn.textContent = "📋 Copy";
+    btn.addEventListener("click", () => {
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            btn.textContent = "✅ Copied";
+            setTimeout(() => { btn.textContent = "📋 Copy"; }, 1500);
+        });
+    });
+    container.appendChild(btn);
+}
+
+function addReportButton(container, contentToReport){
+    const btn = document.createElement("button");
+    btn.className = "copy-btn report-btn";
+    btn.textContent = "🚩 Report";
+    btn.addEventListener("click", () => {
+        openModal("contactModal");
+        const msgBox = document.getElementById("contactMsg");
+        msgBox.value = 'Reporting AI-generated content:\n\n"' + contentToReport + '"\n\nReason: ';
+        msgBox.focus();
+    });
+    container.appendChild(btn);
+}
+
+// ---------- Web search sources (rendered under AI messages when a real search happened) ----------
+
+function faviconUrl(pageUrl){
+    try{
+        const host = new URL(pageUrl).hostname;
+        return "https://www.google.com/s2/favicons?domain=" + host + "&sz=64";
+    }catch(err){
+        return "";
+    }
+}
+
+function hostFromUrl(pageUrl){
+    try{
+        return new URL(pageUrl).hostname.replace(/^www\./, "");
+    }catch(err){
+        return pageUrl;
+    }
+}
+
+function buildSourcesRow(sources){
+    const wrap = document.createElement("div");
+    wrap.className = "message-sources";
+
+    // ---- Collapsed pill: overlapping favicons + "Searched N sites" ----
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "sources-toggle";
+
+    const faviconStack = document.createElement("span");
+    faviconStack.className = "sources-favicons";
+    sources.slice(0, 4).forEach(src => {
+        const icon = document.createElement("img");
+        icon.src = faviconUrl(src.url);
+        icon.alt = "";
+        icon.loading = "lazy";
+        faviconStack.appendChild(icon);
+    });
+    toggle.appendChild(faviconStack);
+
+    const label = document.createElement("span");
+    label.className = "sources-toggle-label";
+    label.textContent = "Searched " + sources.length + (sources.length === 1 ? " site" : " sites");
+    toggle.appendChild(label);
+
+    const chevron = document.createElement("span");
+    chevron.className = "sources-chevron";
+    chevron.textContent = "▾";
+    toggle.appendChild(chevron);
+
+    toggle.addEventListener("click", () => {
+        wrap.classList.toggle("open");
+    });
+
+    // ---- Expanded list: one row per source with favicon + title ----
+    const list = document.createElement("div");
+    list.className = "sources-list";
+
+    sources.forEach(src => {
+        const a = document.createElement("a");
+        a.className = "source-chip";
+        a.href = src.url;
+        a.rel = "noopener noreferrer";
+        a.title = src.url;
+
+        const icon = document.createElement("img");
+        icon.className = "source-chip-favicon";
+        icon.src = faviconUrl(src.url);
+        icon.alt = "";
+        icon.loading = "lazy";
+        a.appendChild(icon);
+
+        const textWrap = document.createElement("span");
+        textWrap.className = "source-chip-text";
+
+        const title = document.createElement("span");
+        title.className = "source-chip-title";
+        title.textContent = (src.title && src.title.length < 70) ? src.title : hostFromUrl(src.url);
+        textWrap.appendChild(title);
+
+        const host = document.createElement("span");
+        host.className = "source-chip-host";
+        host.textContent = hostFromUrl(src.url);
+        textWrap.appendChild(host);
+
+        a.appendChild(textWrap);
+        a.addEventListener("click", (e) => {
+            e.preventDefault();
+            toggleSourcePreview(a, src);
+        });
+        list.appendChild(a);
+    });
+
+    wrap.appendChild(toggle);
+    wrap.appendChild(list);
+    return wrap;
+}
+
+function ensureSourcePreviewCard(){
+    let card = document.getElementById("sourcePreviewCard");
+    if(card) return card;
+    card = document.createElement("div");
+    card.id = "sourcePreviewCard";
+    card.className = "source-preview-card";
+    document.body.appendChild(card);
+    document.addEventListener("click", (e) => {
+        if(!card.classList.contains("open")) return;
+        if(!e.target.closest("#sourcePreviewCard") && !e.target.closest(".source-chip")){
+            card.classList.remove("open");
+        }
+    });
+    return card;
+}
+
+let sourcePreviewOpenFor = null;
+
+function toggleSourcePreview(chipEl, src){
+    const card = ensureSourcePreviewCard();
+
+    if(sourcePreviewOpenFor === chipEl && card.classList.contains("open")){
+        card.classList.remove("open");
+        sourcePreviewOpenFor = null;
+        return;
+    }
+
+    card.innerHTML = `
+        <div class="source-preview-head">
+            <img src="${faviconUrl(src.url)}" alt="" loading="lazy">
+            <span class="source-preview-host">${hostFromUrl(src.url)}</span>
+        </div>
+        <p class="source-preview-title">${src.title || hostFromUrl(src.url)}</p>
+        ${src.snippet ? `<p class="source-preview-snippet">${src.snippet}</p>` : ""}
+        <a href="${src.url}" target="_blank" rel="noopener noreferrer" class="source-preview-open">Open ↗</a>
+    `;
+
+    const rect = chipEl.getBoundingClientRect();
+    card.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 336)) + "px";
+    const spaceBelow = window.innerHeight - rect.bottom;
+    if(spaceBelow < 220){
+        card.style.top = "auto";
+        card.style.bottom = (window.innerHeight - rect.top + 8) + "px";
+    } else {
+        card.style.bottom = "auto";
+        card.style.top = (rect.bottom + 8) + "px";
+    }
+
+    card.classList.add("open");
+    sourcePreviewOpenFor = chipEl;
+}
+
+function stripForSpeech(text){
+    return text
+        .replace(/```[\s\S]*?```/g, " ")
+        .replace(/\*\*(.*?)\*\*/g, "$1")
+        .replace(/\*(.*?)\*/g, "$1")
+        .replace(/`([^`]*)`/g, "$1")
+        .replace(/^#{1,6}\s*/gm, "")
+        .replace(/^[-*•]\s+/gm, "")
+        .replace(/\|/g, " ")
+        // Strip emoji and symbol pictographs so the voice doesn't try to read them aloud
+        .replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+// Detects the likely spoken language from the text's script/characters so
+// the voice assistant can speak many languages, not just the browser's
+// default. Falls back to the browser/system language for Latin-script text
+// (English, Spanish, French, etc. can't be told apart by characters alone).
+function detectSpeechLang(text){
+    if(/[\u0900-\u097F]/.test(text)) return "hi-IN";   // Devanagari (Hindi, Marathi...)
+    if(/[\u0600-\u06FF]/.test(text)) return "ar-SA";   // Arabic
+    if(/[\u4E00-\u9FFF]/.test(text)) return "zh-CN";   // Chinese
+    if(/[\u3040-\u30FF]/.test(text)) return "ja-JP";   // Japanese (Hiragana/Katakana)
+    if(/[\uAC00-\uD7AF]/.test(text)) return "ko-KR";   // Korean (Hangul)
+    if(/[\u0400-\u04FF]/.test(text)) return "ru-RU";   // Cyrillic
+    if(/[\u0E00-\u0E7F]/.test(text)) return "th-TH";   // Thai
+    if(/[\u0980-\u09FF]/.test(text)) return "bn-IN";   // Bengali
+    if(/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";   // Gujarati
+    if(/[\u0B80-\u0BFF]/.test(text)) return "ta-IN";   // Tamil
+    if(/[\u0C00-\u0C7F]/.test(text)) return "te-IN";   // Telugu
+    if(/[\u0590-\u05FF]/.test(text)) return "he-IL";   // Hebrew
+    return navigator.language || "en-US";
+}
+
+// Picks the closest available system voice for a language, since setting
+// .lang alone doesn't always pick a good voice if the browser has several.
+// The user's chosen voice from Settings (if any) always wins over
+// automatic per-language matching — mirrors how most voice assistants let
+// you pick a persona voice once, used everywhere afterward.
+function getPreferredVoice(){
+    const uri = localStorage.getItem("zyntra-voice-uri");
+    if(!uri) return null;
+    const voices = speechSynthesis.getVoices();
+    return voices.find(v => v.voiceURI === uri) || null;
+}
+
+function pickVoiceForLang(lang){
+    const preferred = getPreferredVoice();
+    if(preferred) return preferred;
+
+    const voices = speechSynthesis.getVoices();
+    if(!voices || !voices.length) return null;
+    const prefix = lang.split("-")[0];
+    return voices.find(v => v.lang === lang)
+        || voices.find(v => v.lang && v.lang.startsWith(prefix))
+        || null;
+}
+
+function browserSpeakText(text, lang, onEnd){
+    speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+
+    // A chosen voice always wins, for every message in every language —
+    // and its own .lang is used (not the message's detected language),
+    // since pairing a voice with a mismatched lang makes some browsers
+    // silently reject the voice and fall back (or stay silent) instead of
+    // actually speaking. A single voice can't natively pronounce every
+    // language fluently — that's a real OS/browser limitation — but this
+    // way it reliably speaks every message in its own accent rather than
+    // failing outright.
+    const preferred = getPreferredVoice();
+    if(preferred){
+        utter.voice = preferred;
+        utter.lang = preferred.lang;
+    } else {
+        utter.lang = lang;
+        const voice = pickVoiceForLang(lang);
+        if(voice) utter.voice = voice;
+    }
+
+    if(onEnd) utter.onend = onEnd;
+    speechSynthesis.speak(utter);
+}
+
+let currentJarvisAudio = null;
+
+// Tries Groq's natural TTS first (sounds like a real voice, not a robot);
+// falls back to the browser's built-in speechSynthesis if that ever fails
+// — e.g. the Groq account hasn't accepted the playai-tts model terms yet,
+// a network hiccup, or a language playai-tts doesn't cover well. Either
+// way the call keeps going instead of going silent.
+async function speakText(text, lang, onEnd){
+    // Someone who's explicitly picked a voice in Settings gets exactly
+    // that voice, always — never silently swapped for the neural one.
+    if(getPreferredVoice()){
+        browserSpeakText(text, lang, onEnd);
+        return;
+    }
+    // Groq's TTS voice used here only covers English well — every other
+    // language already has real per-language system voices via the
+    // browser, so only English gets routed to the neural voice.
+    if(!lang || !lang.startsWith("en")){
+        browserSpeakText(text, lang, onEnd);
+        return;
+    }
+
+    try{
+        const res = await fetch("/api/speak", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text })
+        });
+        if(!res.ok) throw new Error("TTS request failed");
+        const audioBlob = await res.blob();
+        const url = URL.createObjectURL(audioBlob);
+
+        if(currentJarvisAudio){ currentJarvisAudio.pause(); }
+        const audio = new Audio(url);
+        currentJarvisAudio = audio;
+        audio.onended = () => { URL.revokeObjectURL(url); if(onEnd) onEnd(); };
+        audio.onerror = () => { URL.revokeObjectURL(url); browserSpeakText(text, lang, onEnd); };
+        await audio.play();
+    }catch(err){
+        browserSpeakText(text, lang, onEnd);
+    }
+}
+
+// ---------- Voice settings (in Settings modal) ----------
+
+let voiceCarouselIndex = 0;
+
+function getVoiceCarouselOptions(){
+    const voices = speechSynthesis.getVoices();
+    return [{ uri: "", name: "Auto", lang: "", desc: "Matches each message's language" }]
+        .concat(voices.map(v => ({ uri: v.voiceURI, name: v.name, lang: v.lang, desc: "" })));
+}
+
+function renderVoiceCarousel(){
+    const orb = document.getElementById("voiceOrb");
+    const nameEl = document.getElementById("voiceCarouselName");
+    if(!orb || !nameEl) return;
+
+    const options = getVoiceCarouselOptions();
+    if(options.length <= 1){
+        // Voices often load asynchronously — retry once they're ready.
+        speechSynthesis.onvoiceschanged = () => renderVoiceCarousel();
+        nameEl.textContent = "Loading voices...";
+        document.getElementById("voiceCarouselDesc").textContent = "";
+        document.getElementById("voiceCarouselDots").innerHTML = "";
+        return;
+    }
+
+    const savedUri = localStorage.getItem("zyntra-voice-uri") || "";
+    const idx = options.findIndex(o => o.uri === savedUri);
+    voiceCarouselIndex = idx === -1 ? 0 : idx;
+
+    updateVoiceCarouselDisplay(options);
+}
+
+function updateVoiceCarouselDisplay(options){
+    const opt = options[voiceCarouselIndex];
+
+    document.getElementById("voiceCarouselName").textContent = opt.name;
+    // Real info only — a browser voice doesn't come with a curated
+    // personality description, so we show its actual language instead of
+    // inventing one.
+    document.getElementById("voiceCarouselDesc").textContent = opt.lang ? `Language: ${opt.lang}` : opt.desc;
+
+    const dotsEl = document.getElementById("voiceCarouselDots");
+    dotsEl.innerHTML = "";
+    if(options.length <= 10){
+        options.forEach((o, i) => {
+            const dot = document.createElement("span");
+            dot.className = "voice-carousel-dot" + (i === voiceCarouselIndex ? " active" : "");
+            dotsEl.appendChild(dot);
+        });
+    } else {
+        const counter = document.createElement("span");
+        counter.className = "voice-carousel-counter";
+        counter.textContent = `${voiceCarouselIndex + 1} / ${options.length}`;
+        dotsEl.appendChild(counter);
+    }
+
+    if(opt.uri){
+        localStorage.setItem("zyntra-voice-uri", opt.uri);
+    } else {
+        localStorage.removeItem("zyntra-voice-uri");
+    }
+}
+
+document.getElementById("voicePrevBtn")?.addEventListener("click", () => {
+    const options = getVoiceCarouselOptions();
+    voiceCarouselIndex = (voiceCarouselIndex - 1 + options.length) % options.length;
+    updateVoiceCarouselDisplay(options);
+});
+
+document.getElementById("voiceNextBtn")?.addEventListener("click", () => {
+    const options = getVoiceCarouselOptions();
+    voiceCarouselIndex = (voiceCarouselIndex + 1) % options.length;
+    updateVoiceCarouselDisplay(options);
+});
+
+const WORK_OPTIONS = [
+    { value: "", label: "Select one" },
+    { value: "Engineering", label: "Engineering" },
+    { value: "Design", label: "Design" },
+    { value: "Marketing", label: "Marketing" },
+    { value: "Business", label: "Business" },
+    { value: "Student", label: "Student" },
+    { value: "Other", label: "Other" }
+];
+
+function renderWorkOptions(){
+    const picker = document.getElementById("workPicker");
+    const label = document.getElementById("workPickerLabel");
+    const menu = document.getElementById("workPickerMenu");
+    const hiddenSelect = document.getElementById("profileWork");
+    if(!picker || !label || !menu || !hiddenSelect) return;
+
+    const current = WORK_OPTIONS.find(o => o.value === hiddenSelect.value) || WORK_OPTIONS[0];
+    label.textContent = current.label;
+
+    menu.innerHTML = "";
+    WORK_OPTIONS.forEach(opt => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "custom-picker-option" + (opt.value === hiddenSelect.value ? " selected" : "");
+
+        const text = document.createElement("span");
+        text.textContent = opt.label;
+        btn.appendChild(text);
+
+        if(opt.value === hiddenSelect.value){
+            const check = document.createElement("span");
+            check.className = "custom-picker-option-check";
+            check.textContent = "✓";
+            btn.appendChild(check);
+        }
+
+        btn.addEventListener("click", () => {
+            hiddenSelect.value = opt.value;
+            picker.classList.remove("open");
+            renderWorkOptions();
+        });
+        menu.appendChild(btn);
+    });
+}
+
+document.getElementById("workPickerTrigger")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const picker = document.getElementById("workPicker");
+    if(!picker) return;
+    const wasOpen = picker.classList.contains("open");
+    document.querySelectorAll(".custom-picker.open").forEach(p => p.classList.remove("open"));
+    if(!wasOpen) picker.classList.add("open");
+});
+
+document.addEventListener("click", () => {
+    document.querySelectorAll(".custom-picker.open").forEach(p => p.classList.remove("open"));
+});
+
+document.getElementById("voiceTestBtn")?.addEventListener("click", () => {
+    speakText("Hi! This is how I'll sound.", navigator.language || "en-US");
+});
+
+const MSG_ICONS = {
+    copy: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>',
+    check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>',
+    feedback: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"></path><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"></path></svg>',
+    share: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>',
+    speaker: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>',
+    regenerate: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"></path><path d="M3 21v-5h5"></path></svg>',
+    edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>'
+};
+
+function addSpeakRepeatButton(container, text, lang){
+    const btn = document.createElement("button");
+    btn.className = "msg-action-btn";
+    btn.title = "Repeat aloud";
+    btn.innerHTML = MSG_ICONS.speaker;
+    btn.addEventListener("click", () => {
+        speakText(text, lang);
+    });
+    container.appendChild(btn);
+    return btn;
+}
+
+function buildMsgCheck(){
+    const check = document.createElement("span");
+    check.className = "msg-check";
+    check.textContent = "✓✓";
+    check.title = "Sent";
+    return check;
+}
+
+function addMessageActionBar(container, text){
+    const bar = document.createElement("div");
+    bar.className = "msg-actions";
+
+    // ---- Copy ----
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "msg-action-btn";
+    copyBtn.title = "Copy";
+    copyBtn.innerHTML = MSG_ICONS.copy;
+    copyBtn.addEventListener("click", () => {
+        navigator.clipboard.writeText(text).then(() => {
+            copyBtn.innerHTML = MSG_ICONS.check;
+            setTimeout(() => { copyBtn.innerHTML = MSG_ICONS.copy; }, 1200);
+        });
+    });
+    bar.appendChild(copyBtn);
+
+    // ---- Feedback (single button, opens a small good/bad menu) ----
+    const feedbackWrap = document.createElement("div");
+    feedbackWrap.className = "msg-feedback-wrap";
+
+    const feedbackBtn = document.createElement("button");
+    feedbackBtn.className = "msg-action-btn";
+    feedbackBtn.title = "Feedback";
+    feedbackBtn.innerHTML = MSG_ICONS.feedback;
+
+    const feedbackMenu = document.createElement("div");
+    feedbackMenu.className = "msg-feedback-menu";
+
+    const goodOpt = document.createElement("button");
+    goodOpt.className = "msg-feedback-option";
+    goodOpt.textContent = "👍 Good response";
+
+    const badOpt = document.createElement("button");
+    badOpt.className = "msg-feedback-option";
+    badOpt.textContent = "👎 Needs improvement";
+
+    goodOpt.addEventListener("click", (e) => {
+        e.stopPropagation();
+        feedbackMenu.classList.remove("show");
+        feedbackBtn.classList.add("active");
+        showToast("Thanks for the feedback!");
+    });
+
+    badOpt.addEventListener("click", (e) => {
+        e.stopPropagation();
+        feedbackMenu.classList.remove("show");
+        feedbackBtn.classList.add("active");
+        openModal("contactModal");
+        const msgBox = document.getElementById("contactMsg");
+        msgBox.value = 'Reporting AI-generated content:\n\n"' + text + '"\n\nReason: ';
+        msgBox.focus();
+    });
+
+    feedbackBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const wasOpen = feedbackMenu.classList.contains("show");
+        document.querySelectorAll(".msg-feedback-menu.show").forEach(m => m.classList.remove("show"));
+        if(!wasOpen) feedbackMenu.classList.add("show");
+    });
+
+    feedbackMenu.appendChild(goodOpt);
+    feedbackMenu.appendChild(badOpt);
+    feedbackWrap.appendChild(feedbackBtn);
+    feedbackWrap.appendChild(feedbackMenu);
+    bar.appendChild(feedbackWrap);
+
+    // ---- Share ----
+    const shareBtn = document.createElement("button");
+    shareBtn.className = "msg-action-btn";
+    shareBtn.title = "Share";
+    shareBtn.innerHTML = MSG_ICONS.share;
+    shareBtn.addEventListener("click", async () => {
+        if(navigator.share){
+            try{ await navigator.share({ text }); }catch(err){ /* user cancelled */ }
+        } else {
+            navigator.clipboard.writeText(text).then(() => showToast("📋 Copied to clipboard"));
+        }
+    });
+    bar.appendChild(shareBtn);
+
+    container.appendChild(bar);
+    return bar;
+}
+
+document.addEventListener("click", () => {
+    document.querySelectorAll(".msg-feedback-menu.show").forEach(m => m.classList.remove("show"));
+});
+
+async function callChatAPI(messages, options){
+    const opts = options || {};
+    const payload = { messages };
+    if(opts.forceSearch) payload.forceSearch = true;
+    if(opts.lite) payload.lite = true;
+
+    const headers = { "Content-Type": "application/json" };
+    // Sent so the backend can verify who's asking and, if they've connected
+    // Google, offer the send_email / create_calendar_event tools for this
+    // request. Silently skipped if getIdToken fails — chat still works.
+    if(activeAuth().currentUser){
+        try{
+            const idToken = await activeAuth().currentUser.getIdToken();
+            headers["Authorization"] = "Bearer " + idToken;
+        }catch(err){
+            console.error("Couldn't get ID token:", err);
+        }
+    }
+
+    const res = await fetch("/api/chat", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload)
+    });
+
+    let data;
+    try{
+        data = await res.json();
+    }catch(parseErr){
+        throw new Error(res.status === 504
+            ? "The request took too long and timed out. Please try again."
+            : "Unexpected response from the server (status " + res.status + "). Please try again.");
+    }
+
+    if(!res.ok) throw new Error(data.error || "Request failed");
+    return {
+        content: data.choices[0].message.content,
+        sources: Array.isArray(data.zyntra_sources) ? data.zyntra_sources : [],
+        memoryWrites: Array.isArray(data.zyntra_memory_writes) ? data.zyntra_memory_writes : []
+    };
+}
+
+// Same job as callChatAPI, but the AI's reply arrives in real time instead
+// of all at once. onDelta(text) is called with each new piece of text as
+// it's generated — the caller is responsible for appending it to whatever
+// is shown on screen. Resolves once the reply is complete, with the same
+// sources/memoryWrites shape callChatAPI returns.
+async function streamChatAPI(messages, onDelta, options, onStep){
+    const opts = options || {};
+    const headers = { "Content-Type": "application/json" };
+    if(activeAuth().currentUser){
+        try{
+            const idToken = await activeAuth().currentUser.getIdToken();
+            headers["Authorization"] = "Bearer " + idToken;
+        }catch(err){
+            console.error("Couldn't get ID token:", err);
+        }
+    }
+
+    const payload = { messages, stream: true };
+    if(opts.research) payload.research = true;
+    if(opts.website) payload.website = true;
+    if(opts.agent) payload.agent = true;
+
+    const res = await fetch("/api/chat", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload)
+    });
+
+    if(!res.ok || !res.body){
+        // Errors are still sent as normal JSON when the request fails
+        // before streaming can start (e.g. missing messages).
+        let data = {};
+        try{ data = await res.json(); }catch{}
+        throw new Error(data.error || "Request failed");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let sources = [];
+    let memoryWrites = [];
+    let errorMessage = null;
+
+    while(true){
+        const { done, value } = await reader.read();
+        if(done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let boundary;
+        while((boundary = buffer.indexOf("\n\n")) !== -1){
+            const rawEvent = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            const line = rawEvent.trim();
+            if(!line.startsWith("data:")) continue;
+
+            let payload;
+            try{
+                payload = JSON.parse(line.slice(5).trim());
+            }catch{
+                continue; // skip a malformed chunk rather than breaking the whole reply
+            }
+
+            if(payload.type === "content" && payload.text){
+                onDelta(payload.text);
+            } else if(payload.type === "step"){
+                if(onStep) onStep(payload);
+            } else if(payload.type === "done"){
+                sources = Array.isArray(payload.sources) ? payload.sources : [];
+                memoryWrites = Array.isArray(payload.memoryWrites) ? payload.memoryWrites : [];
+            } else if(payload.type === "error"){
+                errorMessage = payload.message || "Something went wrong. Please try again.";
+            }
+        }
+    }
+
+    if(errorMessage) throw new Error(errorMessage);
+    return { sources, memoryWrites };
+}
+
+// ---------- Generic modal open/close ----------
+
+function openModal(id){
+    // Every modal shares one overlay layer/z-index, so if another modal is
+    // still open underneath, whichever happens to sit later in the HTML
+    // would silently paint on top — not necessarily the one just opened.
+    // Closing anything else first guarantees the modal you just triggered
+    // is always the one actually on top and visible.
+    document.querySelectorAll(".modal-overlay.show").forEach(overlay => {
+        if(overlay.id !== id) overlay.classList.remove("show");
+    });
+    document.getElementById(id).classList.add("show");
+}
+function closeModal(id){
+    document.getElementById(id).classList.remove("show");
+    // If this was the voice assistant (or anything else), stop any speech
+    // that might still be playing — closing a modal should silence it.
+    if(typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
+}
+
+document.querySelectorAll(".modal-overlay").forEach(overlay => {
+    overlay.addEventListener("click", e => {
+        if(e.target === overlay){
+            overlay.classList.remove("show");
+            if(typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
+        }
+    });
+});
+
+document.addEventListener("keydown", e => {
+    if(e.key === "Escape"){
+        document.querySelectorAll(".modal-overlay.show").forEach(m => m.classList.remove("show"));
+        if(typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
+        closeSidebarMobile();
+        document.getElementById("accountMenu")?.classList.remove("show");
+        document.getElementById("accountMenuBackdrop")?.classList.remove("show");
+    }
+});
+
+// ---------- About page ----------
+
+document.getElementById("aboutBtn")?.addEventListener("click", e => {
+    e.preventDefault();
+    showPageView("about");
+    setActiveNav("about");
+    navigateToRoute("about");
+    closeSidebarMobile();
+});
+document.getElementById("aboutBackBtn")?.addEventListener("click", () => {
+    showPageView("chat");
+    setActiveNav("chat");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+});
+
+// ---------- Discover page ----------
+
+document.getElementById("discoverBtn")?.addEventListener("click", e => {
+    e.preventDefault();
+    showPageView("discover");
+    setActiveNav("discover");
+    navigateToRoute("discover");
+    loadDiscoverList();
+    closeSidebarMobile();
+});
+
+async function loadDiscoverList(){
+    const list = document.getElementById("discoverList");
+    if(!list) return;
+    list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;grid-column:1/-1;">Loading…</p>`;
+    try{
+        const res = await fetch("/api/share-chat?list=1");
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.error || "Could not load Discover.");
+
+        if(!data.items || data.items.length === 0){
+            list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;grid-column:1/-1;">No public conversations yet — be the first to share one!</p>`;
+            return;
+        }
+
+        list.innerHTML = "";
+        data.items.forEach(item => {
+            const card = document.createElement("a");
+            card.href = `/share/${item.id}`;
+            card.className = "discover-card";
+            card.innerHTML = `
+                <p class="discover-card-title">${item.title}</p>
+                <p class="discover-card-preview">${item.preview || ""}</p>
+            `;
+            list.appendChild(card);
+        });
+    }catch(err){
+        list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;grid-column:1/-1;">${err.message}</p>`;
+    }
+}
+
+// ---------- My Shares (manage/delete) ----------
+
+document.getElementById("mySharesQuickBtn")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if(!isLoggedIn()){
+        alert("Sign in to see your shared chats.");
+        return;
+    }
+    closeSidebarMobile();
+    openModal("mySharesModal");
+    await loadMyShares();
+});
+
+document.getElementById("mySharesModalClose")?.addEventListener("click", () => closeModal("mySharesModal"));
+
+async function loadMyShares(){
+    const list = document.getElementById("mySharesList");
+    if(!list) return;
+    list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:24px 0;">Loading…</p>`;
+    try{
+        const idToken = await activeAuth().currentUser.getIdToken();
+        const res = await fetch("/api/share-chat?mine=1", {
+            headers: { "Authorization": "Bearer " + idToken }
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.error || "Could not load your shares.");
+
+        if(!data.items || data.items.length === 0){
+            list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:24px 0;">You haven't shared any chats yet.</p>`;
+            return;
+        }
+
+        list.innerHTML = "";
+        data.items.forEach(item => {
+            const row = document.createElement("div");
+            row.className = "my-share-row";
+            row.innerHTML = `
+                <div class="my-share-info">
+                    <p class="my-share-title">${item.title}</p>
+                    <p class="my-share-meta">${item.public ? "🌐 Public (on Discover)" : "🔒 Private link only"}</p>
+                </div>
+                <button type="button" class="my-share-copy" title="Copy link">📋</button>
+                <button type="button" class="my-share-delete" title="Delete">🗑</button>
+            `;
+            row.querySelector(".my-share-copy").addEventListener("click", () => {
+                const url = `${window.location.origin}/share/${item.id}`;
+                navigator.clipboard.writeText(url);
+                const btn = row.querySelector(".my-share-copy");
+                btn.textContent = "✅";
+                setTimeout(() => { btn.textContent = "📋"; }, 1200);
+            });
+            row.querySelector(".my-share-delete").addEventListener("click", async () => {
+                if(!confirm(`Delete "${item.title}"? This can't be undone.`)) return;
+                try{
+                    const idToken = await activeAuth().currentUser.getIdToken();
+                    const delRes = await fetch(`/api/share-chat?id=${encodeURIComponent(item.id)}`, {
+                        method: "DELETE",
+                        headers: { "Authorization": "Bearer " + idToken }
+                    });
+                    const delData = await delRes.json();
+                    if(!delRes.ok) throw new Error(delData.error || "Could not delete this share.");
+                    row.remove();
+                    if(list.children.length === 0){
+                        list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:24px 0;">You haven't shared any chats yet.</p>`;
+                    }
                 }catch(err){
-                    window.open(img.src, "_blank");
+                    alert(err.message || "Could not delete this share.");
                 }
-                downloadBtn.textContent = "⬇ Download";
+            });
+            list.appendChild(row);
+        });
+    }catch(err){
+        list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:24px 0;">${err.message}</p>`;
+    }
+}
+
+// ---------- Privacy Policy page ----------
+
+document.getElementById("privacyBtn")?.addEventListener("click", e => {
+    e.preventDefault();
+    showPageView("privacy");
+    setActiveNav("privacy");
+    navigateToRoute("privacy");
+    closeSidebarMobile();
+});
+document.getElementById("privacyBackBtn")?.addEventListener("click", () => {
+    showPageView("chat");
+    setActiveNav("chat");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+});
+
+if(window.location.hash === "#privacy"){
+    showPageView("privacy");
+    navigateToRoute("privacy");
+}
+
+// ---------- Ads (replaces the old Pro/payment system) ----------
+// Zyntra AI no longer has a paid tier — everyone gets full-speed chat and
+// image generation. The free message limit still applies (see
+// FREE_MESSAGE_LIMIT/isLockedOut above); it's cleared by watching an ad
+// instead of upgrading. Ads are shown to every user, all the time.
+
+function isRunningInApp(){
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches;
+    const isTwaReferrer = document.referrer.startsWith("android-app://");
+    return isStandalone || isTwaReferrer;
+}
+
+// Set this to true once you have REAL ad slot IDs from an approved AdSense
+// account and have replaced YOUR_AD_SLOT_ID / YOUR_SIDEBAR_AD_SLOT_ID in
+// index.html with them. Until then, ad slots render nothing — an invalid
+// placeholder slot can cause Google's ad script to behave unpredictably.
+const AD_SLOT_READY = false;
+
+let adsLoaded = false;
+
+function loadAds(){
+    if(!AD_SLOT_READY) return;
+    if(adsLoaded) return;
+    try{
+        document.querySelectorAll("ins.adsbygoogle").forEach(() => {
+            (window.adsbygoogle = window.adsbygoogle || []).push({});
+        });
+        adsLoaded = true;
+    }catch(err){
+        // AdSense script blocked (ad blocker) or not yet approved — fail silently
+    }
+}
+
+function renderAdSlots(){
+    const adBanner = document.getElementById("adBanner");
+    const sidebarAdSlot = document.getElementById("sidebarAdSlot");
+    if(adBanner) adBanner.style.display = AD_SLOT_READY ? "block" : "none";
+    if(sidebarAdSlot) sidebarAdSlot.style.display = AD_SLOT_READY ? "block" : "none";
+    loadAds();
+}
+
+renderAdSlots();
+
+document.getElementById("contactBtn")?.addEventListener("click", e => { e.preventDefault(); openModal("contactModal"); navigateToRoute("contact"); closeSidebarMobile(); });
+document.getElementById("contactModalClose")?.addEventListener("click", () => { closeModal("contactModal"); navigateToRoute(TOOL_TO_SLUG[activeChatTool] || ""); });
+document.getElementById("contactSubmit")?.addEventListener("click", async () => {
+    const name = document.getElementById("contactName").value.trim();
+    const email = document.getElementById("contactEmail").value.trim();
+    const msg = document.getElementById("contactMsg").value.trim();
+    if(!name || !email || !msg){
+        alert("Please fill in all fields.");
+        return;
+    }
+
+    const btn = document.getElementById("contactSubmit");
+    const originalText = btn.textContent;
+    btn.textContent = "Sending...";
+    btn.disabled = true;
+
+    try{
+        const res = await fetch("https://formspree.io/f/xbdnvlkg", {
+            method: "POST",
+            headers: { "Accept": "application/json", "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name,
+                email,
+                message: msg
+            })
+        });
+
+        if(res.ok){
+            alert("Thanks " + name + "! Your message has been sent.");
+            document.getElementById("contactName").value = "";
+            document.getElementById("contactEmail").value = "";
+            document.getElementById("contactMsg").value = "";
+            closeModal("contactModal");
+            navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+        } else {
+            alert("Something went wrong sending your message. Please try again.");
+        }
+    }catch(err){
+        alert("Something went wrong sending your message. Please try again.");
+    }
+
+    btn.textContent = originalText;
+    btn.disabled = false;
+});
+
+// ---------- Live stats (kept running in the background, no UI display) ----------
+
+const STAT_NAMESPACE = "zyntra-ai-ghanchimoin";
+
+async function bumpStat(key){
+    try{
+        await fetch(`https://api.countapi.xyz/hit/${STAT_NAMESPACE}/${key}`);
+    }catch(err){
+        // ignore
+    }
+}
+
+if(!localStorage.getItem("zyntra-visited")){
+    localStorage.setItem("zyntra-visited", "1");
+    bumpStat("users");
+}
+
+// ---------- Splash screen ----------
+
+function hideSplashScreen(){
+    setTimeout(() => {
+        const splash = document.getElementById("splashScreen");
+        if(splash) splash.classList.add("hide");
+    }, 900);
+}
+
+if(document.readyState === "complete"){
+    hideSplashScreen();
+} else {
+    window.addEventListener("load", hideSplashScreen);
+}
+
+// ---------- Install app button ----------
+
+let deferredInstallPrompt = null;
+
+window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const btn = document.getElementById("installAppBtn");
+    if(btn && !isRunningInApp()) btn.style.display = "block";
+});
+
+document.getElementById("installAppBtn")?.addEventListener("click", async () => {
+    if(!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    const choice = await deferredInstallPrompt.userChoice;
+    if(choice.outcome === "accepted"){
+        showToast("📥 Installing Zyntra AI...");
+    }
+    deferredInstallPrompt = null;
+    document.getElementById("installAppBtn").style.display = "none";
+});
+
+window.addEventListener("appinstalled", () => {
+    showToast("✅ Zyntra AI installed!");
+    const btn = document.getElementById("installAppBtn");
+    if(btn) btn.style.display = "none";
+});
+
+function isLoggedIn(){
+    return !!localStorage.getItem("zyntra-user");
+}
+
+function renderAuthNav(){
+    const loggedIn = isLoggedIn();
+    const nameEl = document.getElementById("sidebarUserName");
+    const planEl = document.getElementById("sidebarUserPlan");
+    const avatarEl = document.getElementById("sidebarUserAvatar");
+
+    if(loggedIn){
+        const email = localStorage.getItem("zyntra-user");
+        const profile = getProfile();
+        const display = (profile.nickname || profile.fullName || email || "Account").trim();
+        const letter = display.charAt(0).toUpperCase();
+        nameEl.textContent = display;
+        planEl.textContent = "Signed in";
+        avatarEl.textContent = letter;
+    } else {
+        nameEl.textContent = "Guest";
+        planEl.textContent = "Sign in";
+        avatarEl.textContent = "?";
+    }
+    renderAdSlots();
+    updateDeleteChatBtnVisibility();
+}
+
+function handleProfileEntry(){
+    if(isLoggedIn()){
+        toggleAccountMenu();
+        return;
+    }
+    document.getElementById("signinContext").style.display = "none";
+    resetSigninModalUI();
+    openModal("signinModal");
+    closeSidebarMobile();
+}
+
+function toggleAccountMenu(forceState){
+    const menu = document.getElementById("accountMenu");
+    if(!menu) return;
+    const show = forceState !== undefined ? forceState : !menu.classList.contains("show");
+    if(show){
+        renderAccountMenu();
+        const anchor = document.getElementById("sidebarUser");
+        if(anchor){
+            const rect = anchor.getBoundingClientRect();
+            menu.style.left = rect.left + "px";
+            menu.style.width = rect.width + "px";
+            menu.style.bottom = (window.innerHeight - rect.top + 8) + "px";
+        }
+    }
+    menu.classList.toggle("show", show);
+    document.getElementById("accountMenuBackdrop")?.classList.toggle("show", show);
+}
+
+function renderAccountMenu(){
+    const email = localStorage.getItem("zyntra-user");
+    const profile = getProfile();
+    const displayName = profile.nickname || profile.fullName || (email ? email.split("@")[0] : "Guest");
+    const letter = displayName.trim().charAt(0).toUpperCase() || "?";
+    document.getElementById("accountMenuName").textContent = displayName;
+    document.getElementById("accountMenuAvatar").textContent = letter;
+}
+
+document.getElementById("sidebarUser")?.addEventListener("click", e => {
+    if(e.target.closest(".account-menu")) return; // menu items handle their own clicks
+    handleProfileEntry();
+});
+
+document.addEventListener("click", e => {
+    const menu = document.getElementById("accountMenu");
+    if(!menu || !menu.classList.contains("show")) return;
+    if(!e.target.closest("#sidebarUser") && !e.target.closest("#accountMenu")) toggleAccountMenu(false);
+});
+
+document.getElementById("accountMenuProfileBtn")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openProfileViewModal();
+});
+document.getElementById("accountMenuProfile")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openProfileViewModal();
+});
+document.getElementById("accountMenuPersonalization")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openModal("profileModal");
+    renderProfileModal();
+    switchSettingsSection("personalization");
+});
+document.getElementById("accountMenuSettings")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openModal("profileModal");
+    renderProfileModal();
+    switchSettingsSection("general");
+});
+document.getElementById("accountMenuHelp")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openModal("contactModal");
+});
+document.getElementById("accountMenuLogout")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openModal("signoutModal");
+});
+
+// ---------- Profile view modal (read-only overview) ----------
+
+function openProfileViewModal(){
+    renderProfileViewModal();
+    openModal("profileViewModal");
+}
+
+function renderProfileViewModal(){
+    const email = localStorage.getItem("zyntra-user");
+    const profile = getProfile();
+    const displayName = profile.nickname || profile.fullName || (email ? email.split("@")[0] : "Guest");
+    const letter = displayName.trim().charAt(0).toUpperCase() || "?";
+    const handle = email ? "@" + email.split("@")[0] : "@guest";
+
+    document.getElementById("profileViewAvatar").textContent = letter;
+    document.getElementById("profileViewName").textContent = displayName;
+    document.getElementById("profileViewHandle").textContent = `${handle} · Free`;
+
+    document.getElementById("profileViewTotalChats").textContent = getSessions().length;
+    document.getElementById("profileViewTotalProjects").textContent = getProjects().length;
+
+    let memberSince = "—";
+    const fbUser = (typeof firebase !== "undefined") ? activeAuth().currentUser : null;
+    if(fbUser?.metadata?.creationTime){
+        memberSince = new Date(fbUser.metadata.creationTime).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+    }
+    document.getElementById("profileViewMemberSince").textContent = memberSince;
+
+    const plugins = getPlugins();
+    const enabled = PLUGIN_DEFS.filter(p => plugins[p.key]);
+    const pluginsEl = document.getElementById("profileViewPlugins");
+    pluginsEl.innerHTML = "";
+    if(enabled.length === 0){
+        pluginsEl.innerHTML = '<p class="profile-view-plugins-empty">No plugins enabled.</p>';
+    } else {
+        enabled.forEach(p => {
+            const chip = document.createElement("div");
+            chip.className = "profile-view-plugin-chip";
+            chip.innerHTML = `<span>${p.icon}</span> ${p.title}`;
+            pluginsEl.appendChild(chip);
+        });
+    }
+}
+
+document.getElementById("profileViewClose")?.addEventListener("click", () => closeModal("profileViewModal"));
+document.getElementById("profileViewEditBtn")?.addEventListener("click", () => {
+    closeModal("profileViewModal");
+    openModal("profileModal");
+    renderProfileModal();
+    switchSettingsSection("account");
+});
+
+document.getElementById("topbarSettingsBtn")?.addEventListener("click", handleProfileEntry);
+
+// ---------- Profile modal ----------
+
+function getProfile(){
+    return JSON.parse(localStorage.getItem("zyntra-profile") || "{}");
+}
+
+function switchSettingsSection(section){
+    document.querySelectorAll(".settings-nav-item").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.settingsSection === section);
+    });
+    document.querySelectorAll(".settings-panel").forEach(panel => {
+        panel.style.display = panel.dataset.settingsPanel === section ? "block" : "none";
+    });
+    navigateToRoute("settings", section);
+}
+
+document.querySelectorAll(".settings-nav-item").forEach(btn => {
+    btn.addEventListener("click", () => switchSettingsSection(btn.dataset.settingsSection));
+});
+
+function renderProfileModal(){
+    const guestView = document.getElementById("profileGuestView");
+    const signedInView = document.getElementById("profileSignedInView");
+
+    if(!isLoggedIn()){
+        guestView.style.display = "block";
+        signedInView.style.display = "none";
+        return;
+    }
+
+    guestView.style.display = "none";
+    signedInView.style.display = "flex";
+    switchSettingsSection("personalization");
+    renderPinnedChats();
+    renderSettingsMemoryList();
+
+    const email = localStorage.getItem("zyntra-user");
+    const profile = getProfile();
+
+    document.getElementById("profileEmailDisplay").textContent = email;
+    document.getElementById("profileFullName").value = profile.fullName || "";
+    document.getElementById("profileNickname").value = profile.nickname || "";
+    document.getElementById("profileWork").value = profile.work || "";
+    document.getElementById("profileInstructions").value = profile.instructions || "";
+
+    const letter = (profile.nickname || profile.fullName || email || "?").trim().charAt(0).toUpperCase();
+    document.getElementById("profileAvatar").textContent = letter;
+
+    renderVoiceCarousel();
+    renderWorkOptions();
+    renderChatBehaviorSettings();
+    renderNotificationSettings();
+    renderSecuritySettings();
+    renderAccountSwitcher();
+}
+
+document.getElementById("profileModalClose")?.addEventListener("click", () => {
+    closeModal("profileModal");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+});
+
+document.getElementById("profileSigninBtn")?.addEventListener("click", () => {
+    closeModal("profileModal");
+    document.getElementById("signinContext").style.display = "none";
+    resetSigninModalUI(); openModal("signinModal");
+});
+
+document.getElementById("profileSaveBtn")?.addEventListener("click", () => {
+    const profile = {
+        fullName: document.getElementById("profileFullName").value.trim(),
+        nickname: document.getElementById("profileNickname").value.trim(),
+        work: document.getElementById("profileWork").value,
+        instructions: document.getElementById("profileInstructions").value.trim()
+    };
+    localStorage.setItem("zyntra-profile", JSON.stringify(profile));
+    renderProfileModal();
+    renderAuthNav();
+
+    const btn = document.getElementById("profileSaveBtn");
+    const original = btn.textContent;
+    btn.textContent = "Saved ✓";
+    setTimeout(() => { btn.textContent = original; }, 1500);
+});
+
+document.getElementById("profileSignoutBtn")?.addEventListener("click", () => {
+    closeModal("profileModal");
+    openModal("signoutModal");
+});
+
+document.getElementById("signoutModalClose")?.addEventListener("click", () => closeModal("signoutModal"));
+document.getElementById("signoutCancel")?.addEventListener("click", () => closeModal("signoutModal"));
+document.getElementById("signoutConfirm")?.addEventListener("click", () => {
+    const btn = document.getElementById("signoutConfirm");
+    btn.disabled = true;
+
+    // Save this account's latest state to the cloud before wiping the
+    // local copy, so nothing is lost — then always drop to a clean Guest
+    // state. (No more auto-switching to another signed-in account here —
+    // Sign Out should mean Sign Out, not silently hop to a different one.)
+    pushLocalToCloud().catch(() => {}).finally(() => {
+        activeAuth().signOut().catch(() => {});
+        localStorage.removeItem("zyntra-user");
+        localStorage.removeItem("zyntra-sessions");
+        localStorage.removeItem("zyntra-profile");
+        localStorage.removeItem("zyntra-memories");
+        activeAccountSlot = "default";
+        localStorage.setItem("zyntra-active-slot", "default");
+
+        closeModal("signoutModal");
+        resetChatView();
+        renderAuthNav();
+        renderSidebarHistory();
+        btn.disabled = false;
+    });
+});
+document.getElementById("signinModalClose")?.addEventListener("click", () => closeModal("signinModal"));
+let isSignupMode = false;
+
+function showSigninError(message){
+    const errEl = document.getElementById("signinError");
+    errEl.textContent = message;
+    errEl.style.display = "block";
+}
+
+function clearSigninError(){
+    document.getElementById("signinError").style.display = "none";
+}
+
+function firebaseErrorMessage(code, rawMessage){
+    switch(code){
+        case "auth/user-not-found":
+            return "No account exists with this email.";
+        case "auth/wrong-password":
+        case "auth/invalid-credential":
+            return "Incorrect email or password. If you signed up with Google before, use \"Continue with Google\" instead.";
+        case "auth/invalid-email":
+            return "Please enter a valid email address.";
+        case "auth/email-already-in-use":
+            return "An account with this email already exists. Try signing in instead.";
+        case "auth/weak-password":
+            return "Password should be at least 6 characters.";
+        case "auth/too-many-requests":
+            return "Too many attempts. Please wait a moment and try again.";
+        case "auth/account-exists-with-different-credential":
+            return "This email already has a password-based account. Please sign in with your email and password instead of Google.";
+        case "auth/popup-closed-by-user":
+            return "Sign-in was closed before finishing. Please try again.";
+        case "auth/popup-blocked":
+            return "Your browser blocked the sign-in popup. Please allow popups for this site and try again.";
+        case "auth/cancelled-popup-request":
+            return "";
+        case "auth/network-request-failed":
+            return "Network error. Please check your connection and try again.";
+        case "auth/unauthorized-domain":
+            return "This domain isn't authorized for sign-in yet. Please contact support.";
+        default:
+            return "Something went wrong: " + (rawMessage || code || "unknown error") + ". Please try again.";
+    }
+}
+
+function finishSignin(email){
+    const wasAddingAccount = accountAddPreviousSlot !== null;
+
+    // Adding an account you're already signed into elsewhere on this
+    // device isn't a second account at all — back it out instead of
+    // showing the same email twice in the switcher.
+    if(wasAddingAccount){
+        const otherSlot = activeAccountSlot === "secondary" ? "default" : "secondary";
+        const known = getKnownAccounts();
+        if(known[otherSlot] && known[otherSlot].email.toLowerCase() === email.toLowerCase()){
+            activeAuth().signOut().catch(() => {});
+            activeAccountSlot = accountAddPreviousSlot;
+            localStorage.setItem("zyntra-active-slot", activeAccountSlot);
+            accountAddPreviousSlot = null;
+            localStorage.removeItem("zyntra-account-add-previous-slot");
+            document.getElementById("signinEmail").value = "";
+            document.getElementById("signinPass").value = "";
+            document.getElementById("signinContext").style.display = "none";
+            clearSigninError();
+            closeModal("signinModal");
+            openModal("profileModal");
+            renderProfileModal();
+            showToast("⚠️ That's already your signed-in account — try a different one.");
+            return;
+        }
+    }
+
+    localStorage.setItem("zyntra-user", email);
+    accountAddPreviousSlot = null;
+    localStorage.removeItem("zyntra-account-add-previous-slot");
+    document.getElementById("signinEmail").value = "";
+    document.getElementById("signinPass").value = "";
+    document.getElementById("signinContext").style.display = "none";
+    clearSigninError();
+    closeModal("signinModal");
+    renderAuthNav();
+    renderSidebarHistory();
+    showToast("✅ You're signed in successfully!");
+
+    // Adding a second account started from Settings — hop back there so
+    // the newly added account shows up in the switcher right away.
+    if(wasAddingAccount){
+        openModal("profileModal");
+        renderProfileModal();
+    }
+}
+
+// ================= Firestore cloud sync =================
+// Profile + chat sessions already live in localStorage (read/written by
+// getProfile/getSessions/saveSessions elsewhere in this file) so the rest
+// of the app works exactly as before. This section mirrors that same data
+// to Firestore, keyed by the signed-in Firebase user, so it survives a
+// cleared cache and follows the user to a new device — instead of only
+// existing in the browser that created it.
+
+let zyntraCloudSyncing = false; // true while pulling down, to avoid an echo save
+let zyntraCloudSaveTimer = null;
+
+function zyntraUserDocRef(){
+    const user = activeAuth().currentUser;
+    if(!user) return null;
+    return activeFirestore().collection("users").doc(user.uid);
+}
+
+// ---- Long-term memory ----
+// Durable facts about the user (name, job, ongoing projects, preferences)
+// that the AI decides are worth keeping via the remember_fact tool in
+// api/chat.js. Stored as a plain array on the same Firestore user doc as
+// profile/sessions, cached in localStorage for instant access, and fed
+// back into every new conversation's system prompt below.
+
+function getMemories(){
+    return JSON.parse(localStorage.getItem("zyntra-memories") || "[]");
+}
+
+function saveMemories(memories){
+    localStorage.setItem("zyntra-memories", JSON.stringify(memories));
+    scheduleCloudSave();
+}
+
+// Called after every AI reply with whatever facts it chose to remember
+// (zyntra_memory_writes from /api/chat). Skips near-duplicates and caps
+// the list so it can't grow without bound.
+function addMemories(facts){
+    if(!Array.isArray(facts) || facts.length === 0) return;
+    if(!getPlugins().memory) return;
+    if(temporaryChatActive) return;
+    const memories = getMemories();
+    facts.forEach(fact => {
+        const normalized = (fact || "").trim();
+        if(!normalized) return;
+        const alreadyKnown = memories.some(m => m.fact.toLowerCase() === normalized.toLowerCase());
+        if(alreadyKnown) return;
+        memories.push({ fact: normalized, ts: Date.now() });
+    });
+    // Keep the most recent 60 — plenty for a system-prompt note, and
+    // bounded so it never bloats the request payload over time.
+    saveMemories(memories.slice(-60));
+}
+
+// ---- Projects ----
+// Groups of chats that share custom instructions (e.g. "always answer as
+// a senior React dev"). Unlike everything else on this page, projects can
+// be SHARED between accounts, so they can't live in localStorage or the
+// private per-user Firestore doc — they're real documents in a top-level
+// `projects` collection, access-controlled by a `members` array (see
+// firestore.rules). `projectsCache` is just an in-memory mirror so the
+// rest of the UI can keep reading getProjects() synchronously like before.
+
+let projectsCache = [];
+
+async function refreshProjectsCache(){
+    if(!isLoggedIn()){ projectsCache = []; return; }
+    try{
+        const uid = activeAuth().currentUser.uid;
+        const snap = await activeFirestore().collection("projects").where("members", "array-contains", uid).get();
+        projectsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        projectsCache.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    }catch(err){
+        console.error("Failed to load projects:", err);
+    }
+}
+
+function getProjects(){
+    return projectsCache;
+}
+
+const PROJECT_COLORS = ["#7c5cff", "#ff6b8a", "#37c98f", "#ffb545", "#4fb8ff", "#c85cff"];
+
+// Which project (if any) new chats should be tagged with and get their
+// custom instructions from. Cleared whenever the user starts a chat that
+// isn't explicitly "+ New Chat" from inside a project.
+let currentProjectId = null;
+
+async function createProject(name, instructions, color){
+    const uid = activeAuth().currentUser.uid;
+    const email = (activeAuth().currentUser.email || "").toLowerCase();
+    const docRef = activeFirestore().collection("projects").doc();
+    const project = {
+        name: name.trim(),
+        instructions: (instructions || "").trim(),
+        color: color || PROJECT_COLORS[0],
+        createdAt: Date.now(),
+        ownerId: uid,
+        members: [uid],
+        memberEmails: email ? [email] : []
+    };
+    await docRef.set(project);
+    await refreshProjectsCache();
+    return { id: docRef.id, ...project };
+}
+
+async function updateProject(id, changes){
+    await activeFirestore().collection("projects").doc(id).update(changes);
+    await refreshProjectsCache();
+}
+
+async function deleteProject(id){
+    await activeFirestore().collection("projects").doc(id).delete();
+    await refreshProjectsCache();
+    // Un-tag any of YOUR chats that belonged to this project — their
+    // history stays, they just go back to being regular chats. (Chats
+    // belong to whoever created them, so this only touches your own.)
+    const sessions = getSessions();
+    let changed = false;
+    sessions.forEach(s => {
+        if(s.projectId === id){ s.projectId = null; changed = true; }
+    });
+    if(changed) saveSessions(sessions);
+}
+
+// Invites another Zyntra account (by email) to a project with full
+// access. The actual email→uid lookup and members-list write happen in
+// api/share-project.js via the Admin SDK — a client can never resolve an
+// arbitrary email to a uid itself (see that file's comments).
+async function shareProject(projectId, email){
+    const idToken = await activeAuth().currentUser.getIdToken();
+    const resp = await fetch("/api/share-project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+        body: JSON.stringify({ projectId, email })
+    });
+    const rawText = await resp.text();
+    let data;
+    try{
+        data = rawText ? JSON.parse(rawText) : {};
+    }catch(parseErr){
+        // The endpoint returned something that isn't JSON at all (often an
+        // empty body) — almost always means api/share-project.js hasn't
+        // actually been deployed yet, not a real sharing failure.
+        throw new Error("The sharing feature isn't live on the server yet — check that api/share-project.js has been deployed.");
+    }
+    if(!resp.ok) throw new Error(data.error || "Failed to share project.");
+    await refreshProjectsCache();
+    return data;
+}
+
+// ---- Plugins ----
+// Toggleable built-in capabilities. Missing/undefined defaults to true so
+// existing users see no behavior change until they actually flip something.
+
+const PLUGIN_DEFS = [
+    { key: "webSearch", icon: "🔎", color: "#3ea6ff", title: "Web Search & Research", desc: "Let Zyntra search the web for current information, and show the Research mode toggle for deeper, multi-source answers." },
+    { key: "googleTools", slug: "google", icon: "📧", color: "#ea4335", title: "Google Tools", desc: "Let a connected Google account be used for Gmail, Calendar, and Drive actions." },
+    { key: "githubTools", slug: "github", icon: "🐙", color: "#24292e", title: "GitHub Tools", desc: "Let a connected GitHub account be used to read repos and manage issues/PRs." },
+    { key: "slackTools", slug: "slack", icon: "💬", color: "#4A154B", title: "Slack Tools", desc: "Let a connected Slack account be used to read channels and send messages." },
+    { key: "discordTools", slug: "discord", icon: "🎮", color: "#5865F2", title: "Discord Tools", desc: "Let a connected Discord account be used to read and send messages in a server." },
+    { key: "notionTools", slug: "notion", icon: "📝", color: "#000000", title: "Notion Tools", desc: "Let a connected Notion account be used to search, read, and create pages." },
+    { key: "trelloTools", slug: "trello", icon: "📋", color: "#0079BF", title: "Trello Tools", desc: "Let a connected Trello account be used to read and create cards." },
+    { key: "outlookTools", slug: "microsoftoutlook", icon: "📧", color: "#0072C6", title: "Outlook Tools", desc: "Let a connected Outlook account be used to search, read, and send email." },
+    { key: "memory", icon: "🧠", color: "#a259ff", title: "Memory", desc: "Let Zyntra remember facts about you across conversations." },
+    { key: "imageGen", icon: "🖼️", color: "#37c98f", title: "Image Generator", desc: "Show the Image Generator tool in the sidebar." },
+    { key: "codexBuilder", icon: "🧑‍💻", color: "#ffb545", title: "Codex", desc: "Show the Codex (coding + website building) tool in the sidebar." }
+];
+
+
+// Builds an icon element for a plugin row: a real logo (white, on the
+// brand's color) when `def.slug` is set, falling back to a bold colored
+// initial (never a random unrelated emoji) if there's no slug or the
+// logo fails to load — a clean, honest placeholder instead of guessing.
+function buildPluginIconEl(def, className){
+    const icon = document.createElement("div");
+    icon.className = className || "plugin-row-icon";
+    icon.style.background = def.color;
+    const showFallback = () => {
+        icon.innerHTML = "";
+        icon.textContent = def.title.trim().charAt(0).toUpperCase();
+        icon.style.fontWeight = "800";
+    };
+    if(def.slug){
+        const img = document.createElement("img");
+        img.src = `https://cdn.simpleicons.org/${def.slug}/ffffff`;
+        img.alt = def.title;
+        img.className = "plugin-row-icon-img";
+        img.onerror = showFallback;
+        icon.appendChild(img);
+    } else {
+        showFallback();
+    }
+    return icon;
+}
+
+function getPlugins(){
+    const saved = JSON.parse(localStorage.getItem("zyntra-plugins") || "{}");
+    const merged = {};
+    PLUGIN_DEFS.forEach(p => { merged[p.key] = saved[p.key] !== false; }); // default true
+    return merged;
+}
+
+function savePlugins(plugins){
+    localStorage.setItem("zyntra-plugins", JSON.stringify(plugins));
+    scheduleCloudSave();
+}
+
+function setPlugin(key, enabled){
+    const plugins = getPlugins();
+    plugins[key] = enabled;
+    savePlugins(plugins);
+    applyPluginVisibility();
+}
+
+// Hides/shows sidebar nav items and chat-bar toggles based on the current
+// plugin settings — the actual "gating", not just a cosmetic switch.
+function applyPluginVisibility(){
+    const plugins = getPlugins();
+
+    const imageNav = document.querySelector('.nav-item[data-tool="image"]');
+    if(imageNav) imageNav.style.display = plugins.imageGen ? "" : "none";
+
+    const codexNav = document.querySelector('.nav-item[data-tool="codex"]');
+    if(codexNav) codexNav.style.display = plugins.codexBuilder ? "" : "none";
+
+    const researchBtn = document.getElementById("researchBtn");
+    if(researchBtn) researchBtn.style.display = plugins.webSearch ? "" : "none";
+    if(!plugins.webSearch) researchModeEnabled = false;
+
+    const googleCard = document.getElementById("googleConnectionCard");
+    if(googleCard) googleCard.style.display = plugins.googleTools ? "" : "none";
+
+    const githubCard = document.getElementById("githubConnectionCard");
+    if(githubCard) githubCard.style.display = plugins.githubTools ? "" : "none";
+
+    const slackCard = document.getElementById("slackConnectionCard");
+    if(slackCard) slackCard.style.display = plugins.slackTools ? "" : "none";
+
+    const discordCard = document.getElementById("discordConnectionCard");
+    if(discordCard) discordCard.style.display = plugins.discordTools ? "" : "none";
+
+    const notionCard = document.getElementById("notionConnectionCard");
+    if(notionCard) notionCard.style.display = plugins.notionTools ? "" : "none";
+
+    const trelloCard = document.getElementById("trelloConnectionCard");
+    if(trelloCard) trelloCard.style.display = plugins.trelloTools ? "" : "none";
+
+    const outlookCard = document.getElementById("outlookConnectionCard");
+    if(outlookCard) outlookCard.style.display = plugins.outlookTools ? "" : "none";
+}
+
+// ---- Scheduled Tasks ----
+// Tasks Zyntra runs automatically on a schedule, even while the app is
+// closed. Creation/listing/deletion happens locally + cloud-synced like
+// everything else above; actual execution is handled server-side by a
+// scheduled job that writes results back here.
+
+function getScheduledTasks(){
+    return JSON.parse(localStorage.getItem("zyntra-scheduled") || "[]");
+}
+
+function saveScheduledTasks(tasks){
+    localStorage.setItem("zyntra-scheduled", JSON.stringify(tasks));
+    scheduleCloudSave();
+}
+
+function createScheduledTask(prompt, frequency){
+    const tasks = getScheduledTasks();
+    const task = {
+        id: Date.now(),
+        prompt: prompt.trim(),
+        frequency, // "daily" | "weekly"
+        active: true,
+        createdAt: Date.now(),
+        lastRunAt: null,
+        results: [] // { ranAt, reply }
+    };
+    tasks.unshift(task);
+    saveScheduledTasks(tasks);
+    return task;
+}
+
+function deleteScheduledTask(id){
+    saveScheduledTasks(getScheduledTasks().filter(t => t.id !== id));
+}
+
+function toggleScheduledTask(id){
+    const tasks = getScheduledTasks();
+    const task = tasks.find(t => t.id === id);
+    if(task) task.active = !task.active;
+    saveScheduledTasks(tasks);
+}
+
+// ---- Connections (Gmail, Google Drive, Google Calendar, GitHub) ----
+// Rendered as individual rows in the Plugins page, ChatGPT-connector
+// style — but Gmail/Drive/Calendar all share ONE underlying Google OAuth
+// connection (one grant covers all three scopes), so all three rows
+// reflect the same status and connecting/disconnecting any one of them
+// connects/disconnects all three. GitHub is fully separate. The actual
+// token never touches this browser — it's stored server-side by
+// /api/auth/*, keyed to the signed-in Firebase user.
+
+const CONNECTORS = [
+    { key: "gmail", provider: "google", slug: "gmail", color: "#EA4335", title: "Gmail", desc: "Search, read, send email & drafts" },
+    { key: "google-drive", provider: "google", slug: "googledrive", color: "#0F9D58", title: "Google Drive", desc: "Drive, Docs, Sheets or Slides" },
+    { key: "google-calendar", provider: "google", slug: "googlecalendar", color: "#1A73E8", title: "Google Calendar", desc: "Manage Google Calendar events" },
+    { key: "github", provider: "github", slug: "github", color: "#24292e", title: "GitHub", desc: "Repos, issues, and pull requests" },
+    { key: "slack", provider: "slack", slug: "slack", color: "#4A154B", title: "Slack", desc: "Channels, messages, and search" },
+    { key: "discord", provider: "discord", slug: "discord", color: "#5865F2", title: "Discord", desc: "Read and send messages in a server" },
+    { key: "notion", provider: "notion", slug: "notion", color: "#000000", title: "Notion", desc: "Search, read, and create pages" },
+    { key: "trello", provider: "trello", slug: "trello", color: "#0079BF", title: "Trello", desc: "Boards, lists, and cards" },
+    { key: "outlook", provider: "outlook", slug: "microsoftoutlook", color: "#0072C6", title: "Outlook", desc: "Search, read, send email & drafts" }
+];
+
+const CONNECTOR_PROVIDER_CONFIG = {
+    google: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=google",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=google",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=google",
+        label: data => data.label ? `Connected as ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to use Gmail, Google Drive, or Google Calendar on your behalf."
+    },
+    github: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=github",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=github",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=github",
+        label: data => data.label ? `Connected as ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to read your repos or create issues/PRs on your behalf."
+    },
+    slack: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=slack",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=slack",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=slack",
+        label: data => data.label ? `Connected to ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to read or send Slack messages on your behalf."
+    },
+    discord: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=discord",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=discord",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=discord",
+        label: data => data.label ? `Connected to ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to read or send messages in your Discord server on your behalf. The bot stays in your server until you remove it yourself from Discord."
+    },
+    notion: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=notion",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=notion",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=notion",
+        label: data => data.label ? `Connected to ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to search, read, or create pages in your Notion workspace. You can also remove Zyntra's access directly from Notion's own Settings → Connections."
+    },
+    trello: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=trello",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=trello",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=trello",
+        label: data => data.label ? `Connected as ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to read or create cards on your Trello boards."
+    },
+    outlook: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=outlook",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=outlook",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=outlook",
+        label: data => data.label ? `Connected as ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to search, read, or send Outlook email on your behalf. You can also remove Zyntra's access directly from your Microsoft account's app permissions page."
+    }
+};
+
+// Plain-English capability lists shown on each plugin/connector's detail
+// page — keyed by CONNECTORS' `key` (for connections) and PLUGIN_DEFS'
+// `key` (for built-in capabilities).
+const PLUGIN_CAPABILITIES = {
+    gmail: ["Search your inbox", "Read full email content", "Send emails on your behalf", "Create drafts without sending"],
+    "google-drive": ["Search your files", "Read file content (Docs, Sheets, text files)", "Create new files"],
+    "google-calendar": ["View upcoming events", "Create new events", "Update or cancel existing events"],
+    github: ["List your repositories", "View issues and pull requests", "Create new issues", "Create new pull requests"],
+    slack: ["List channels (public and private)", "Read recent messages", "Send messages", "Search your workspace", "Look up teammates"],
+    discord: ["List channels in your connected server", "Read recent messages", "Send messages"],
+    notion: ["Search your workspace", "Read page content", "Create new pages"],
+    trello: ["List your boards and lists", "View cards", "Create new cards"],
+    outlook: ["Search your inbox", "Read full email content", "Send emails on your behalf", "Create drafts without sending"],
+    webSearch: ["Search the web for current information", "Multi-source Research mode for deeper, longer answers"],
+    googleTools: ["Lets the AI use your connected Google account for Gmail, Drive, and Calendar actions"],
+    githubTools: ["Lets the AI use your connected GitHub account to read repos and manage issues/PRs"],
+    slackTools: ["Lets the AI use your connected Slack account to read channels and send messages"],
+    discordTools: ["Lets the AI use your connected Discord account to read and send messages"],
+    notionTools: ["Lets the AI use your connected Notion account to search, read, and create pages"],
+    trelloTools: ["Lets the AI use your connected Trello account to read and create cards"],
+    outlookTools: ["Lets the AI use your connected Outlook account to search, read, and send email"],
+    memory: ["Remembers facts you share, across conversations", "Injects relevant memories into new chats automatically"],
+    imageGen: ["Adds the Image Generator tool to your sidebar"],
+    codexBuilder: ["Adds the Codex coding and website-building tool to your sidebar"]
+};
+
+// Richer metadata for the detail page's "Information" section and example
+// prompts — real, working starter messages (not decorative), since every
+// connector here is a real, tested integration.
+const PLUGIN_DETAILS = {
+    gmail: {
+        longDesc: "Search your inbox, read full email content, send new emails, and create drafts — all from chat, using your own connected Gmail account.",
+        examples: ["Search my Gmail for emails from the last 7 days", "Read that email from [sender] and summarize it", "Draft a reply to my last email from [sender]"],
+        category: "Email", website: "https://gmail.com"
+    },
+    "google-drive": {
+        longDesc: "Search your Google Drive, read the content of Docs, Sheets, and text files, and create new files — without leaving the chat.",
+        examples: ["Search my Drive for the Q3 budget file", "Read that file and summarize the key points", "Create a new file called Meeting Notes with today's summary"],
+        category: "Productivity", website: "https://drive.google.com"
+    },
+    "google-calendar": {
+        longDesc: "See what's coming up, schedule new events, and update or cancel existing ones on your Google Calendar.",
+        examples: ["What's on my calendar tomorrow?", "Schedule a meeting with the team Friday at 2pm", "Move my 3pm call to 4pm"],
+        category: "Productivity", website: "https://calendar.google.com"
+    },
+    github: {
+        longDesc: "List your repositories, review issues and pull requests, and create new ones — right from chat, using your own connected GitHub account.",
+        examples: ["List my GitHub repos", "Show open issues on [repo]", "Create an issue on [repo] titled 'Fix login bug'"],
+        category: "Developer Tools", website: "https://github.com"
+    },
+    slack: {
+        longDesc: "Read and send messages across your Slack channels and DMs, search your workspace, and look up teammates.",
+        examples: ["List my Slack channels", "What's the latest in #general?", "Send a message to #team saying I'll be late"],
+        category: "Communication", website: "https://slack.com"
+    },
+    discord: {
+        longDesc: "Read and send messages in the Discord server you've added the Zyntra bot to.",
+        examples: ["List channels in my Discord server", "What's the latest message in #general?", "Send a message to #announcements"],
+        category: "Communication", website: "https://discord.com"
+    },
+    notion: {
+        longDesc: "Search your Notion workspace, read page content, and create new pages — all from chat.",
+        examples: ["Search my Notion for the project roadmap", "Read that page and summarize it", "Create a new page under Projects called Q4 Plan"],
+        category: "Productivity", website: "https://notion.so"
+    },
+    trello: {
+        longDesc: "View your Trello boards, lists, and cards, and create new cards — without opening Trello.",
+        examples: ["List my Trello boards", "Show cards in my To Do list", "Create a card called 'Review designs' in my To Do list"],
+        category: "Productivity", website: "https://trello.com"
+    },
+    outlook: {
+        longDesc: "Search your Outlook inbox, read full email content, send new emails, and create drafts — using your own connected Microsoft account.",
+        examples: ["Search my Outlook for emails from last week", "Read that email and summarize it", "Send an email to [name] about tomorrow's meeting"],
+        category: "Email", website: "https://outlook.com"
+    },
+    webSearch: {
+        longDesc: "Lets Zyntra search the web for current information and switch to Research mode for deeper, multi-source answers on complex questions.",
+        examples: ["What's the latest news on [topic]?", "Research the pros and cons of [decision] for me"],
+        category: "Built-in"
+    },
+    googleTools: { longDesc: "Turns Gmail, Google Drive, and Google Calendar actions on or off for the AI, once you've connected your Google account.", examples: [], category: "Built-in" },
+    githubTools: { longDesc: "Turns GitHub actions on or off for the AI, once you've connected your GitHub account.", examples: [], category: "Built-in" },
+    slackTools: { longDesc: "Turns Slack actions on or off for the AI, once you've connected your Slack account.", examples: [], category: "Built-in" },
+    discordTools: { longDesc: "Turns Discord actions on or off for the AI, once you've connected Discord and added the bot to a server.", examples: [], category: "Built-in" },
+    notionTools: { longDesc: "Turns Notion actions on or off for the AI, once you've connected your Notion account.", examples: [], category: "Built-in" },
+    trelloTools: { longDesc: "Turns Trello actions on or off for the AI, once you've connected your Trello account.", examples: [], category: "Built-in" },
+    outlookTools: { longDesc: "Turns Outlook actions on or off for the AI, once you've connected your Outlook account.", examples: [], category: "Built-in" },
+    memory: {
+        longDesc: "Lets Zyntra remember facts you share and bring them back naturally in future conversations, so you don't have to repeat yourself.",
+        examples: [], category: "Built-in"
+    },
+    imageGen: { longDesc: "Adds the Image Generator tool to your sidebar for creating images from text prompts.", examples: [], category: "Built-in" },
+    codexBuilder: { longDesc: "Adds the Codex tool to your sidebar for coding help and building full websites from a prompt.", examples: [], category: "Built-in" }
+};
+
+// Cache of the last known status per provider, so all rows for that
+// provider (e.g. the 3 Google rows) render consistently without each
+// firing its own network request.
+let connectorStatusCache = {};
+
+async function fetchConnectorStatus(provider){
+    if(!activeAuth().currentUser) return { connected: false, error: true };
+    try{
+        const idToken = await activeAuth().currentUser.getIdToken();
+        const res = await fetch(CONNECTOR_PROVIDER_CONFIG[provider].statusUrl, {
+            headers: { "Authorization": "Bearer " + idToken }
+        });
+        const data = await res.json();
+        return { ...data, error: false };
+    }catch(err){
+        console.error(`Couldn't check ${provider} connection status:`, err);
+        return { connected: false, error: true };
+    }
+}
+
+async function refreshAllConnectorStatuses(){
+    const providers = [...new Set(CONNECTORS.map(c => c.provider))];
+    await Promise.all(providers.map(async provider => {
+        connectorStatusCache[provider] = await fetchConnectorStatus(provider);
+    }));
+    renderPluginsConnectionsList();
+    if(pluginDetailCurrent?.type === "connector") renderPluginDetail();
+}
+
+async function handleConnectorClick(connector){
+    const provider = connector.provider;
+    const config = CONNECTOR_PROVIDER_CONFIG[provider];
+    const status = connectorStatusCache[provider];
+
+    if(status?.connected){
+        confirmAction(
+            `Disconnect ${provider === "google" ? "Google" : "GitHub"}?`,
+            config.disconnectConfirm,
+            async () => {
+                try{
+                    const user = await getCurrentFirebaseUser();
+                    if(!user) { showToast("Please sign in first."); return; }
+                    const idToken = await user.getIdToken();
+                    await fetch(config.disconnectUrl, {
+                        method: "POST",
+                        headers: { "Authorization": "Bearer " + idToken }
+                    });
+                    showToast(`${provider === "google" ? "Google" : "GitHub"} disconnected.`);
+                    refreshAllConnectorStatuses();
+                }catch(err){
+                    console.error("Disconnect failed:", err);
+                    showToast("Couldn't disconnect. Please try again.");
+                }
+            }
+        );
+        return;
+    }
+
+    try{
+        const user = await getCurrentFirebaseUser();
+        if(!user) { showToast("Please sign in first, then try connecting again."); return; }
+        const idToken = await user.getIdToken();
+        const res = await fetch(config.startUrl, {
+            headers: { "Authorization": "Bearer " + idToken }
+        });
+        const data = await res.json();
+        if(!res.ok || !data.url) throw new Error(data.error || `Couldn't start ${provider} connection.`);
+        window.location.href = data.url; // full navigation — leaves the app to the provider's consent screen
+    }catch(err){
+        console.error("Connect failed:", err);
+        showToast(err.message || `Couldn't connect ${provider}. Please try again.`);
+    }
+}
+
+// Every provider's oauth-callback redirects back to "/" with either
+// "<provider>_connected=1" or "<provider>_error=<reason>" — generic so
+// a newly added provider never needs a matching change here.
+(function handleConnectorRedirectResult(){
+    const params = new URLSearchParams(window.location.search);
+    const providerNames = { google: "Google", github: "GitHub", slack: "Slack", discord: "Discord", notion: "Notion", trello: "Trello", outlook: "Outlook" };
+
+    for (const key of params.keys()) {
+        const connectedMatch = key.match(/^(\w+)_connected$/);
+        const errorMatch = key.match(/^(\w+)_error$/);
+        if (connectedMatch) {
+            const label = providerNames[connectedMatch[1]] || connectedMatch[1];
+            showToast(`✅ ${label} connected!`);
+            window.history.replaceState({}, "", window.location.pathname);
+            break;
+        }
+        if (errorMatch) {
+            const label = providerNames[errorMatch[1]] || errorMatch[1];
+            showToast(`⚠️ ${label} connection failed: ` + params.get(key));
+            window.history.replaceState({}, "", window.location.pathname);
+            break;
+        }
+    }
+})();
+
+function renderPluginsConnectionsList(){
+    const list = document.getElementById("pluginsConnectionsList");
+    if(!list) return;
+    list.innerHTML = "";
+
+    CONNECTORS.forEach(connector => {
+        const status = connectorStatusCache[connector.provider];
+        const connected = status?.connected;
+
+        const row = document.createElement("div");
+        row.className = "plugin-row";
+        row.dataset.connectorKey = connector.key;
+        row.style.cursor = "pointer";
+        row.addEventListener("click", () => openPluginDetail("connector", connector.key));
+
+        const left = document.createElement("div");
+        left.style.cssText = "display:flex; align-items:flex-start;";
+        const icon = buildPluginIconEl(connector);
+        const textWrap = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "plugin-row-title";
+        title.textContent = connector.title;
+        const desc = document.createElement("div");
+        desc.className = "plugin-row-desc";
+        desc.textContent = status === undefined ? "Checking…" : (connected ? CONNECTOR_PROVIDER_CONFIG[connector.provider].label(status) : connector.desc);
+        textWrap.appendChild(title);
+        textWrap.appendChild(desc);
+        left.appendChild(icon);
+        left.appendChild(textWrap);
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "plugin-connect-btn";
+        btn.textContent = connected ? "Disconnect" : "+";
+        btn.title = connected ? "Disconnect" : "Connect";
+        btn.disabled = status === undefined;
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            handleConnectorClick(connector);
+        });
+
+        row.appendChild(left);
+        row.appendChild(btn);
+        list.appendChild(row);
+    });
+}
+
+// Debounced so rapid local writes (e.g. several messages in a row)
+// collapse into one Firestore write instead of one per message.
+function scheduleCloudSave(){
+    if(zyntraCloudSyncing) return;
+    clearTimeout(zyntraCloudSaveTimer);
+    zyntraCloudSaveTimer = setTimeout(pushLocalToCloud, 1200);
+}
+
+async function pushLocalToCloud(){
+    const ref = zyntraUserDocRef();
+    if(!ref) return;
+    try{
+        await ref.set({
+            profile: getProfile(),
+            sessions: getSessions(),
+            memories: getMemories(),
+            plugins: getPlugins(),
+            scheduledTasks: getScheduledTasks(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    }catch(err){
+        console.error("Zyntra cloud save failed:", err);
+    }
+}
+
+async function pullCloudToLocal(){
+    const ref = zyntraUserDocRef();
+    if(!ref) return;
+    zyntraCloudSyncing = true;
+    try{
+        const snap = await ref.get();
+        if(snap.exists){
+            const data = snap.data() || {};
+            if(data.profile) localStorage.setItem("zyntra-profile", JSON.stringify(data.profile));
+            if(Array.isArray(data.sessions)) localStorage.setItem("zyntra-sessions", JSON.stringify(data.sessions));
+            if(Array.isArray(data.memories)) localStorage.setItem("zyntra-memories", JSON.stringify(data.memories));
+            if(data.plugins) localStorage.setItem("zyntra-plugins", JSON.stringify(data.plugins));
+            if(Array.isArray(data.scheduledTasks)) localStorage.setItem("zyntra-scheduled", JSON.stringify(data.scheduledTasks));
+            if(Array.isArray(data.notifications)){
+                localStorage.setItem("zyntra-notifications", JSON.stringify(data.notifications));
+                updateNotifBadge();
+            }
+        } else {
+            // Brand new account in Firestore — seed the cloud with
+            // whatever this browser already has (e.g. a first chat sent
+            // before this sync finished setting up).
+            zyntraCloudSyncing = false;
+            await pushLocalToCloud();
+            return;
+        }
+    }catch(err){
+        console.error("Zyntra cloud pull failed:", err);
+    }finally{
+        zyntraCloudSyncing = false;
+        renderAuthNav();
+        renderSidebarHistory();
+        applyPluginVisibility();
+    }
+}
+
+// Multi-account support: which Firebase app instance is "active" right
+// now. "default" is always the original app (used by everyone with just
+// one account). "secondary" is a second named Firebase app created the
+// first time the user adds a second account — its own signed-in session
+// persists independently, so switching back to it later never requires
+// re-entering credentials.
+let activeAccountSlot = localStorage.getItem("zyntra-active-slot") || "default";
+// Survives an in-progress "add account" flow across a mobile Google
+// sign-in redirect, which does a full page reload and would otherwise
+// lose track of which slot to fall back to if the user backs out.
+let accountAddPreviousSlot = localStorage.getItem("zyntra-account-add-previous-slot");
+
+function activeAuth(){
+    return activeAccountSlot === "secondary" && firebase.apps.some(a => a.name === "secondary")
+        ? firebase.app("secondary").auth()
+        : firebase.app().auth();
+}
+function activeFirestore(){
+    return activeAccountSlot === "secondary" && firebase.apps.some(a => a.name === "secondary")
+        ? firebase.app("secondary").firestore()
+        : firebase.app().firestore();
+}
+
+// Runs on every page load AND right after sign-in/sign-up/Google sign-in,
+// since all of those trigger onAuthStateChanged — so there's no separate
+// hook needed in finishSignin. Registered separately per account slot (see
+// initSecondaryFirebaseApp below) so a background account's own state
+// changes never overwrite what's currently on screen.
+// Route resolution (see applyRouteFromPath at the bottom of this file)
+// needs to wait for the first cloud sync to actually finish before
+// looking up a /chat/<id> link — otherwise a pasted chat URL gets
+// checked against sessions that haven't downloaded yet and looks like
+// it doesn't exist. tryApplyInitialRoute runs exactly once, whichever
+// happens first: sync finishes, no user is signed in, or a timeout.
+let initialRouteApplied = false;
+function tryApplyInitialRoute(){
+    if(initialRouteApplied) return;
+    initialRouteApplied = true;
+    if(typeof applyRouteFromPath === "function") applyRouteFromPath();
+}
+setTimeout(tryApplyInitialRoute, 4000); // safety net if auth never resolves
+
+function attachAuthStateListener(authInstance, slot){
+    authInstance.onAuthStateChanged(user => {
+        if(user){
+            saveKnownAccount(slot, user.email);
+        } else {
+            removeKnownAccount(slot);
+        }
+        if(slot !== activeAccountSlot) return;
+        if(user){
+            pullCloudToLocal().then(tryApplyInitialRoute).catch(tryApplyInitialRoute);
+            refreshProjectsCache();
+        } else {
+            projectsCache = [];
+            tryApplyInitialRoute();
+        }
+    });
+}
+attachAuthStateListener(firebase.app().auth(), "default");
+
+// If a second account was already added in an earlier session, make sure
+// its Firebase app + listener exist again on this fresh page load too —
+// otherwise switching to it (or a mobile Google-redirect mid-flow) would
+// have nothing to attach to.
+if(activeAccountSlot === "secondary" || getKnownAccounts().secondary){
+    initSecondaryFirebaseApp();
+}
+
+// activeAuth().currentUser can briefly be null right after a sign-in
+// completes, before Firebase's internal state has fully settled — so
+// anything that needs "the signed-in user, right now" should await this
+// instead of reading .currentUser directly, which can otherwise throw
+// "Cannot read properties of null" in that narrow window.
+function getCurrentFirebaseUser(){
+    if(activeAuth().currentUser) return Promise.resolve(activeAuth().currentUser);
+    return new Promise((resolve) => {
+        const unsubscribe = activeAuth().onAuthStateChanged(user => {
+            unsubscribe();
+            resolve(user);
+        });
+        setTimeout(() => { unsubscribe(); resolve(activeAuth().currentUser); }, 3000);
+    });
+}
+
+// Wrap the existing local-save functions (declared earlier in this file)
+// so every place that already calls them also schedules a cloud save,
+// with no changes needed at any of those call sites.
+const zyntraLocalSaveSessions = saveSessions;
+saveSessions = function(sessions){
+    zyntraLocalSaveSessions(sessions);
+    scheduleCloudSave();
+};
+
+document.getElementById("profileSaveBtn")?.addEventListener("click", scheduleCloudSave);
+
+function showToast(message){
+    let toast = document.getElementById("zyntraToast");
+    if(!toast){
+        toast = document.createElement("div");
+        toast.id = "zyntraToast";
+        toast.className = "zyntra-toast";
+        document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add("show");
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => {
+        toast.classList.remove("show");
+    }, 3000);
+}
+
+function resetSigninModalUI(){
+    isSignupMode = false;
+    clearSigninError();
+    document.getElementById("signinTitle").innerHTML = 'Welcome <span>Back</span>';
+    document.getElementById("signinSubmit").textContent = "Sign In";
+    document.getElementById("signupToggleText").innerHTML = 'Don\'t have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign up</a>';
+    document.getElementById("signupToggleLink").addEventListener("click", handleSignupToggleClick);
+}
+
+function handleSignupToggleClick(e){
+    e.preventDefault();
+    isSignupMode = !isSignupMode;
+    clearSigninError();
+    document.getElementById("signinTitle").innerHTML = isSignupMode
+        ? 'Create <span>Account</span>'
+        : 'Welcome <span>Back</span>';
+    document.getElementById("signinSubmit").textContent = isSignupMode ? "Sign Up" : "Sign In";
+    document.getElementById("signupToggleText").innerHTML = isSignupMode
+        ? 'Already have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign in</a>'
+        : 'Don\'t have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign up</a>';
+    document.getElementById("signupToggleLink").addEventListener("click", handleSignupToggleClick);
+}
+document.getElementById("signupToggleLink")?.addEventListener("click", handleSignupToggleClick);
+
+document.getElementById("signinSubmit")?.addEventListener("click", () => {
+    const email = document.getElementById("signinEmail").value.trim();
+    const password = document.getElementById("signinPass").value;
+    clearSigninError();
+
+    if(!email || !password){
+        showSigninError("Please enter both email and password.");
+        return;
+    }
+
+    const btn = document.getElementById("signinSubmit");
+    const original = btn.textContent;
+    btn.textContent = isSignupMode ? "Creating account..." : "Signing in...";
+    btn.disabled = true;
+
+    if(!isSignupMode){
+        activeAuth().signInWithEmailAndPassword(email, password)
+            .then(userCredential => {
+                finishSignin(userCredential.user.email);
+            })
+            .catch(err => {
+                showSigninError(firebaseErrorMessage(err.code, err.message));
+            })
+            .finally(() => {
+                btn.textContent = original;
+                btn.disabled = false;
+            });
+        return;
+    }
+
+    const authAction = activeAuth().createUserWithEmailAndPassword(email, password);
+
+    authAction
+        .then(userCredential => {
+            finishSignin(userCredential.user.email);
+        })
+        .catch(err => {
+            if(err.code === "auth/email-already-in-use"){
+                showSigninError("This email already has an account. If you signed up with Google before, use \"Continue with Google\" instead.");
+            } else {
+                showSigninError(firebaseErrorMessage(err.code, err.message));
+            }
+        })
+        .finally(() => {
+            btn.textContent = original;
+            btn.disabled = false;
+        });
+});
+
+document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
+    clearSigninError();
+    const provider = new firebase.auth.GoogleAuthProvider();
+
+    // Popup for everyone, mobile included. signInWithRedirect() relies on
+    // a cross-origin storage handshake with the authDomain
+    // (zyntra-98cad.firebaseapp.com, a different origin from the actual
+    // app on vercel.app) to carry sign-in state across the redirect —
+    // and modern Chrome/Firefox/Safari block that by default unless the
+    // app is hosted directly on Firebase Hosting. This is Firebase's own
+    // documented fix for exactly this setup (a custom/non-Firebase host):
+    // https://firebase.google.com/docs/auth/web/redirect-best-practices
+    activeAuth().signInWithPopup(provider)
+        .then(result => {
+            finishSignin(result.user.email);
+        })
+        .catch(err => {
+            const msg = firebaseErrorMessage(err.code, err.message);
+            if(msg) showSigninError(msg);
+        });
+});
+
+// currentSessionId must be declared before renderAuthNav() runs, since
+// renderAuthNav -> updateDeleteChatBtnVisibility reads it.
+let currentSessionId = null;
+
+renderAuthNav();
+
+// ---------- Chat history (session based sidebar list) ----------
+
+function timeAgo(ts){
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if(diff < 60) return "Just now";
+    if(diff < 3600) return Math.floor(diff / 60) + "m ago";
+    if(diff < 86400) return Math.floor(diff / 3600) + "h ago";
+    return Math.floor(diff / 86400) + "d ago";
+}
+
+function getSessions(){
+    return JSON.parse(localStorage.getItem("zyntra-sessions") || "[]");
+}
+
+function saveSessions(sessions){
+    localStorage.setItem("zyntra-sessions", JSON.stringify(sessions));
+}
+
+function stripMarkdownForTitle(text){
+    return text
+        .replace(/```[\s\S]*?```/g, "")
+        .replace(/\*\*(.*?)\*\*/g, "$1")
+        .replace(/\*(.*?)\*/g, "$1")
+        .replace(/`([^`]*)`/g, "$1")
+        .replace(/^#{1,6}\s*/gm, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function logMessageToHistory(role, content){
+    if(role === "assistant") notifyAIReply(content);
+    if(!isLoggedIn() || temporaryChatActive) return;
+
+    const sessions = getSessions();
+    let isNewSession = false;
+
+    if(!currentSessionId){
+        currentSessionId = Date.now();
+        isNewSession = true;
+        navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "chat", currentSessionId);
+        const cleanTitle = stripMarkdownForTitle(content);
+        sessions.unshift({
+            id: currentSessionId,
+            type: activeChatTool || "chat",
+            title: cleanTitle.length > 40 ? cleanTitle.slice(0, 40) + "…" : cleanTitle,
+            time: Date.now(),
+            messages: [],
+            projectId: currentProjectId || null
+        });
+    }
+
+    const session = sessions.find(s => s.id === currentSessionId);
+    if(session) session.messages.push({ role, content });
+    saveSessions(sessions);
+    renderSidebarHistory();
+    updateDeleteChatBtnVisibility();
+
+    if(isNewSession && role === "user"){
+        generateSessionTitle(currentSessionId, content);
+    }
+}
+
+async function generateSessionTitle(sessionId, firstMessage){
+    try{
+        const { content: title } = await callChatAPI([
+            {
+                role: "user",
+                content: 'Summarize the topic of this message in 3-5 words. No punctuation, no quotes, no markdown, just the topic itself:\n\n"' + firstMessage + '"'
+            }
+        ]);
+        const clean = stripMarkdownForTitle(title).replace(/["'.]/g, "");
+        if(!clean) return;
+
+        const sessions = getSessions();
+        const session = sessions.find(s => s.id === sessionId);
+        if(session){
+            session.title = clean.length > 60 ? clean.slice(0, 60) : clean;
+            saveSessions(sessions);
+            renderSidebarHistory();
+        }
+    }catch(err){
+        // keep the fallback title already saved
+    }
+}
+
+// ---------- History logging for non-chat tools (image / poster / voice) ----------
+
+function logNonChatSession(type, title, extra){
+    if(!isLoggedIn()) return;
+    const sessions = getSessions();
+    const cleanTitle = title.length > 40 ? title.slice(0, 40) + "…" : title;
+    const session = Object.assign({
+        id: Date.now(),
+        type: type,
+        title: cleanTitle,
+        time: Date.now()
+    }, extra);
+    sessions.unshift(session);
+    saveSessions(sessions);
+    renderSidebarHistory();
+}
+
+function logImageToHistory(prompt, imageUrl){
+    logNonChatSession("image", prompt, { imageUrl: imageUrl, prompt: prompt });
+}
+
+function logPosterToHistory(title, posterDataUrl){
+    logNonChatSession("poster", title, { posterDataUrl: posterDataUrl });
+}
+
+let currentVoiceSessionId = null;
+
+function logVoiceMessageToHistory(role, content){
+    if(!isLoggedIn()) return;
+    const sessions = getSessions();
+
+    if(!currentVoiceSessionId){
+        currentVoiceSessionId = Date.now();
+        const cleanTitle = stripMarkdownForTitle(content);
+        sessions.unshift({
+            id: currentVoiceSessionId,
+            type: "voice",
+            title: cleanTitle.length > 40 ? cleanTitle.slice(0, 40) + "…" : cleanTitle,
+            time: Date.now(),
+            messages: []
+        });
+    }
+
+    const session = sessions.find(s => s.id === currentVoiceSessionId);
+    if(session) session.messages.push({ role, content });
+    saveSessions(sessions);
+    renderSidebarHistory();
+}
+
+function renderPinnedChats(){
+    const box = document.getElementById("pinnedChatsBox");
+    if(!box) return;
+    const pinned = getSessions().filter(s => s.pinned);
+    box.innerHTML = "";
+
+    if(pinned.length === 0){
+        box.innerHTML = '<p class="pinned-empty">No pinned chats yet. Pin a conversation from the sidebar.</p>';
+        return;
+    }
+
+    pinned.forEach(session => {
+        const row = document.createElement("div");
+        row.className = "history-row pinned";
+
+        const title = document.createElement("span");
+        title.className = "history-row-title";
+        title.textContent = (SESSION_TYPE_ICONS[session.type] || SESSION_TYPE_ICONS.chat) + " " + session.title;
+
+        const time = document.createElement("span");
+        time.className = "history-row-time";
+        time.textContent = timeAgo(session.time);
+
+        row.appendChild(title);
+        row.appendChild(time);
+        box.appendChild(row);
+
+        row.addEventListener("click", () => {
+            openSession(session);
+            closeModal("profileModal");
+        });
+    });
+}
+
+function deleteChatSession(id){
+    const updated = getSessions().filter(s => s.id !== id);
+    saveSessions(updated);
+    if(currentSessionId === id){
+        currentSessionId = null;
+        resetChatView();
+        navigateToRoute("chat");
+    }
+    renderSidebarHistory();
+    renderPinnedChats();
+    updateDeleteChatBtnVisibility();
+}
+
+const SESSION_TYPE_ICONS = {
+    chat: "💬",
+    study: "📘",
+    code: "💻",
+    business: "💼",
+    image: "🖼️",
+    poster: "🪧",
+    voice: "🎤"
+};
+
+// ---------- Search chats modal ----------
+
+function renderSearchChatsList(query){
+    const list = document.getElementById("searchChatsList");
+    if(!list) return;
+    list.innerHTML = "";
+
+    if(!isLoggedIn()){
+        list.innerHTML = '<p class="search-chats-empty">Sign in to save and search your conversations.</p>';
+        return;
+    }
+
+    const q = (query || "").trim().toLowerCase();
+    const sessions = getSessions().filter(s => {
+        if(!q) return true;
+        if(s.title.toLowerCase().includes(q)) return true;
+        return (s.messages || []).some(m => (m.content || "").toLowerCase().includes(q));
+    });
+
+    if(sessions.length === 0){
+        list.innerHTML = q
+            ? '<p class="search-chats-empty">No chats match your search.</p>'
+            : '<p class="search-chats-empty">No conversations yet. Start chatting!</p>';
+        return;
+    }
+
+    sessions.forEach(session => {
+        const row = document.createElement("div");
+        row.className = "search-chats-row" + (session.pinned ? " pinned" : "");
+        row.title = session.title;
+
+        const icon = document.createElement("span");
+        icon.className = "search-chats-row-icon";
+        icon.textContent = SESSION_TYPE_ICONS[session.type] || SESSION_TYPE_ICONS.chat;
+
+        const textWrap = document.createElement("span");
+        textWrap.className = "search-chats-row-text";
+
+        const title = document.createElement("span");
+        title.className = "search-chats-row-title";
+        title.textContent = session.title;
+        textWrap.appendChild(title);
+
+        // If the match wasn't in the title, show where it actually was —
+        // otherwise a hit deep in a long chat is invisible in the list.
+        if(q && !session.title.toLowerCase().includes(q)){
+            const hit = (session.messages || []).find(m => (m.content || "").toLowerCase().includes(q));
+            if(hit){
+                const lower = hit.content.toLowerCase();
+                const at = lower.indexOf(q);
+                const start = Math.max(0, at - 30);
+                const snippetText = (start > 0 ? "…" : "") + hit.content.slice(start, at + q.length + 40) + "…";
+                const snippet = document.createElement("span");
+                snippet.className = "search-chats-row-snippet";
+                snippet.textContent = snippetText;
+                textWrap.appendChild(snippet);
+            }
+        }
+
+        const pinBtn = document.createElement("button");
+        pinBtn.type = "button";
+        pinBtn.className = "search-chats-row-action";
+        pinBtn.textContent = "📌";
+        pinBtn.title = session.pinned ? "Unpin" : "Pin";
+        pinBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const all = getSessions();
+            const s = all.find(x => x.id === session.id);
+            if(s){
+                s.pinned = !s.pinned;
+                saveSessions(all);
+                renderSearchChatsList(document.getElementById("searchChatsInput")?.value || "");
+                renderPinnedChats();
+            }
+        });
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "search-chats-row-action";
+        deleteBtn.textContent = "🗑";
+        deleteBtn.title = "Delete this chat";
+        deleteBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            confirmAction(
+                "Delete This Chat?",
+                "Are you sure you want to delete this conversation? This can't be undone.",
+                () => {
+                    deleteChatSession(session.id);
+                    renderSearchChatsList(document.getElementById("searchChatsInput")?.value || "");
+                }
+            );
+        });
+
+        row.appendChild(icon);
+        row.appendChild(textWrap);
+        row.appendChild(pinBtn);
+        row.appendChild(deleteBtn);
+        row.addEventListener("click", () => {
+            closeModal("searchChatsModal");
+            openSession(session);
+        });
+        list.appendChild(row);
+    });
+}
+
+function openSearchChatsModal(){
+    openModal("searchChatsModal");
+    closeSidebarMobile();
+    const input = document.getElementById("searchChatsInput");
+    if(input){
+        input.value = "";
+        renderSearchChatsList("");
+        setTimeout(() => input.focus(), 50);
+    }
+}
+
+document.getElementById("searchChatsBtn")?.addEventListener("click", openSearchChatsModal);
+document.getElementById("searchChatsClose")?.addEventListener("click", () => closeModal("searchChatsModal"));
+document.getElementById("searchChatsInput")?.addEventListener("input", (e) => {
+    renderSearchChatsList(e.target.value);
+});
+
+// ==========================
+// Projects modal
+// ==========================
+
+// ==========================
+// Projects page (full-screen, like AI Chat / Image Generator / Codex)
+// ==========================
+
+// Switches which of the app's full-page views (chat UI vs Projects vs
+// Scheduled) occupies the main content area. Only one is visible at a time.
+function showPageView(view){
+    document.querySelectorAll(".page-view").forEach(el => el.classList.remove("active"));
+    const chatEls = [chatArea, document.getElementById("attachPreview"), document.getElementById("adBanner"), document.querySelector(".chat-input-bar")];
+
+    if(view === "chat"){
+        chatEls.forEach(el => { if(el) el.style.display = ""; });
+        return;
+    }
+    chatEls.forEach(el => { if(el) el.style.display = "none"; });
+    document.getElementById(view + "View").classList.add("active");
+}
+
+function showProjectsScreen(screen){
+    document.getElementById("projectsListScreen").style.display = screen === "list" ? "" : "none";
+    document.getElementById("projectDetailScreen").style.display = screen === "detail" ? "" : "none";
+    document.getElementById("projectShareScreen").style.display = screen === "share" ? "" : "none";
+    document.getElementById("projectFormScreen").style.display = screen === "form" ? "" : "none";
+}
+
+let projectsActiveFilter = "all";
+
+function renderProjectsList(filterText){
+    const list = document.getElementById("projectsList");
+    if(!list) return;
+    list.innerHTML = "";
+    list.classList.remove("is-empty");
+
+    if(!isLoggedIn()){
+        list.classList.add("is-empty");
+        list.innerHTML = '<div class="page-empty-state"><div class="page-empty-state-icon">📁</div><p>Sign in to create and sync projects</p></div>';
+        return;
+    }
+
+    // Sharing is real now — filter by actual ownership instead of the
+    // old placeholder that always showed "Shared with you" as empty.
+    const uid = activeAuth().currentUser?.uid;
+    let projects = getProjects();
+    if(projectsActiveFilter === "mine") projects = projects.filter(p => p.ownerId === uid);
+    if(projectsActiveFilter === "shared") projects = projects.filter(p => p.ownerId !== uid);
+
+    if(filterText){
+        const q = filterText.toLowerCase();
+        projects = projects.filter(p => p.name.toLowerCase().includes(q));
+    }
+
+    if(projects.length === 0){
+        list.classList.add("is-empty");
+        const emptyText = filterText
+            ? "No projects match your search"
+            : (projectsActiveFilter === "shared" ? "Nothing's been shared with you yet" : "No projects yet");
+        list.innerHTML = `<div class="page-empty-state"><div class="page-empty-state-icon">📁</div><p>${emptyText}</p></div>`;
+        return;
+    }
+
+    projects.forEach(project => {
+        const card = document.createElement("div");
+        card.className = "project-card";
+
+        const dot = document.createElement("div");
+        dot.className = "project-card-dot";
+        dot.style.background = project.color + "26";
+        dot.style.color = project.color;
+        dot.textContent = "📁";
+
+        const name = document.createElement("div");
+        name.className = "project-card-name";
+        name.textContent = project.name;
+
+        const count = document.createElement("div");
+        count.className = "project-card-count";
+        const chatCount = getSessions().filter(s => s.projectId === project.id).length;
+        const memberCount = (project.members || []).length;
+        count.textContent = chatCount + (chatCount === 1 ? " chat" : " chats") + (memberCount > 1 ? ` · 👥 ${memberCount}` : "");
+
+        card.appendChild(dot);
+        card.appendChild(name);
+        card.appendChild(count);
+        card.addEventListener("click", () => openProjectDetail(project.id));
+        list.appendChild(card);
+    });
+}
+
+let projectDetailId = null;
+
+function renderMemberChips(container, emails){
+    container.innerHTML = "";
+    (emails || []).forEach(email => {
+        const chip = document.createElement("div");
+        chip.className = "project-member-chip";
+        const avatar = document.createElement("div");
+        avatar.className = "project-member-avatar";
+        avatar.textContent = (email[0] || "?").toUpperCase();
+        const label = document.createElement("span");
+        label.textContent = email;
+        chip.appendChild(avatar);
+        chip.appendChild(label);
+        container.appendChild(chip);
+    });
+}
+
+function openProjectDetail(id){
+    const project = getProjects().find(p => p.id === id);
+    if(!project) return;
+    projectDetailId = id;
+    document.getElementById("projectDetailColorTag").textContent = project.name.toUpperCase();
+    document.getElementById("projectDetailColorTag").style.background = project.color + "33";
+    document.getElementById("projectDetailColorTag").style.color = project.color;
+    document.getElementById("projectDetailName").textContent = project.name;
+    document.getElementById("projectDetailInstructions").textContent = project.instructions || "No custom instructions set.";
+    renderMemberChips(document.getElementById("projectMembersRow"), project.memberEmails);
+    // Only the owner can delete or invite others — a member with shared
+    // access shouldn't be able to remove the project out from under the
+    // owner or the other members.
+    const isOwner = project.ownerId === activeAuth().currentUser?.uid;
+    document.getElementById("projectDeleteBtn").style.display = isOwner ? "" : "none";
+    document.getElementById("projectShareBtn").style.display = isOwner ? "" : "none";
+    document.getElementById("projectEditBtn").style.display = isOwner ? "" : "none";
+    renderProjectChatsList(id);
+    showProjectsScreen("detail");
+}
+
+function openProjectShare(id){
+    const project = getProjects().find(p => p.id === id);
+    if(!project) return;
+    projectDetailId = id;
+    document.getElementById("projectShareTitle").textContent = `Share "${project.name}"`;
+    document.getElementById("projectShareEmailInput").value = "";
+    document.getElementById("projectShareStatus").textContent = "";
+    renderMemberChips(document.getElementById("projectShareMembersList"), project.memberEmails);
+    showProjectsScreen("share");
+}
+
+async function sendProjectInvite(){
+    const input = document.getElementById("projectShareEmailInput");
+    const status = document.getElementById("projectShareStatus");
+    const email = input.value.trim();
+    if(!email){ status.style.color = "var(--danger)"; status.textContent = "Enter an email address."; return; }
+
+    const btn = document.getElementById("projectShareSendBtn");
+    btn.disabled = true;
+    status.style.color = "var(--text-2)";
+    status.textContent = "Sending invite…";
+    try{
+        const result = await shareProject(projectDetailId, email);
+        status.style.color = "#37c98f";
+        status.textContent = result.alreadyMember ? "They're already in this project." : `✅ ${email} added — they now have full access.`;
+        input.value = "";
+        const project = getProjects().find(p => p.id === projectDetailId);
+        renderMemberChips(document.getElementById("projectShareMembersList"), project?.memberEmails);
+        renderMemberChips(document.getElementById("projectMembersRow"), project?.memberEmails);
+    }catch(err){
+        status.style.color = "var(--danger)";
+        status.textContent = err.message || "Couldn't send that invite.";
+    }finally{
+        btn.disabled = false;
+    }
+}
+
+document.getElementById("projectShareBtn")?.addEventListener("click", () => openProjectShare(projectDetailId));
+document.getElementById("projectShareBackBtn")?.addEventListener("click", () => showProjectsScreen("detail"));
+document.getElementById("projectShareSendBtn")?.addEventListener("click", sendProjectInvite);
+document.getElementById("projectShareEmailInput")?.addEventListener("keydown", (e) => {
+    if(e.key === "Enter") sendProjectInvite();
+});
+
+function renderProjectChatsList(projectId){
+    const list = document.getElementById("projectChatsList");
+    if(!list) return;
+    list.innerHTML = "";
+    const sessions = getSessions().filter(s => s.projectId === projectId);
+    if(sessions.length === 0){
+        list.innerHTML = '<p class="search-chats-empty">No chats in this project yet.</p>';
+        return;
+    }
+    sessions.forEach(session => {
+        const row = document.createElement("div");
+        row.className = "search-chats-row";
+        const icon = document.createElement("span");
+        icon.className = "search-chats-row-icon";
+        icon.textContent = SESSION_TYPE_ICONS[session.type] || SESSION_TYPE_ICONS.chat;
+        const title = document.createElement("span");
+        title.className = "search-chats-row-title";
+        title.textContent = session.title;
+        row.appendChild(icon);
+        row.appendChild(title);
+        row.addEventListener("click", () => openSession(session));
+        list.appendChild(row);
+    });
+}
+
+let projectFormEditId = null;
+let projectFormSelectedColor = PROJECT_COLORS[0];
+
+function renderProjectColorPicker(){
+    const picker = document.getElementById("projectColorPicker");
+    if(!picker) return;
+    picker.innerHTML = "";
+    PROJECT_COLORS.forEach(color => {
+        const dot = document.createElement("div");
+        dot.className = "project-color-dot" + (color === projectFormSelectedColor ? " selected" : "");
+        dot.style.background = color;
+        dot.addEventListener("click", () => {
+            projectFormSelectedColor = color;
+            renderProjectColorPicker();
+        });
+        picker.appendChild(dot);
+    });
+}
+
+function openProjectForm(editId){
+    projectFormEditId = editId || null;
+    const project = editId ? getProjects().find(p => p.id === editId) : null;
+    document.getElementById("projectFormTag").textContent = editId ? "EDIT PROJECT" : "NEW PROJECT";
+    document.getElementById("projectFormTitle").textContent = editId ? "Edit Project" : "New Project";
+    document.getElementById("projectNameInput").value = project ? project.name : "";
+    document.getElementById("projectInstructionsInput").value = project ? project.instructions : "";
+    projectFormSelectedColor = project ? project.color : PROJECT_COLORS[0];
+    renderProjectColorPicker();
+    showProjectsScreen("form");
+    setTimeout(() => document.getElementById("projectNameInput").focus(), 50);
+}
+
+document.getElementById("navProjects")?.addEventListener("click", async () => {
+    if(!isLoggedIn()){
+        openModal("signinModal");
+        closeSidebarMobile();
+        return;
+    }
+    currentProjectId = null;
+    setActiveNav("projects");
+    showProjectsScreen("list");
+    document.getElementById("projectsSearchInput").value = "";
+    projectsActiveFilter = "all";
+    document.querySelectorAll(".page-view-tab").forEach(t => t.classList.toggle("active", t.dataset.projectFilter === "all"));
+    showPageView("projects");
+    navigateToRoute("projects");
+    closeSidebarMobile();
+    document.getElementById("projectsList").classList.add("is-empty");
+    document.getElementById("projectsList").innerHTML = '<div class="page-empty-state"><div class="page-empty-state-icon">⏳</div><p>Loading projects…</p></div>';
+    await refreshProjectsCache();
+    renderProjectsList("");
+});
+document.querySelectorAll(".page-view-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+        projectsActiveFilter = tab.dataset.projectFilter;
+        document.querySelectorAll(".page-view-tab").forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        renderProjectsList(document.getElementById("projectsSearchInput").value);
+    });
+});
+document.getElementById("projectsSearchInput")?.addEventListener("input", (e) => renderProjectsList(e.target.value));
+document.getElementById("newProjectBtn")?.addEventListener("click", () => openProjectForm(null));
+document.getElementById("projectBackBtn")?.addEventListener("click", () => { showProjectsScreen("list"); renderProjectsList(""); });
+document.getElementById("projectFormBackBtn")?.addEventListener("click", () => {
+    showProjectsScreen(projectFormEditId ? "detail" : "list");
+    if(!projectFormEditId) renderProjectsList("");
+});
+document.getElementById("projectCancelBtn")?.addEventListener("click", () => {
+    showProjectsScreen(projectFormEditId ? "detail" : "list");
+    if(!projectFormEditId) renderProjectsList("");
+});
+document.getElementById("projectSaveBtn")?.addEventListener("click", async () => {
+    const name = document.getElementById("projectNameInput").value.trim();
+    if(!name){ showToast("Give the project a name first."); return; }
+    const instructions = document.getElementById("projectInstructionsInput").value.trim();
+    const btn = document.getElementById("projectSaveBtn");
+    btn.disabled = true;
+    try{
+        if(projectFormEditId){
+            await updateProject(projectFormEditId, { name, instructions, color: projectFormSelectedColor });
+            openProjectDetail(projectFormEditId);
+        } else {
+            await createProject(name, instructions, projectFormSelectedColor);
+            showProjectsScreen("list");
+            renderProjectsList("");
+        }
+    }catch(err){
+        showToast("Couldn't save the project. Please try again.");
+    }finally{
+        btn.disabled = false;
+    }
+});
+document.getElementById("projectEditBtn")?.addEventListener("click", () => openProjectForm(projectDetailId));
+document.getElementById("projectDeleteBtn")?.addEventListener("click", () => {
+    const project = getProjects().find(p => p.id === projectDetailId);
+    if(!project) return;
+    confirmAction(
+        "Delete This Project?",
+        `Are you sure you want to delete "${project.name}"? Its chats will stay in your history, just no longer grouped together.`,
+        async () => {
+            await deleteProject(projectDetailId);
+            showProjectsScreen("list");
+            renderProjectsList("");
+        }
+    );
+});
+document.getElementById("projectNewChatBtn")?.addEventListener("click", () => {
+    currentProjectId = projectDetailId;
+    resetChatView();
+    activeChatTool = "chat";
+    applyToolGreeting("chat");
+    userInput.placeholder = TOOL_PLACEHOLDERS.chat;
+    setActiveNav("chat");
+    showPageView("chat");
+    showToast("💬 New chat started in this project");
+});
+
+// ==========================
+// Plugins page (full-screen marketplace, like Projects/Scheduled)
+// ==========================
+
+// ==========================
+// Plugin detail page (shared by connectors and built-in plugins)
+// ==========================
+
+let pluginDetailCurrent = null; // { type: "connector"|"plugin", key }
+
+function openPluginDetail(type, key){
+    pluginDetailCurrent = { type, key };
+    renderPluginDetail();
+    showPageView("pluginDetail");
+    navigateToRoute("plugins", key);
+}
+
+function renderPluginDetail(){
+    if(!pluginDetailCurrent) return;
+    const { type, key } = pluginDetailCurrent;
+    const def = type === "connector" ? CONNECTORS.find(c => c.key === key) : PLUGIN_DEFS.find(p => p.key === key);
+    if(!def) return;
+    const details = PLUGIN_DETAILS[def.key] || {};
+
+    document.getElementById("pluginDetailTitle").textContent = def.title;
+    const iconWrap = document.getElementById("pluginDetailIcon");
+    iconWrap.innerHTML = "";
+    iconWrap.appendChild(buildPluginIconEl(def, "plugin-icon-tile-square"));
+
+    document.getElementById("pluginDetailLongDesc").textContent = details.longDesc || def.desc;
+
+    // Hero card of real, working example prompts — clicking one sends it
+    // exactly like the homepage starter-prompt chips do.
+    const hero = document.getElementById("pluginDetailHero");
+    hero.innerHTML = "";
+    if(details.examples && details.examples.length){
+        hero.style.display = "flex";
+        details.examples.forEach(example => {
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 18px; border-radius:14px; background:rgba(255,255,255,.14); cursor:pointer; backdrop-filter:blur(6px);";
+            const text = document.createElement("span");
+            text.style.cssText = "color:#fff; font-size:14px; line-height:1.4;";
+            text.textContent = example;
+            const arrow = document.createElement("span");
+            arrow.textContent = "→";
+            arrow.style.cssText = "color:#fff; flex-shrink:0; font-size:16px;";
+            row.appendChild(text);
+            row.appendChild(arrow);
+            row.addEventListener("click", () => {
+                showPageView("chat");
+                setActiveNav("chat");
+                sendChatMessage(example);
+            });
+            hero.appendChild(row);
+        });
+    } else {
+        hero.style.display = "none";
+    }
+
+    const capsList = document.getElementById("pluginDetailCapabilities");
+    capsList.innerHTML = "";
+    (PLUGIN_CAPABILITIES[def.key] || [def.desc]).forEach(cap => {
+        const li = document.createElement("li");
+        li.style.cssText = "display:flex; align-items:flex-start; gap:10px; color:#c7cae6; font-size:14px;";
+        li.innerHTML = '<span style="color:#7c8bff;">\u2713</span><span></span>';
+        li.querySelector("span:last-child").textContent = cap;
+        capsList.appendChild(li);
+    });
+
+    const subtitle = document.getElementById("pluginDetailSubtitle");
+    const actionBtn = document.getElementById("pluginDetailActionBtn");
+    const statusEl = document.getElementById("pluginDetailStatus");
+    let connected = false;
+
+    if(type === "connector"){
+        const status = connectorStatusCache[def.provider];
+        connected = !!status?.connected;
+        subtitle.textContent = status === undefined ? "Checking\u2026" : (connected ? CONNECTOR_PROVIDER_CONFIG[def.provider].label(status) : def.desc);
+        actionBtn.textContent = connected ? "Disconnect" : "Connect";
+        actionBtn.disabled = status === undefined;
+        actionBtn.onclick = () => handleConnectorClick(def);
+        statusEl.textContent = connected ? "" : "Connecting lets Zyntra take real actions in your account, only when you ask it to in chat.";
+    } else {
+        const plugins = getPlugins();
+        connected = !!plugins[def.key];
+        subtitle.textContent = def.desc;
+        actionBtn.textContent = connected ? "Disable" : "Enable";
+        actionBtn.disabled = false;
+        actionBtn.onclick = () => {
+            const newState = !connected;
+            setPlugin(def.key, newState);
+            renderPluginDetail();
+            showToast((newState ? "\u2705 " : "\ud83d\udeab ") + def.title + (newState ? " enabled" : " disabled"));
+        };
+        statusEl.textContent = "";
+    }
+
+    // "Information" section — matches the reference layout: capabilities,
+    // developer, category, website, version, privacy policy.
+    const infoTable = document.getElementById("pluginDetailInfoTable");
+    infoTable.innerHTML = "";
+    const rows = [
+        ["Capabilities", type === "connector" ? "Read, Write" : "Built-in"],
+        ["Developer", "Zyntra AI"],
+        ["Category", details.category || (type === "connector" ? "Integration" : "Built-in")]
+    ];
+    if(details.website) rows.push(["Website", details.website]);
+    rows.push(["Version", "1.0"]);
+    rows.push(["Privacy Policy", "__privacy__"]);
+
+    rows.forEach(([label, value]) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex; align-items:center; justify-content:space-between; padding:14px 0; border-bottom:1px solid #232952;";
+        const labelEl = document.createElement("span");
+        labelEl.style.cssText = "color:#8087a8; font-size:14px;";
+        labelEl.textContent = label;
+        row.appendChild(labelEl);
+
+        if(value === "__privacy__"){
+            const link = document.createElement("a");
+            link.href = "#";
+            link.textContent = "View";
+            link.style.cssText = "color:#9aa8ff; font-size:14px; text-decoration:none;";
+            link.addEventListener("click", (e) => { e.preventDefault(); showPageView("privacy"); setActiveNav("privacy"); });
+            row.appendChild(link);
+        } else if(typeof value === "string" && value.startsWith("http")){
+            const link = document.createElement("a");
+            link.href = value;
+            link.target = "_blank";
+            link.rel = "noopener";
+            link.textContent = value.replace(/^https?:\/\//, "");
+            link.style.cssText = "color:#9aa8ff; font-size:14px; text-decoration:none;";
+            row.appendChild(link);
+        } else {
+            const valueEl = document.createElement("span");
+            valueEl.style.cssText = "color:#eef0ff; font-size:14px; font-weight:600;";
+            valueEl.textContent = value;
+            row.appendChild(valueEl);
+        }
+        infoTable.appendChild(row);
+    });
+}
+
+document.getElementById("pluginDetailPrivacyLink")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    showPageView("privacy");
+    setActiveNav("privacy");
+});
+
+document.getElementById("pluginDetailBackBtn")?.addEventListener("click", () => {
+    renderPluginsConnectionsList();
+    showPageView("plugins");
+    navigateToRoute("plugins");
+});
+
+document.getElementById("navPlugins")?.addEventListener("click", () => {
+    setActiveNav("plugins");
+    renderPluginsConnectionsList();
+    refreshAllConnectorStatuses();
+    showPageView("plugins");
+    navigateToRoute("plugins");
+    closeSidebarMobile();
+});
+
+// ==========================
+// Scheduled page (full-screen))
+// ==========================
+
+const SCHEDULED_RECOMMENDED = [
+    { icon: "🌅", title: "Daily brief", prompt: "Give me a short daily briefing on the topics I care about most", frequency: "daily" },
+    { icon: "📖", title: "Weekend long read", prompt: "Every Saturday, find me one exceptional recent long read based on my interests", frequency: "weekly" },
+    { icon: "💡", title: "Fresh ideas", prompt: "Give me 3 fresh business ideas for a small budget", frequency: "weekly" },
+    { icon: "📈", title: "Weekly recap", prompt: "Summarize the biggest news in tech and AI from this week", frequency: "weekly" }
+];
+
+let scheduledShowActiveOnly = true;
+
+function renderScheduledRecommended(){
+    const wrap = document.getElementById("scheduledRecommendedList");
+    if(!wrap) return;
+    wrap.innerHTML = "";
+    SCHEDULED_RECOMMENDED.forEach(rec => {
+        const row = document.createElement("div");
+        row.className = "scheduled-task-row";
+
+        const icon = document.createElement("span");
+        icon.className = "scheduled-task-icon";
+        icon.textContent = rec.icon;
+
+        const body = document.createElement("div");
+        body.className = "scheduled-task-body";
+        const title = document.createElement("div");
+        title.className = "scheduled-task-title";
+        title.textContent = rec.title;
+        const desc = document.createElement("div");
+        desc.className = "scheduled-task-desc";
+        desc.textContent = rec.prompt;
+        body.appendChild(title);
+        body.appendChild(desc);
+
+        const addBtn = document.createElement("button");
+        addBtn.type = "button";
+        addBtn.className = "scheduled-task-action";
+        addBtn.textContent = "+";
+        addBtn.title = "Add this task";
+        addBtn.addEventListener("click", () => {
+            if(!isLoggedIn()){ openModal("signinModal"); return; }
+            createScheduledTask(rec.prompt, rec.frequency);
+            renderScheduledList();
+            showToast("🕐 Added: " + rec.title);
+        });
+
+        row.appendChild(icon);
+        row.appendChild(body);
+        row.appendChild(addBtn);
+        wrap.appendChild(row);
+    });
+}
+
+function renderScheduledList(){
+    const list = document.getElementById("scheduledList");
+    const label = document.getElementById("scheduledTasksLabel");
+    if(!list) return;
+    list.innerHTML = "";
+
+    if(!isLoggedIn()){
+        label.style.display = "none";
+        return;
+    }
+
+    let tasks = getScheduledTasks();
+    if(scheduledShowActiveOnly) tasks = tasks.filter(t => t.active);
+
+    if(tasks.length === 0){
+        label.style.display = "none";
+        return;
+    }
+    label.style.display = "";
+
+    tasks.forEach(task => {
+        const row = document.createElement("div");
+        row.className = "scheduled-task-row";
+
+        const icon = document.createElement("span");
+        icon.className = "scheduled-task-icon";
+        icon.textContent = "🕐";
+
+        const body = document.createElement("div");
+        body.className = "scheduled-task-body";
+        const title = document.createElement("div");
+        title.className = "scheduled-task-title";
+        title.textContent = task.prompt;
+        const meta = document.createElement("div");
+        meta.className = "scheduled-task-desc";
+        const lastRun = task.lastRunAt ? `Last ran ${timeAgo(task.lastRunAt)}` : "Not run yet";
+        meta.textContent = (task.frequency === "daily" ? "Daily" : "Weekly") + " — " + lastRun;
+        body.appendChild(title);
+        body.appendChild(meta);
+        if(task.results && task.results.length){
+            const lastResult = task.results[task.results.length - 1];
+            const resultPreview = document.createElement("div");
+            resultPreview.className = "scheduled-task-result";
+            resultPreview.textContent = "💬 " + (lastResult.reply.length > 110 ? lastResult.reply.slice(0, 110) + "…" : lastResult.reply);
+            body.appendChild(resultPreview);
+        }
+
+        const status = document.createElement("span");
+        status.className = "scheduled-task-status";
+        status.textContent = task.active ? "Active" : "Paused";
+        status.title = "Click to " + (task.active ? "pause" : "resume");
+        status.addEventListener("click", () => {
+            toggleScheduledTask(task.id);
+            renderScheduledList();
+        });
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "scheduled-task-action";
+        deleteBtn.textContent = "🗑";
+        deleteBtn.title = "Delete this task";
+        deleteBtn.addEventListener("click", () => {
+            deleteScheduledTask(task.id);
+            renderScheduledList();
+        });
+
+        row.appendChild(icon);
+        row.appendChild(body);
+        row.appendChild(status);
+        row.appendChild(deleteBtn);
+        list.appendChild(row);
+    });
+}
+
+document.getElementById("navScheduled")?.addEventListener("click", () => {
+    if(!isLoggedIn()){
+        openModal("signinModal");
+        closeSidebarMobile();
+        return;
+    }
+    currentProjectId = null;
+    setActiveNav("scheduled");
+    renderScheduledList();
+    renderScheduledRecommended();
+    showPageView("scheduled");
+    navigateToRoute("scheduled");
+    closeSidebarMobile();
+});
+
+document.getElementById("scheduledFilterBtn")?.addEventListener("click", () => {
+    scheduledShowActiveOnly = !scheduledShowActiveOnly;
+    document.getElementById("scheduledFilterLabel").textContent = scheduledShowActiveOnly ? "Active" : "All";
+    renderScheduledList();
+});
+
+let scheduledQuickFrequency = "daily";
+
+function createScheduledTaskFromQuickBar(){
+    const input = document.getElementById("scheduledQuickInput");
+    const prompt = input.value.trim();
+    if(!prompt){ showToast("Describe what Zyntra should do first."); return; }
+    if(!isLoggedIn()){ openModal("signinModal"); return; }
+    createScheduledTask(prompt, scheduledQuickFrequency);
+    input.value = "";
+    renderScheduledList();
+    showToast("🕐 Scheduled task created");
+}
+document.getElementById("scheduledInputPlus")?.addEventListener("click", () => document.getElementById("scheduledQuickInput").focus());
+document.getElementById("scheduledQuickSend")?.addEventListener("click", createScheduledTaskFromQuickBar);
+document.getElementById("scheduledQuickInput")?.addEventListener("keydown", (e) => {
+    if(e.key === "Enter") createScheduledTaskFromQuickBar();
+});
+
+// Custom frequency dropdown (Daily/Weekly) — see the CSS comment on
+// .custom-select for why this isn't a native <select>.
+document.getElementById("scheduledFrequencyBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.getElementById("scheduledFrequencyMenu").classList.toggle("open");
+});
+document.querySelectorAll("#scheduledFrequencyMenu .custom-select-option").forEach(opt => {
+    opt.addEventListener("click", () => {
+        scheduledQuickFrequency = opt.dataset.value;
+        document.getElementById("scheduledFrequencyLabel").textContent = opt.textContent;
+        document.querySelectorAll("#scheduledFrequencyMenu .custom-select-option").forEach(o => o.classList.remove("selected"));
+        opt.classList.add("selected");
+        document.getElementById("scheduledFrequencyMenu").classList.remove("open");
+    });
+});
+document.addEventListener("click", () => {
+    document.getElementById("scheduledFrequencyMenu")?.classList.remove("open");
+});
+
+applyPluginVisibility();
+
+function buildSidebarHistoryRow(session){
+    const row = document.createElement("div");
+    row.className = "sidebar-history-row" + (session.pinned ? " pinned" : "");
+    row.title = session.title;
+
+    const icon = document.createElement("span");
+    icon.className = "shr-icon";
+    icon.textContent = SESSION_TYPE_ICONS[session.type] || SESSION_TYPE_ICONS.chat;
+
+    const title = document.createElement("span");
+    title.className = "shr-title";
+    title.textContent = session.title;
+
+    const pinBtn = document.createElement("button");
+    pinBtn.className = "shr-pin";
+    pinBtn.textContent = "📌";
+    pinBtn.title = session.pinned ? "Unpin" : "Pin";
+    pinBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const all = getSessions();
+        const s = all.find(x => x.id === session.id);
+        if(s){
+            s.pinned = !s.pinned;
+            saveSessions(all);
+            renderSidebarHistory();
+            renderPinnedChats();
+        }
+    });
+
+    const menuBtn = document.createElement("button");
+    menuBtn.className = "shr-menu";
+    menuBtn.textContent = "⋮";
+    menuBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        confirmAction(
+            "Delete This Chat?",
+            "Are you sure you want to delete this conversation? This can't be undone.",
+            () => deleteChatSession(session.id)
+        );
+    });
+
+    row.appendChild(icon);
+    row.appendChild(title);
+    row.appendChild(pinBtn);
+    row.appendChild(menuBtn);
+    row.addEventListener("click", () => openSession(session));
+    return row;
+}
+
+function renderSidebarHistory(){
+    const list = document.getElementById("sidebarHistoryList");
+    const pinnedSection = document.getElementById("sidebarPinnedSection");
+    const pinnedList = document.getElementById("sidebarPinnedList");
+    if(!list || !pinnedSection || !pinnedList) return;
+    list.innerHTML = "";
+    pinnedList.innerHTML = "";
+
+    if(!isLoggedIn()){
+        list.innerHTML = '<p class="sidebar-history-empty">Sign in to save and revisit your conversations.</p>';
+        pinnedSection.style.display = "none";
+        return;
+    }
+
+    const sessions = getSessions();
+    const pinned = sessions.filter(s => s.pinned);
+    const unpinned = sessions.filter(s => !s.pinned);
+
+    if(pinned.length > 0){
+        pinnedSection.style.display = "";
+        pinned.forEach(session => pinnedList.appendChild(buildSidebarHistoryRow(session)));
+    } else {
+        pinnedSection.style.display = "none";
+    }
+
+    if(unpinned.length === 0){
+        list.innerHTML = sessions.length === 0
+            ? '<p class="sidebar-history-empty">No conversations yet. Start chatting!</p>'
+            : '<p class="sidebar-history-empty">All chats are pinned.</p>';
+        return;
+    }
+
+    unpinned.forEach(session => list.appendChild(buildSidebarHistoryRow(session)));
+}
+
+function confirmAction(title, text, onConfirm){
+    document.getElementById("confirmActionTitle").innerHTML = title;
+    document.getElementById("confirmActionText").textContent = text;
+    openModal("confirmActionModal");
+
+    const okBtn = document.getElementById("confirmActionOk");
+    const newOkBtn = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+    newOkBtn.addEventListener("click", () => {
+        closeModal("confirmActionModal");
+        onConfirm();
+    });
+}
+
+document.getElementById("confirmActionClose")?.addEventListener("click", () => closeModal("confirmActionModal"));
+document.getElementById("confirmActionCancel")?.addEventListener("click", () => closeModal("confirmActionModal"));
+
+document.getElementById("searchChatsClearBtn")?.addEventListener("click", () => {
+    if(!isLoggedIn()) return;
+    confirmAction(
+        "Clear All History?",
+        "Are you sure you want to delete every saved conversation? This can't be undone.",
+        () => {
+            saveSessions([]);
+            currentSessionId = null;
+            renderSidebarHistory();
+            renderPinnedChats();
+            renderSearchChatsList(document.getElementById("searchChatsInput")?.value || "");
+        }
+    );
+});
+
+function openSession(session){
+    showPageView("chat");
+    const type = session.type || "chat";
+    navigateToRoute(TOOL_TO_SLUG[type] || "chat", session.id);
+    if(type === "image" && session.imageUrl){
+        openImageSession(session);
+    } else if(type === "poster"){
+        openPosterSession(session);
+    } else if(type === "voice"){
+        openVoiceSession(session);
+    } else {
+        openChatSession(session);
+    }
+    closeSidebarMobile();
+}
+
+function openChatSession(session){
+    activeChatTool = session.type || "chat";
+    currentProjectId = session.projectId || null;
+    setActiveNav(activeChatTool);
+    if(TOOL_PLACEHOLDERS[activeChatTool]) userInput.placeholder = TOOL_PLACEHOLDERS[activeChatTool];
+
+    chatHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
+    currentSessionId = session.id;
+    document.getElementById("chatGreeting").style.display = "none";
+    chatMessages.innerHTML = "";
+    session.messages.forEach(m => {
+        if(m.role === "user"){
+            const div = document.createElement("div");
+            div.className = "user-message";
+            const p = document.createElement("p");
+            p.style.margin = "0";
+            p.textContent = m.content;
+            div.appendChild(p);
+            div.appendChild(buildMsgCheck());
+            chatMessages.appendChild(div);
+        } else {
+            const div = document.createElement("div");
+            div.className = "ai-message done";
+            const avatar = document.createElement("img");
+            avatar.src = "/favicon.png";
+            avatar.alt = "";
+            avatar.className = "ai-message-avatar";
+            const content = document.createElement("div");
+            content.className = "ai-message-content";
+            content.innerHTML = formatAIText(m.content);
+            div.appendChild(avatar);
+            div.appendChild(content);
+            chatMessages.appendChild(div);
+        }
+    });
+    chatAutoScroll();
+    updateDeleteChatBtnVisibility();
+}
+
+function openImageSession(session){
+    openModal("imageModal");
+    const input = document.getElementById("imageInput");
+    const result = document.getElementById("imageResult");
+    if(input) input.value = session.prompt || "";
+    if(!result) return;
+    result.innerHTML = "";
+    const img = document.createElement("img");
+    img.className = "generated-img";
+    img.alt = session.title || "Generated image";
+    img.src = session.imageUrl;
+    result.appendChild(img);
+
+    const actionsRow = document.createElement("div");
+    actionsRow.style.display = "flex";
+    actionsRow.style.gap = "8px";
+    actionsRow.style.marginTop = "8px";
+    result.appendChild(actionsRow);
+
+    const downloadBtn = document.createElement("button");
+    downloadBtn.className = "copy-btn";
+    downloadBtn.textContent = "⬇ Download";
+    downloadBtn.addEventListener("click", () => {
+        const a = document.createElement("a");
+        a.href = session.imageUrl;
+        a.download = "zyntra-ai-image.png";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    });
+    actionsRow.appendChild(downloadBtn);
+}
+
+function openPosterSession(session){
+    openModal("posterModal");
+    const result = document.getElementById("posterResult");
+    if(!result) return;
+    result.innerHTML = "";
+    const img = document.createElement("img");
+    img.className = "generated-img";
+    img.alt = session.title || "Generated poster";
+    img.src = session.posterDataUrl;
+    result.appendChild(img);
+
+    const actionsRow = document.createElement("div");
+    actionsRow.style.display = "flex";
+    actionsRow.style.gap = "8px";
+    actionsRow.style.marginTop = "8px";
+    result.appendChild(actionsRow);
+
+    const downloadBtn = document.createElement("button");
+    downloadBtn.className = "copy-btn";
+    downloadBtn.textContent = "⬇ Download Poster";
+    downloadBtn.addEventListener("click", () => {
+        const a = document.createElement("a");
+        a.href = session.posterDataUrl;
+        a.download = "zyntra-ai-poster.png";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    });
+    actionsRow.appendChild(downloadBtn);
+}
+
+function openVoiceSession(session){
+    showPageView("voice");
+    document.getElementById("jarvisPermissionGate").style.display = jarvisMicGranted ? "none" : "";
+    document.getElementById("jarvisInterface").style.display = jarvisMicGranted ? "" : "none";
+    voiceHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
+    currentVoiceSessionId = session.id;
+    voiceBox.innerHTML = "";
+    session.messages.forEach(m => {
+        addVoiceMsg(m.content, m.role === "user" ? "user" : "ai");
+    });
+}
+
+// ---------- New chat ----------
+
+function resetChatView(){
+    // Any messages already sent were saved to chat history live as they
+    // happened (see logMessageToHistory), so this just clears the view.
+    chatHistory = [];
+    currentSessionId = null;
+    chatMessages.innerHTML = "";
+    document.getElementById("chatGreeting").style.display = "";
+    renderPromptSuggestions();
+    updateDeleteChatBtnVisibility();
+    if(temporaryChatActive) setTemporaryChatActive(false);
+    updateTempChatToggleVisibility();
+    dataAnalysisDataset = null;
+}function updateDeleteChatBtnVisibility(){
+    const btn = document.getElementById("deleteChatBtn");
+    const shareBtn = document.getElementById("shareChatBtn");
+    const exportBtn = document.getElementById("exportChatBtn");
+    const visible = (currentSessionId && isLoggedIn()) ? "flex" : "none";
+    if(btn) btn.style.display = visible;
+    if(shareBtn) shareBtn.style.display = visible;
+    if(exportBtn) exportBtn.style.display = currentSessionId ? "flex" : "none";
+}
+
+document.getElementById("deleteChatBtn")?.addEventListener("click", () => {
+    if(!currentSessionId) return;
+    const idToDelete = currentSessionId;
+    confirmAction(
+        "Delete This Chat?",
+        "Are you sure you want to delete this conversation? This can't be undone.",
+        () => deleteChatSession(idToDelete)
+    );
+});
+
+document.getElementById("exportChatBtn")?.addEventListener("click", () => {
+    const messages = chatHistory.filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim());
+    if(messages.length === 0){
+        alert("Nothing in this chat to export yet.");
+        return;
+    }
+
+    const session = getSessions().find(s => s.id === currentSessionId);
+    const title = session?.title || "Zyntra AI conversation";
+    const dateStr = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+
+    let md = `# ${title}\n\n_Exported from Zyntra AI — ${dateStr}_\n\n---\n\n`;
+    messages.forEach(m => {
+        md += (m.role === "user" ? "### 🧑 You\n\n" : "### 🤖 Zyntra AI\n\n") + m.content.trim() + "\n\n";
+    });
+
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) + ".md";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+});
+
+function ensureShareResultModal(){
+    let modal = document.getElementById("shareResultModal");
+    if(modal) return modal;
+
+    modal = document.createElement("div");
+    modal.id = "shareResultModal";
+    modal.className = "modal-overlay";
+    modal.innerHTML = `
+        <div class="modal-box" style="max-width:440px;">
+            <h3 style="margin:0 0 14px;">🔗 Chat shared!</h3>
+            <p style="margin:0 0 14px;color:var(--text-2);font-size:13.5px;">Anyone with this link can view this conversation — no sign-in needed.</p>
+            <div class="share-result-row">
+                <span class="share-result-url" id="shareResultUrl"></span>
+                <button type="button" class="share-result-copy" id="shareResultCopyBtn">📋 Copy</button>
+            </div>
+            <button type="button" class="modal-close-btn" id="shareResultCloseBtn" style="margin-top:16px;width:100%;">Done</button>
+            <button type="button" id="shareResultManageBtn" style="margin-top:10px;width:100%;background:none;border:none;color:var(--text-3);font-size:12px;cursor:pointer;">Manage your shared chats →</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector("#shareResultCloseBtn").addEventListener("click", () => closeModal("shareResultModal"));
+    modal.querySelector("#shareResultManageBtn").addEventListener("click", async () => {
+        closeModal("shareResultModal");
+        openModal("mySharesModal");
+        await loadMyShares();
+    });
+    modal.addEventListener("click", (e) => { if(e.target === modal) closeModal("shareResultModal"); });
+    return modal;
+}
+
+function ensureShareConfirmModal(){
+    let modal = document.getElementById("shareConfirmModal");
+    if(modal) return modal;
+
+    modal = document.createElement("div");
+    modal.id = "shareConfirmModal";
+    modal.className = "modal-overlay";
+    modal.innerHTML = `
+        <div class="modal-box" style="max-width:440px;">
+            <h3 style="margin:0 0 14px;">🔗 Share this chat</h3>
+            <p style="margin:0 0 14px;color:var(--text-2);font-size:13.5px;">Anyone with the link can view it — no sign-in needed.</p>
+            <label class="share-public-checkbox">
+                <input type="checkbox" id="sharePublicCheckbox">
+                <span>🌐 Also feature this on the public Discover page</span>
+            </label>
+            <div style="display:flex;gap:8px;margin-top:16px;">
+                <button type="button" class="persona-form-save" id="shareConfirmGoBtn" style="flex:1;">Share</button>
+                <button type="button" class="persona-form-cancel" id="shareConfirmCancelBtn">Cancel</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector("#shareConfirmCancelBtn").addEventListener("click", () => closeModal("shareConfirmModal"));
+    modal.addEventListener("click", (e) => { if(e.target === modal) closeModal("shareConfirmModal"); });
+    return modal;
+}
+
+async function doShareChat(makePublic){
+    const btn = document.getElementById("shareChatBtn");
+    const original = btn.textContent;
+    btn.textContent = "…";
+    try{
+        const cleanMessages = chatHistory
+            .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim());
+        if(cleanMessages.length === 0){
+            alert("Nothing in this chat to share yet.");
+            return;
+        }
+        const session = getSessions().find(s => s.id === currentSessionId);
+        const idToken = await activeAuth().currentUser.getIdToken();
+        const res = await fetch("/api/share-chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: JSON.stringify({ messages: cleanMessages, title: session?.title || "A Zyntra AI conversation", makePublic })
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.error || "Could not share this chat.");
+
+        const modal = ensureShareResultModal();
+        modal.querySelector("#shareResultUrl").textContent = data.url;
+        modal.querySelector("#shareResultCopyBtn").onclick = () => {
+            navigator.clipboard.writeText(data.url);
+            const copyBtn = modal.querySelector("#shareResultCopyBtn");
+            copyBtn.textContent = "✅ Copied";
+            setTimeout(() => { copyBtn.textContent = "📋 Copy"; }, 1500);
+        };
+        openModal("shareResultModal");
+    }catch(err){
+        alert(err.message || "Could not share this chat. Please try again.");
+    }finally{
+        btn.textContent = original;
+    }
+}
+
+document.getElementById("shareChatBtn")?.addEventListener("click", () => {
+    if(!currentSessionId || !isLoggedIn()) return;
+    const modal = ensureShareConfirmModal();
+    modal.querySelector("#sharePublicCheckbox").checked = false;
+    modal.querySelector("#shareConfirmGoBtn").onclick = () => {
+        const makePublic = modal.querySelector("#sharePublicCheckbox").checked;
+        closeModal("shareConfirmModal");
+        doShareChat(makePublic);
+    };
+    openModal("shareConfirmModal");
+});
+
+async function loadSharedChat(id){
+    showPageView("share");
+    const container = document.getElementById("shareViewMessages");
+    const titleEl = document.getElementById("shareViewTitle");
+    container.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;">Loading…</p>`;
+    try{
+        // Same file as the POST that creates a share — one function
+        // handles both GET and POST to save a Vercel function slot.
+        const res = await fetch(`/api/share-chat?id=${encodeURIComponent(id)}`);
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.error || "This shared chat doesn't exist or was removed.");
+
+        titleEl.textContent = data.title;
+        container.innerHTML = "";
+        data.messages.forEach(msg => {
+            if(msg.role === "user"){
+                const div = document.createElement("div");
+                div.className = "user-message";
+                div.textContent = msg.content;
+                container.appendChild(div);
+            } else {
+                const div = document.createElement("div");
+                div.className = "ai-message done";
+                const avatar = document.createElement("img");
+                avatar.src = "/favicon.png";
+                avatar.alt = "";
+                avatar.className = "ai-message-avatar";
+                const content = document.createElement("div");
+                content.className = "ai-message-content";
+                content.innerHTML = formatAIText(msg.content);
+                div.appendChild(avatar);
+                div.appendChild(content);
+                container.appendChild(div);
+            }
+        });
+    }catch(err){
+        titleEl.textContent = "Not found";
+        container.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;">${err.message}</p>`;
+    }
+}
+
+document.getElementById("newChatBtn")?.addEventListener("click", () => {
+    currentProjectId = null;
+    showPageView("chat");
+    resetChatView();
+    navigateToRoute("chat");
+    closeSidebarMobile();
+    userInput.focus();
+});
+
+// ---------- Theme toggle ----------
+
+const themeToggle = document.getElementById("themeToggle");
+
+function applyTheme(isLight){
+    document.body.classList.toggle("light-mode", isLight);
+    if(themeToggle) themeToggle.textContent = isLight ? "☀️" : "🌙";
+    localStorage.setItem("zyntra-theme", isLight ? "light" : "dark");
+    document.querySelectorAll(".settings-theme-btn").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.theme === (isLight ? "light" : "dark"));
+    });
+}
+
+applyTheme(localStorage.getItem("zyntra-theme") === "light");
+
+themeToggle?.addEventListener("click", () => {
+    applyTheme(!document.body.classList.contains("light-mode"));
+});
+
+document.querySelectorAll(".settings-theme-btn").forEach(btn => {
+    btn.addEventListener("click", () => applyTheme(btn.dataset.theme === "light"));
+});
+
+document.getElementById("settingsClearHistoryBtn")?.addEventListener("click", () => {
+    if(!isLoggedIn()) return;
+    confirmAction(
+        "Clear All History?",
+        "Are you sure you want to delete every saved conversation? This can't be undone.",
+        () => {
+            saveSessions([]);
+            currentSessionId = null;
+            renderSidebarHistory();
+            renderPinnedChats();
+            renderSearchChatsList(document.getElementById("searchChatsInput")?.value || "");
+        }
+    );
+});
+
+function renderSettingsMemoryList(){
+    const list = document.getElementById("settingsMemoryList");
+    const empty = document.getElementById("settingsMemoryEmpty");
+    if(!list || !empty) return;
+
+    const memories = getMemories();
+    list.innerHTML = "";
+    if(memories.length === 0){
+        empty.style.display = "block";
+        return;
+    }
+    empty.style.display = "none";
+    // Most recently learned first.
+    [...memories].reverse().forEach(m => {
+        const li = document.createElement("li");
+        li.textContent = m.fact;
+        list.appendChild(li);
+    });
+}
+
+document.querySelectorAll('.settings-nav-item[data-settings-section="data"]').forEach(btn => {
+    btn.addEventListener("click", renderSettingsMemoryList);
+});
+
+document.getElementById("settingsClearMemoryBtn")?.addEventListener("click", () => {
+    if(!isLoggedIn()) return;
+    confirmAction(
+        "Clear Everything Remembered?",
+        "This deletes every fact Zyntra has learned about you across all your conversations. This can't be undone.",
+        () => {
+            saveMemories([]);
+            renderSettingsMemoryList();
+        }
+    );
+});
+
+// ---------- Sidebar (mobile off-canvas) ----------
+
+function openSidebarMobile(){
+    document.getElementById("sidebar").classList.add("show");
+    document.getElementById("sidebarOverlay").classList.add("show");
+}
+function closeSidebarMobile(){
+    document.getElementById("sidebar").classList.remove("show");
+    document.getElementById("sidebarOverlay").classList.remove("show");
+}
+
+document.getElementById("hamburgerBtn")?.addEventListener("click", openSidebarMobile);
+document.getElementById("sidebarCloseBtn")?.addEventListener("click", closeSidebarMobile);
+document.getElementById("sidebarOverlay")?.addEventListener("click", closeSidebarMobile);
+
+// ==========================
+// AI CHAT
+// ==========================
+
+const chatMessages = document.getElementById("chatMessages");
+const chatArea = document.getElementById("chatArea");
+const userInput = document.getElementById("userInput");
+let chatHistory = [];
+let attachedImage = null;
+let attachedDocument = null; // { name, text } — set once client-side extraction finishes
+let dataAnalysisDataset = null; // { name, columns, rows } — structured data for the Data Analysis tool, persists across messages in the same chat
+
+// ---------- Centered input on empty chat, moves to the bottom once a
+// conversation starts (like ChatGPT's home screen) ----------
+
+function updateInputBarLayout(){
+    const inputBar = document.querySelector(".chat-input-bar");
+    const greeting = document.getElementById("chatGreeting");
+    const mainArea = document.querySelector(".main-area");
+    if(!inputBar || !greeting || !mainArea) return;
+
+    const isEmpty = chatMessages.children.length === 0;
+
+    if(isEmpty){
+        if(inputBar.parentElement !== greeting){
+            greeting.appendChild(inputBar);
+        }
+        mainArea.classList.add("centered-input");
+    } else {
+        if(inputBar.parentElement !== mainArea){
+            mainArea.appendChild(inputBar);
+        }
+        mainArea.classList.remove("centered-input");
+    }
+}
+
+new MutationObserver(updateInputBarLayout).observe(chatMessages, { childList: true });
+updateInputBarLayout();
+
+document.getElementById("attachBtn").addEventListener("click", () => {
+    document.getElementById("chatFileInput").click();
+});
+
+document.getElementById("chatFileInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+
+    if(file.type.startsWith("image/")){
+        attachedDocument = null;
+        const reader = new FileReader();
+        reader.onload = () => {
+            attachedImage = reader.result;
+            renderAttachPreview();
+        };
+        reader.readAsDataURL(file);
+        return;
+    }
+
+    extractDocumentText(file)
+        .then(text => {
+            attachedImage = null;
+            // Cap what actually gets sent to the AI — long enough for real
+            // documents, short enough to not blow past model context limits
+            // (trimMessages on the backend caps history separately anyway).
+            const MAX_CHARS = 15000;
+            attachedDocument = {
+                name: file.name,
+                text: text.length > MAX_CHARS ? text.slice(0, MAX_CHARS) + "\n\n[...truncated, document continues beyond this point...]" : text,
+                truncated: text.length > MAX_CHARS
+            };
+
+            const lower = file.name.toLowerCase();
+            const isTabular = lower.endsWith(".csv") || lower.endsWith(".xlsx") || lower.endsWith(".xls");
+            if(activeChatTool === "data" && isTabular){
+                parseTabularFile(file)
+                    .then(dataset => {
+                        dataAnalysisDataset = { name: file.name, columns: dataset.columns, rows: dataset.rows };
+                        renderAttachPreview();
+                    })
+                    .catch(err => {
+                        console.error("Tabular parse failed:", err);
+                        showToast("⚠️ Couldn't read that spreadsheet's rows — try re-saving it as .csv or .xlsx.");
+                    });
+            }
+
+            renderAttachPreview();
+        })
+        .catch(err => {
+            console.error("Document extraction failed:", err);
+            showToast("⚠️ Couldn't read that file: " + (err.message || "unsupported format"));
+            document.getElementById("chatFileInput").value = "";
+        });
+});
+
+// Parses a CSV/XLSX file into structured rows (array of objects, keyed by
+// column header) for the Data Analysis tool — separate from
+// extractDocumentText's flattened text, since Python needs real rows,
+// not a text preview.
+function parseTabularFile(file){
+    return file.arrayBuffer().then(buffer => {
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: null });
+        const MAX_ROWS = 20000; // sane cap so the browser sandbox stays responsive
+        const columns = rows.length ? Object.keys(rows[0]) : [];
+        return { columns, rows: rows.slice(0, MAX_ROWS) };
+    });
+}
+
+// Pulls plain text out of a PDF, Word doc, Excel sheet, or plain text/CSV
+// file — entirely in the browser, so an attached document is ready to
+// discuss immediately with no server round-trip. Returns a Promise<string>.
+async function extractDocumentText(file){
+    const name = file.name.toLowerCase();
+
+    if(name.endsWith(".pdf")){
+        if(!window.pdfjsLib) throw new Error("PDF reader didn't load — check your connection and try again.");
+        const buffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+        let text = "";
+        const pageCount = Math.min(pdf.numPages, 60); // sane cap for very long PDFs
+        for(let i = 1; i <= pageCount; i++){
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            text += content.items.map(item => item.str).join(" ") + "\n\n";
+        }
+        if(!text.trim()) throw new Error("This PDF has no selectable text (it may be a scanned image).");
+        return text.trim();
+    }
+
+    if(name.endsWith(".docx") || name.endsWith(".doc")){
+        if(!window.mammoth) throw new Error("Word document reader didn't load — check your connection and try again.");
+        const buffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+        if(!result.value.trim()) throw new Error("Couldn't find any text in that document.");
+        return result.value.trim();
+    }
+
+    if(name.endsWith(".xlsx") || name.endsWith(".xls")){
+        if(!window.XLSX) throw new Error("Spreadsheet reader didn't load — check your connection and try again.");
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        let text = "";
+        workbook.SheetNames.forEach(sheetName => {
+            text += `--- Sheet: ${sheetName} ---\n`;
+            text += XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]) + "\n\n";
+        });
+        return text.trim();
+    }
+
+    if(name.endsWith(".txt") || name.endsWith(".csv")){
+        return await file.text();
+    }
+
+    throw new Error("Unsupported file type. Try a PDF, Word doc, Excel sheet, CSV, or plain text file.");
+}
+
+// ==========================================================
+// PDF export — "make it a pdf" turns the last reply into a real,
+// downloadable PDF file, generated entirely in the browser.
+// ==========================================================
+
+function isPdfRequest(text){
+    const t = text.toLowerCase().trim();
+    if(!/\bpdf\b/.test(t)) return false;
+    if(/^(as a |a |the |that |this )?pdf[.!]?$/.test(t)) return true;
+    return /(make|turn|convert|give|send|download|export|save|create|generate).{0,25}\bpdf\b/.test(t)
+        || /\bpdf\b.{0,15}(please|version|file|format|instead)/.test(t);
+}
+
+function stripMarkdownForPdf(text){
+    return String(text || "")
+        .replace(/```[\s\S]*?```/g, m => m.replace(/```/g, "").trim())
+        .replace(/[*_`#>]+/g, "")
+        .replace(/^\s*[-•]\s+/gm, "• ")
+        // jsPDF's built-in fonts can't render emoji (they show as broken
+        // boxes), so strip them out for a clean PDF instead.
+        .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\uFE0F]/gu, "")
+        .replace(/[ \t]{2,}/g, " ")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+}
+
+function deriveTitleFromContent(content){
+    const clean = stripMarkdownForPdf(content);
+    const firstLine = clean.split("\n").find(l => l.trim().length > 0) || "";
+    return firstLine.slice(0, 70) || "Zyntra AI Export";
+}
+
+function generateAndDownloadPdf(content, title){
+    if(!window.jspdf || !window.jspdf.jsPDF){
+        showToast("⚠️ PDF export didn't load — check your connection and try again.");
+        return false;
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const margin = 48;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const maxWidth = pageWidth - margin * 2;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    const titleLines = doc.splitTextToSize(title, maxWidth);
+    doc.text(titleLines, margin, margin);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    const clean = stripMarkdownForPdf(content);
+    const lines = doc.splitTextToSize(clean, maxWidth);
+
+    let y = margin + 20 + titleLines.length * 16;
+    const lineHeight = 16;
+    lines.forEach(line => {
+        if(y > pageHeight - margin){
+            doc.addPage();
+            y = margin;
+        }
+        doc.text(line, margin, y);
+        y += lineHeight;
+    });
+
+    const filename = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-+|-+$)/g, "").slice(0, 60) || "zyntra-ai-export";
+    doc.save(filename + ".pdf");
+    return true;
+}
+
+function renderPdfRequestExchange(userMsg, content){
+    document.getElementById("chatGreeting").style.display = "none";
+
+    const userDiv = document.createElement("div");
+    userDiv.className = "user-message";
+    const p = document.createElement("p");
+    p.textContent = userMsg;
+    userDiv.appendChild(p);
+    chatMessages.appendChild(userDiv);
+
+    const title = deriveTitleFromContent(content);
+
+    const aiDiv = document.createElement("div");
+    aiDiv.className = "ai-message";
+    const text = document.createElement("p");
+    text.textContent = "Your PDF is ready — tap below to download:";
+    aiDiv.appendChild(text);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "⬇ Download PDF";
+    btn.style.cssText = "margin-top:10px; padding:11px 20px; border:none; border-radius:12px; background:linear-gradient(135deg,#6e5cff,#ff59b0); color:#fff; font-weight:700; cursor:pointer; font-size:14px;";
+    btn.addEventListener("click", () => generateAndDownloadPdf(content, title));
+    aiDiv.appendChild(btn);
+    chatMessages.appendChild(aiDiv);
+
+    chatAutoScroll();
+    if(userInput) userInput.value = "";
+
+    logMessageToHistory("user", userMsg);
+    logMessageToHistory("assistant", "[Generated a downloadable PDF of the previous response]");
+    chatHistory.push({ role: "user", content: userMsg });
+    chatHistory.push({ role: "assistant", content: "[Generated a downloadable PDF of the previous response]" });
+}
+
+function renderAttachPreview(){
+    const preview = document.getElementById("attachPreview");
+    preview.innerHTML = "";
+
+    if(attachedImage){
+        const thumb = document.createElement("div");
+        thumb.className = "attach-thumb";
+        const img = document.createElement("img");
+        img.src = attachedImage;
+        const removeBtn = document.createElement("button");
+        removeBtn.textContent = "✕";
+        removeBtn.addEventListener("click", () => {
+            attachedImage = null;
+            document.getElementById("chatFileInput").value = "";
+            renderAttachPreview();
+        });
+        thumb.appendChild(img);
+        thumb.appendChild(removeBtn);
+        preview.appendChild(thumb);
+        return;
+    }
+
+    if(attachedDocument){
+        const chip = document.createElement("div");
+        chip.className = "attach-doc-chip";
+        let infoLine;
+        if(dataAnalysisDataset && dataAnalysisDataset.name === attachedDocument.name){
+            infoLine = `${dataAnalysisDataset.rows.length.toLocaleString()} rows · ${dataAnalysisDataset.columns.length} columns`;
+        } else {
+            const wordCount = attachedDocument.text.split(/\s+/).filter(Boolean).length;
+            infoLine = `${wordCount.toLocaleString()} words extracted${attachedDocument.truncated ? " (truncated)" : ""}`;
+        }
+        chip.innerHTML = `<span class="attach-doc-icon">${dataAnalysisDataset ? "📊" : "📄"}</span>`
+            + `<span class="attach-doc-info"><strong>${attachedDocument.name}</strong>`
+            + `<small>${infoLine}</small></span>`;
+        const removeBtn = document.createElement("button");
+        removeBtn.textContent = "✕";
+        removeBtn.addEventListener("click", () => {
+            attachedDocument = null;
+            dataAnalysisDataset = null;
+            document.getElementById("chatFileInput").value = "";
+            renderAttachPreview();
+        });
+        chip.appendChild(removeBtn);
+        preview.appendChild(chip);
+    }
+}
+
+// Fallback-only heuristic, used solely if the AI classification call itself
+// fails (e.g. a network error) — kept intentionally conservative since the
+// AI classifier below is what actually carries this most of the time.
+function looksLikeImagePrompt(msg){
+    const text = (msg || "").trim();
+    if(!text) return false;
+
+    const words = text.split(/\s+/);
+
+    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|love it|not bad|damn|omg|nice one|nice work|good job|well done|bhai|yaar|what|why|how|who|when|where|let|lets|let's|please|pls|plz|stop|wait|no|nah|don't|dont|cancel|undo|enough|never ?mind)\b/i;
+    if(conversationalStart.test(text) && words.length <= 8){
+        return false;
+    }
+
+    if(/^(can you|could you|do you|are you|what is|what's|who are you|how do|how does|why|is this|is that)\b/i.test(text) && text.endsWith("?")){
+        return false;
+    }
+
+    return true;
+}
+
+// Statements that only express a wish to create *something*, without ever
+// saying what — "i want to make image", "let's create something", "make a
+// picture" — should prompt the AI to ask what to create, not generate a
+// random image from that vague phrase. Checked before anything else.
+function isVagueImageIntent(msg){
+    const text = (msg || "").trim().toLowerCase().replace(/[.!]+$/, "");
+    return /^(i want to (make|create|draw|generate)( an?)? (image|picture|photo)s?|i want (an?|to make) (image|picture|photo)|let'?s (make|create|draw|generate)( an?)? (image|picture|photo|something)|make (an?|the) (image|picture|photo)|create (an?|the) (image|picture|photo)|generate (an?|the) (image|picture|photo)|can (you|u) make (an?|me an?) (image|picture|photo))$/i.test(text);
+}
+
+function parseImageIntentReply(content){
+    const clean = (content || "").trim().toLowerCase();
+    if(clean.startsWith("image")) return true;
+    if(clean.startsWith("chat")) return false;
+    if(/\bimage\b/.test(clean) && !/\bchat\b/.test(clean)) return true;
+    if(/\bchat\b/.test(clean) && !/\bimage\b/.test(clean)) return false;
+    return null; // genuinely ambiguous — let the caller fall back to the heuristic
+}
+
+// Asks the AI itself whether this message is a request to generate a new
+// image, or something else (a reply, question, complaint, greeting, command,
+// or vague statement of intent). Far more reliable than pattern-matching
+// alone — the few-shot examples below directly cover cases regex missed:
+// "please stop", complaints like "you made it look ugly", and vague intent
+// like "i want to make image" with no actual subject.
+async function classifyImageIntent(msg){
+    const text = (msg || "").trim();
+    const wordCount = text.split(/\s+/).length;
+
+    if(isVagueImageIntent(text)){
+        return false;
+    }
+
+    // Skip the round trip entirely for messages that are unambiguous —
+    // a reasonably long message that doesn't open with a casual/reactive
+    // word is virtually always a real image description. This also cuts
+    // total API call volume, which helps avoid rate limits.
+    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|not bad|damn|omg|what|why|how|who|when|where|let|lets|let's|can|could|do|are|is|please|pls|plz|stop|wait|no|nah|don't|dont|cancel|undo|enough)\b/i;
+    if(wordCount >= 7 && !conversationalStart.test(text)){
+        return true;
+    }
+
+    try{
+        const { content } = await callChatAPI([
+            {
+                role: "user",
+                content: `You are classifying a message sent inside an AI image-generation chat. Reply with exactly one word: IMAGE or CHAT.
+
+IMAGE = the message describes an actual picture to create — a subject, scene, object, or style (e.g. "a dragon flying over mountains", "make the sky purple", "add a hat to the girl").
+
+CHAT = anything else: greetings, thanks, questions, complaints about a result, commands directed at the assistant (stop, wait, please, don't, cancel, undo, no), or vague statements of intent with no real subject (e.g. "i want to make an image", "make an image", "let's create something").
+
+Examples:
+"a cat astronaut in space" -> IMAGE
+"make the sky purple" -> IMAGE
+"please stop" -> CHAT
+"what u make it look so ugly" -> CHAT
+"i want to make image" -> CHAT
+"thanks!" -> CHAT
+"can you make it bigger?" -> CHAT
+
+Message: "${msg}"
+
+Answer with exactly one word: IMAGE or CHAT.`
+            }
+        ], { lite: true });
+        const parsed = parseImageIntentReply(content);
+        return parsed === null ? looksLikeImagePrompt(msg) : parsed;
+    }catch(err){
+        return looksLikeImagePrompt(msg);
+    }
+}
+
+// A single, warm, human fallback message used anywhere a reply genuinely
+// fails — instead of a cold "something went wrong", or a swallowed error.
+function friendlyErrorMessage(err){
+    const msg = (err && err.message) ? err.message.trim() : "";
+    if(/took too long|timed out|timeout/i.test(msg)){
+        return "🌐 That took too long to finish. Please try again, or ask a more specific question.";
+    }
+    if(msg && msg.toLowerCase() !== "request failed"){
+        return msg;
+    }
+    return "Hmm, I'm having a little trouble understanding that — could you try rephrasing, or send it again?";
+}
+
+function appendUserBubble(msg){
+    document.getElementById("chatGreeting").style.display = "none";
+
+    const userDiv = document.createElement("div");
+    userDiv.className = "user-message";
+    const p = document.createElement("p");
+    p.textContent = msg;
+    p.style.margin = "0";
+    userDiv.appendChild(p);
+    const userTime = document.createElement("span");
+    userTime.className = "msg-time";
+    userTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " ";
+    userTime.appendChild(buildMsgCheck());
+    userDiv.appendChild(userTime);
+    chatMessages.appendChild(userDiv);
+    userInput.value = "";
+    chatAutoScroll();
+}
+
+function appendLoadingAiBubble(initialHTML){
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "ai-message";
+    const aiAvatar = document.createElement("img");
+    aiAvatar.src = "/favicon.png";
+    aiAvatar.alt = "";
+    aiAvatar.className = "ai-message-avatar";
+    const aiContent = document.createElement("div");
+    aiContent.className = "ai-message-content";
+    aiContent.innerHTML = initialHTML;
+    loadingDiv.appendChild(aiAvatar);
+    loadingDiv.appendChild(aiContent);
+    chatMessages.appendChild(loadingDiv);
+    chatAutoScroll();
+    return { loadingDiv, aiContent };
+}
+
+function runImageGeneration(msg, loadingDiv, aiContent){
+    const waitLabel = "Creating image";
+    aiContent.innerHTML = `<div class="creating-box"><p class="creating-label">${waitLabel}</p><div class="creating-dots"></div></div>`;
+
+    function finishWithImage(imageUrl){
+        bumpStat("images");
+        aiContent.innerHTML = buildImageBlockHTML({ alt: msg, url: imageUrl });
+        loadingDiv.classList.add("done");
+        addReportButton(aiContent.querySelector(".ai-image-actions"), "Generated image for prompt: \"" + msg + "\"");
+        const aiTime = document.createElement("span");
+        aiTime.className = "msg-time";
+        aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        aiContent.appendChild(aiTime);
+        chatAutoScroll();
+
+        // Saved as a markdown image so reopening this chat later renders it
+        // again automatically via formatAIText's image-block support.
+        logMessageToHistory("assistant", `![${msg.replace(/[[\]]/g, "")}](${imageUrl})`);
+    }
+
+    function attemptGenerate(retryCount){
+        const img = new Image();
+        img.onload = () => finishWithImage(img.src);
+        img.onerror = () => {
+            if(retryCount < 2){
+                setTimeout(() => attemptGenerate(retryCount + 1), 800);
+            } else {
+                aiContent.innerHTML = '<p>Could not generate the image right now. Please try again in a moment.</p>';
+                loadingDiv.classList.add("done");
+            }
+        };
+        const seed = Math.floor(Math.random() * 1000000);
+        img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(msg) + "?model=flux&enhance=true&seed=" + seed;
+    }
+
+    const waitMs = 2000;
+    setTimeout(() => attemptGenerate(0), waitMs);
+}
+
+async function runImageModeConversationalReply(msg, loadingDiv, aiContent){
+    aiContent.textContent = "Thinking...";
+
+    // A lightweight system note so the reply understands the context it's
+    // replying in, without needing the actual image data.
+    const contextNote = {
+        role: "system",
+        content: isVagueImageIntent(msg)
+            ? "You are chatting inside Zyntra AI's Image Generator. The user just said they want an image but didn't describe what it should look like (e.g. \"i want to make image\", \"make an image\"). Warmly ask them what they'd like to see — suggest they describe the subject, scene, or style. Keep it short."
+            : "You are chatting inside Zyntra AI's Image Generator. The user just sent a message that is a reply/question/comment rather than a new image request (e.g. reacting to an image you just generated for them). Reply naturally and briefly, like a friendly assistant — don't try to describe or generate an image for this message."
+    };
+
+    try{
+        const { content: reply } = await callChatAPI([contextNote, { role: "user", content: msg }]);
+        logMessageToHistory("assistant", reply);
+        aiContent.textContent = "";
+        typeOutText(aiContent, reply, chatArea, () => {
+            loadingDiv.classList.add("done");
+            addMessageActionBar(aiContent, reply);
+            const aiTime = document.createElement("span");
+            aiTime.className = "msg-time";
+            aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            aiContent.appendChild(aiTime);
+        });
+    }catch(err){
+        aiContent.textContent = friendlyErrorMessage(err);
+        loadingDiv.classList.add("done");
+    }
+    chatAutoScroll();
+}
+
+async function sendImageOrChatMessage(msg){
+    if(!msg) return;
+
+    appendUserBubble(msg);
+    logMessageToHistory("user", msg);
+    bumpStat("conversations");
+
+    const { loadingDiv, aiContent } = appendLoadingAiBubble("Thinking...");
+
+    const isImageRequest = await classifyImageIntent(msg);
+
+    if(isImageRequest){
+        runImageGeneration(msg, loadingDiv, aiContent);
+    } else {
+        runImageModeConversationalReply(msg, loadingDiv, aiContent);
+    }
+}
+
+function startEditingUserMessage(userDiv, p, originalText){
+    if(userDiv.querySelector(".user-msg-edit-box")) return; // already editing
+
+    const editBox = document.createElement("div");
+    editBox.className = "user-msg-edit-box";
+    editBox.innerHTML = `
+        <textarea class="user-msg-edit-textarea">${originalText.replace(/</g, "&lt;")}</textarea>
+        <div class="user-msg-edit-actions">
+            <button type="button" class="user-msg-edit-cancel">Cancel</button>
+            <button type="button" class="user-msg-edit-save">Save & resend</button>
+        </div>
+    `;
+    p.style.display = "none";
+    userDiv.querySelector(".user-msg-edit-btn").style.display = "none";
+    userDiv.appendChild(editBox);
+
+    const textarea = editBox.querySelector(".user-msg-edit-textarea");
+    textarea.focus();
+    textarea.selectionStart = textarea.value.length;
+
+    editBox.querySelector(".user-msg-edit-cancel").addEventListener("click", () => {
+        editBox.remove();
+        p.style.display = "";
+        userDiv.querySelector(".user-msg-edit-btn").style.display = "";
+    });
+
+    editBox.querySelector(".user-msg-edit-save").addEventListener("click", () => {
+        const newText = textarea.value.trim();
+        if(!newText) return;
+
+        const idx = parseInt(userDiv.dataset.historyIndex, 10);
+        if(!Number.isNaN(idx)) chatHistory.length = idx;
+
+        // Remove this message and everything after it from the visible
+        // chat — the conversation effectively rewinds to just before it.
+        let node = userDiv;
+        while(node){
+            const next = node.nextElementSibling;
+            node.remove();
+            node = next;
+        }
+
+        sendChatMessage(newText);
+    });
+}
+
+async function sendChatMessage(prefill){
+    const msg = (prefill !== undefined ? prefill : userInput.value.trim());
+    if(!msg && !attachedImage && !attachedDocument) return;
+
+    if(activeChatTool === "image" && msg){
+        return sendImageOrChatMessage(msg);
+    }
+
+    // "Make it a PDF" — turn the last reply into a downloadable PDF
+    // instead of sending anything to the AI for a new answer.
+    if(msg && !attachedImage && !attachedDocument && isPdfRequest(msg)){
+        const lastAssistant = [...chatHistory].reverse().find(m => m.role === "assistant");
+        if(lastAssistant){
+            renderPdfRequestExchange(msg, lastAssistant.content);
+            return;
+        }
+        // Nothing to convert yet — fall through so the AI can respond
+        // naturally instead (e.g. ask what to write first).
+    }
+
+    if(isLockedOut()){
+        showChatLockedModal();
+        return;
+    }
+
+    document.getElementById("chatGreeting").style.display = "none";
+
+    const userDiv = document.createElement("div");
+    userDiv.className = "user-message";
+    if(attachedImage){
+        const imgEl = document.createElement("img");
+        imgEl.src = attachedImage;
+        imgEl.className = "sent-image";
+        userDiv.appendChild(imgEl);
+    }
+    if(attachedDocument){
+        const docChip = document.createElement("div");
+        docChip.className = "sent-doc-chip";
+        docChip.innerHTML = `<span>📄</span> ${attachedDocument.name}`;
+        userDiv.appendChild(docChip);
+    }
+    userDiv.dataset.historyIndex = String(chatHistory.length); // index this message will get once pushed below
+    if(msg){
+        const p = document.createElement("p");
+        p.textContent = msg;
+        p.style.margin = "0";
+        userDiv.appendChild(p);
+
+        const editBtn = document.createElement("button");
+        editBtn.className = "user-msg-edit-btn";
+        editBtn.title = "Edit & resend";
+        editBtn.innerHTML = MSG_ICONS.edit;
+        editBtn.addEventListener("click", () => startEditingUserMessage(userDiv, p, msg));
+        userDiv.appendChild(editBtn);
+    }
+    const userTime = document.createElement("span");
+    userTime.className = "msg-time";
+    userTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " ";
+    userTime.appendChild(buildMsgCheck());
+    userDiv.appendChild(userTime);
+    chatMessages.appendChild(userDiv);
+    userInput.value = "";
+    chatAutoScroll();
+
+    let historyContent;
+    if(attachedImage){
+        historyContent = [
+            { type: "text", text: msg || "What is in this image? Please help solve or explain it." },
+            { type: "image_url", image_url: { url: attachedImage } }
+        ];
+    } else if(activeChatTool === "data" && dataAnalysisDataset){
+        const cols = dataAnalysisDataset.columns.join(", ");
+        const sample = JSON.stringify(dataAnalysisDataset.rows.slice(0, 5));
+        historyContent = `[Dataset attached: "${dataAnalysisDataset.name}" — ${dataAnalysisDataset.rows.length} rows total, columns: ${cols}]\nFirst 5 rows as a sample: ${sample}\n\n${DATA_ANALYSIS_INSTRUCTIONS}\n\nUser's question: ${msg || "Give me a quick summary of this dataset."}`;
+    } else if(attachedDocument){
+        // Documents aren't multimodal like images — fold the already-
+        // extracted text straight into the text the model reads.
+        historyContent = `[Attached document: "${attachedDocument.name}"]\n---\n${attachedDocument.text}\n---\n\n`
+            + (msg || "Please read the attached document and summarize the key points.");
+    } else {
+        historyContent = msg;
+    }
+
+    if(chatHistory.length === 0){
+        const profile = getProfile();
+        let note = "Always reply in the same language the user writes in (for example, reply in Hindi if they write in Hindi, in Spanish if they write in Spanish, and so on — support any language naturally). If the user explicitly asks you to reply or speak in a specific language (for example \"talk in Gujarati\" or \"reply in French\"), you MUST switch to writing your entire response in that requested language from that point on, using its native script, not English. Pay attention to the emotional tone of what the user writes (happy, sad, frustrated, excited, worried, etc.) and respond with matching empathy and tone — be warm and supportive if they seem upset or stressed, and match their energy if they're happy or excited. Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process or thought process, and do not add unnecessary meta-commentary about the question itself. Just give the direct, natural answer.";
+        if(!temporaryChatActive){
+            if(profile.nickname) note += ` Call the user "${profile.nickname}".`;
+            if(profile.instructions) note += ` User's custom instructions: ${profile.instructions}`;
+            const memories = getMemories();
+            if(memories.length && getPlugins().memory){
+                note += ` Here are things you already know about this user from past conversations — weave them in naturally where relevant, don't just list them back at the user: ${memories.map(m => m.fact).join("; ")}.`;
+            }
+            if(currentProjectId){
+                const project = getProjects().find(p => p.id === currentProjectId);
+                if(project && project.instructions){
+                    note += ` You are working inside the "${project.name}" project. Project-specific instructions: ${project.instructions}`;
+                }
+            }
+        }
+        if(activeChatTool === "codex"){
+            note += " " + CODEX_SYSTEM_NOTE;
+        }
+        if(activeChatTool === "agent"){
+            note += " " + AGENT_MODE_SYSTEM_NOTE;
+        }
+        const activePersona = getPersonas().find(p => p.id === getActivePersonaId());
+        if(activePersona && !activePersona.builtin){
+            note += ` You are currently acting as the "${activePersona.name}" persona. ${activePersona.instructions}`;
+        } else if(activePersona && activePersona.instructions){
+            note += ` ${activePersona.instructions}`;
+        }
+        chatHistory.push({ role: "system", content: note });
+    }
+
+    chatHistory.push({ role: "user", content: historyContent });
+    logMessageToHistory("user", msg || (attachedDocument ? `[Document: ${attachedDocument.name}]` : "[Image attached]"));
+    bumpStat("conversations");
+    recordFreeMessage();
+
+    attachedImage = null;
+    attachedDocument = null;
+    document.getElementById("chatFileInput").value = "";
+    renderAttachPreview();
+
+    await streamAssistantReply();
+}
+
+// Generates and streams one assistant reply into a new message bubble,
+// using whatever's currently in chatHistory. Shared by normal sending
+// and by Regenerate (which truncates chatHistory back to just after the
+// user's message, then calls this again instead of duplicating all this
+// streaming/UI logic).
+async function streamAssistantReply(){
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "ai-message";
+    loadingDiv.dataset.historyIndex = String(chatHistory.length); // where this reply will land once pushed
+    const aiAvatar = document.createElement("img");
+    aiAvatar.src = "/favicon.png";
+    aiAvatar.alt = "";
+    aiAvatar.className = "ai-message-avatar";
+    const stepsDiv = document.createElement("div");
+    stepsDiv.className = "agent-steps";
+    stepsDiv.style.display = "none";
+    const aiContent = document.createElement("div");
+    aiContent.className = "ai-message-content";
+    aiContent.textContent = researchModeEnabled ? "🔎 Researching…" : (activeChatTool === "agent" ? "🤖 Starting up..." : "Thinking...");
+    loadingDiv.appendChild(aiAvatar);
+    loadingDiv.appendChild(stepsDiv);
+    loadingDiv.appendChild(aiContent);
+    chatMessages.appendChild(loadingDiv);
+    chatAutoScroll();
+
+    let stepRows = [];
+    function onAgentStep(step){
+        stepsDiv.style.display = "flex";
+        if(step.phase === "start"){
+            aiContent.textContent = "";
+            const row = document.createElement("div");
+            row.className = "agent-step-row running";
+            const info = describeAgentStep(step.name, step.args);
+            row.innerHTML = `<span class="agent-step-icon">${info.icon}</span><span class="agent-step-label">${info.label}</span><span class="agent-step-spinner"></span>`;
+            stepsDiv.appendChild(row);
+            stepRows.push(row);
+            chatAutoScroll();
+        } else if(step.phase === "done" && stepRows.length){
+            const row = stepRows[stepRows.length - 1];
+            row.classList.remove("running");
+            row.classList.add(step.ok === false ? "failed" : "done");
+            const spinner = row.querySelector(".agent-step-spinner");
+            if(spinner) spinner.outerHTML = `<span class="agent-step-status">${step.ok === false ? "✕" : "✓"}</span>`;
+        }
+    }
+
+    try{
+        let accumulated = "";
+        let firstChunkReceived = false;
+        const { sources, memoryWrites } = await streamChatAPI(chatHistory, (chunk) => {
+            if(!firstChunkReceived){
+                aiContent.textContent = "";
+                firstChunkReceived = true;
+            }
+            accumulated += chunk;
+            aiContent.innerHTML = formatAIText(accumulated);
+            chatAutoScroll();
+        }, { research: researchModeEnabled, website: activeChatTool === "codex", agent: activeChatTool === "agent" }, onAgentStep);
+
+        if(!accumulated){
+            aiContent.textContent = "Sorry, I didn't get a response. Please try again.";
+        } else {
+            chatHistory.push({ role: "assistant", content: accumulated });
+            logMessageToHistory("assistant", accumulated);
+            addMemories(memoryWrites);
+            loadingDiv.classList.add("done");
+            if(sources && sources.length){
+                aiContent.appendChild(buildSourcesRow(sources));
+            }
+            const bar = addMessageActionBar(aiContent, accumulated);
+            addRegenerateButton(bar, loadingDiv);
+            const aiTime = document.createElement("span");
+            aiTime.className = "msg-time";
+            aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            aiContent.appendChild(aiTime);
+
+            if(activeChatTool === "data" && dataAnalysisDataset){
+                runDataAnalysisCodeIfPresent(accumulated, aiContent);
+            }
+        }
+    }catch(err){
+        aiContent.textContent = friendlyErrorMessage(err);
+    }
+    chatAutoScroll();
+}
+
+// Truncates chatHistory + the DOM back to right after the user message
+// that led to this reply, then regenerates a fresh one in its place.
+async function regenerateFromMessage(aiMessageDiv){
+    const idx = parseInt(aiMessageDiv.dataset.historyIndex, 10);
+    if(Number.isNaN(idx)) return;
+
+    chatHistory.length = idx;
+    let node = aiMessageDiv;
+    while(node){
+        const next = node.nextElementSibling;
+        node.remove();
+        node = next;
+    }
+
+    await streamAssistantReply();
+}
+
+function addRegenerateButton(bar, aiMessageDiv){
+    const btn = document.createElement("button");
+    btn.className = "msg-action-btn";
+    btn.title = "Regenerate response";
+    btn.innerHTML = MSG_ICONS.regenerate || "🔄";
+    btn.addEventListener("click", () => regenerateFromMessage(aiMessageDiv));
+    bar.appendChild(btn);
+}
+
+document.getElementById("sendMessage").addEventListener("click", () => sendChatMessage());
+userInput.addEventListener("keydown", e => {
+    if(e.key === "Enter") sendChatMessage();
+});
+
+// ---------- Research mode ----------
+// A deliberate "go deep" toggle — when on, the agent runs several web
+// searches from different angles instead of one quick one, and writes a
+// longer, more thoroughly sourced answer. Off by default since most
+// messages don't need it.
+
+let researchModeEnabled = false;
+
+function setResearchButtonState(){
+    const btn = document.getElementById("researchBtn");
+    if(!btn) return;
+    btn.classList.toggle("active", researchModeEnabled);
+    btn.title = researchModeEnabled
+        ? "Research mode: ON — deeper, multi-source answers. Click to turn off"
+        : "Research mode — click for deeper, multi-source answers";
+}
+
+document.getElementById("researchBtn")?.addEventListener("click", () => {
+    researchModeEnabled = !researchModeEnabled;
+    setResearchButtonState();
+    showToast(researchModeEnabled ? "🔎 Research mode turned on" : "🔎 Research mode turned off");
+});
+
+setResearchButtonState();
+
+// ---------- Homepage suggestion chips ----------
+// Fills the empty space below the greeting with a handful of clickable
+// starter prompts — a fresh random set each time the greeting screen
+// shows, pulled from a much bigger pool so it doesn't feel repetitive.
+
+const PROMPT_SUGGESTIONS = [
+    { icon: "💡", text: "Explain quantum computing in simple terms" },
+    { icon: "🐍", text: "Write a Python function to sort a list" },
+    { icon: "📈", text: "Give me 5 tips to be more productive" },
+    { icon: "🌍", text: "Write a short essay about climate change" },
+    { icon: "🥗", text: "Help me plan a healthy weekly meal plan" },
+    { icon: "💼", text: "Give me business ideas for a small budget" },
+    { icon: "⛓️", text: "Explain how blockchain works, simply" },
+    { icon: "✉️", text: "Write a friendly email asking for a deadline extension" },
+    { icon: "🎯", text: "Help me set achievable goals for this month" },
+    { icon: "🧠", text: "Quiz me on world capitals" },
+    { icon: "📝", text: "Summarize a book plot I describe to you" },
+    { icon: "🎁", text: "Give me creative gift ideas for a friend's birthday" },
+    { icon: "🏋️", text: "Build me a beginner home workout routine" },
+    { icon: "📊", text: "Explain the stock market like I'm 10 years old" },
+    { icon: "🧳", text: "Plan a 3-day budget-friendly trip itinerary" },
+    { icon: "🎬", text: "Recommend movies based on a mood I describe" }
+];
+
+function renderPromptSuggestions(){
+    const container = document.getElementById("promptSuggestions");
+    if(!container) return;
+
+    // Only makes sense on the plain chat homepage — other tools (Study,
+    // Business, Code, etc.) have their own focused greeting already.
+    if(activeChatTool && activeChatTool !== "chat"){
+        container.innerHTML = "";
+        return;
+    }
+
+    const pool = [...PROMPT_SUGGESTIONS];
+    const picks = [];
+    for(let i = 0; i < 4 && pool.length; i++){
+        const idx = Math.floor(Math.random() * pool.length);
+        picks.push(pool.splice(idx, 1)[0]);
+    }
+
+    container.innerHTML = "";
+    picks.forEach(({ icon, text }) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "prompt-suggestion-chip";
+        chip.innerHTML = `<span class="chip-icon">${icon}</span><span>${text}</span>`;
+        chip.addEventListener("click", () => {
+            userInput.value = text;
+            sendChatMessage();
+        });
+        container.appendChild(chip);
+    });
+}
+
+// ==========================
+// Tool routing (sidebar nav, dropdown-less)
+// ==========================
+
+function setActiveNav(tool){
+    document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+    const el = document.querySelector(`.nav-item[data-tool="${tool}"]`) || document.querySelector(`.nav-item[data-panel="${tool}"]`);
+    if(el) el.classList.add("active");
+}
+
+// Instructions given to the model in Data Analysis mode — a pandas
+// DataFrame called `df` is pre-loaded in a real Python sandbox (Pyodide,
+// running in the browser) with the full uploaded dataset, so the model
+// writes code against it rather than eyeballing numbers from text.
+const DATA_ANALYSIS_INSTRUCTIONS = `You are Zyntra's Data Analysis assistant. A pandas DataFrame called df is already loaded in a real Python sandbox with the FULL dataset (not just the sample shown above) — the columns listed above are exactly df's columns. To answer the user's question: give a short explanation in plain English, then include exactly one \`\`\`python code fence with valid pandas code that computes the answer using df. Use print() for every value, table, or summary you want the user to see — printed output is captured and shown to the user automatically, so don't just compute silently. If a chart would genuinely help, build a dict called chart_data with keys "type" ("bar", "line", or "pie"), "labels" (a list of strings) and "values" (a list of numbers) — assign it as a variable, do not print it, and only include one per response. Never use matplotlib, plt, seaborn, or any plotting library — chart_data is the only way to produce a chart here. Never invent column names that aren't in the list above. If the question doesn't need code (e.g. asking what a column means), just answer directly with no code fence.`;
+
+// Design + behavior instructions for Codex mode, which merges what used to
+// be four separate tools (Poster Maker, Study Helper, Code with Zyntra,
+// Website Builder) into one option that handles both plain coding help and
+// full website/app builds — the model decides which per message, based on
+// this note, rather than a separate classifier call.
+const CODEX_SYSTEM_NOTE = `
+You are in Codex mode — Zyntra's unified coding and building assistant. Every message calls for ONE of these two response styles; figure out which and respond accordingly:
+
+1. BUILDING a full website, web app, game, or any other browser-based tool (e.g. "a portfolio site for a photographer", "make the header bigger", "change it to dark mode", "build me a simple calculator app"): reply with a single, complete, working HTML file — inline <style> and <script> in the same file, no external files or build steps — wrapped in one \`\`\`html code block. After the code block, talk to the user like a real developer/designer handing off work: a couple of natural sentences on what you built and why you made the choices you did — not a cold one-liner, not a wall of text. When the user asks for a change to something you already built, regenerate the ENTIRE file again with the change applied — never send a diff or partial snippet, since the preview needs one complete file every time.
+
+   Design like a thoughtful human designer, not a template generator: pick a typeface pairing and color palette that actually fits the subject (a masjid site, a photography portfolio, and a SaaS landing page should NOT look like the same template with different text) — load fonts from Google Fonts via a <link> tag. Vary layout structure between projects rather than defaulting to centered-hero-plus-three-cards every time. Use generous whitespace and a restrained palette (2-3 colors plus neutrals) over busy gradients everywhere. Make it responsive with plain CSS (flexbox/grid, media queries) — a CDN-hosted framework like Tailwind's play CDN is fine if it helps, but nothing that needs a build step. Add tasteful, restrained motion rather than heavy animation. Use real semantic HTML (header, nav, main, section, footer) and reasonable alt text/aria labels. If the user hasn't given specific facts (real prices, hours, addresses, phone numbers, testimonials, team names), do NOT invent specific-sounding fake details presented as real — use clearly generic placeholders or ask for the missing specifics instead.
+
+2. EVERYDAY CODING help — writing, debugging, explaining, refactoring, or answering questions about code in any language or context (a Python function, a React component meant to live inside a real project, a SQL query, fixing an error, code review, algorithms, etc.): just help directly and conversationally, with properly formatted code blocks in the relevant language. Do NOT wrap these into a single HTML file — that treatment is ONLY for full standalone browser builds from case 1. Most everyday coding questions belong here.
+
+If a message is just conversation (thanks, a question about something you already built, a greeting) — reply naturally and briefly, without generating any code at all.
+`;
+
+const AGENT_MODE_SYSTEM_NOTE = `
+You are in Agent Mode — the user has given you a goal, not a single question, and expects you to actually carry it out end-to-end using your tools rather than just describing what could be done.
+
+Work autonomously across as many tool calls and rounds as the goal genuinely needs (you have a much larger round budget than normal chat) — search, read, create, send, or update things using whichever real tools are available to you (web search, Gmail, Calendar, GitHub, Slack, Notion, Trello, Discord, Google Drive, Outlook, memory), chaining them together without stopping to ask "should I proceed?" between routine steps. Only pause to ask the user a direct question when you hit something genuinely ambiguous or high-stakes that you can't reasonably guess (e.g. which of several same-named contacts to email, or a destructive action with no clear target) — don't ask for permission to do the obviously-implied next step.
+
+If a tool you'd need isn't available (not connected, or the goal needs something you don't have access to), say so plainly and do as much of the rest of the goal as you actually can with what you do have, rather than refusing the whole thing.
+
+When you're done, give a clear, honest summary of exactly what you did (not what you "would" do) — what was found, created, sent, or changed, with concrete specifics (names, links, counts) — not a vague recap. If you could only partially complete the goal, say what's done and what's still missing.
+`;
+
+// ==========================================================
+// Custom Personas — save different AI personalities/instructions and
+// switch between them instantly. Fully client-side (localStorage) —
+// deliberately no new backend endpoint, since Zyntra's serverless
+// function count is already at Vercel's Hobby-plan cap.
+// ==========================================================
+
+const BUILTIN_PERSONAS = [
+    { id: "builtin-assistant", name: "Assistant", emoji: "🤖", instructions: "", builtin: true },
+    { id: "builtin-coding", name: "Coding Mentor", emoji: "🧑‍💻", instructions: "You are a patient, encouraging coding mentor. Explain concepts clearly with small examples, point out mistakes gently, and encourage best practices without being condescending.", builtin: true },
+    { id: "builtin-study", name: "Study Buddy", emoji: "📚", instructions: "You are a supportive study buddy. Break topics into simple, digestible steps, use analogies, quiz the user occasionally to check understanding, and stay encouraging even when they get things wrong.", builtin: true },
+    { id: "builtin-writer", name: "Creative Writer", emoji: "✍️", instructions: "You are an imaginative creative writing collaborator. Be vivid and expressive, offer creative alternatives, and help develop ideas rather than just correcting them.", builtin: true },
+    { id: "builtin-business", name: "Business Advisor", emoji: "💼", instructions: "You are a pragmatic business advisor. Be direct and specific, focus on actionable next steps, and think in terms of cost, risk, and real-world tradeoffs rather than abstract theory.", builtin: true }
+];
+
+function getPersonas(){
+    try{
+        const custom = JSON.parse(localStorage.getItem("zyntra-personas") || "[]");
+        return [...BUILTIN_PERSONAS, ...custom];
+    }catch{
+        return BUILTIN_PERSONAS;
+    }
+}
+
+function getCustomPersonas(){
+    try{
+        return JSON.parse(localStorage.getItem("zyntra-personas") || "[]");
+    }catch{
+        return [];
+    }
+}
+
+function saveCustomPersonas(list){
+    localStorage.setItem("zyntra-personas", JSON.stringify(list));
+}
+
+function getActivePersonaId(){
+    return localStorage.getItem("zyntra-active-persona") || "builtin-assistant";
+}
+
+function setActivePersonaId(id){
+    localStorage.setItem("zyntra-active-persona", id);
+    updatePersonaPill();
+}
+
+function updatePersonaPill(){
+    const persona = getPersonas().find(p => p.id === getActivePersonaId()) || BUILTIN_PERSONAS[0];
+    const emojiEl = document.getElementById("personaPillEmoji");
+    const nameEl = document.getElementById("personaPillName");
+    if(emojiEl) emojiEl.textContent = persona.emoji || "🤖";
+    if(nameEl) nameEl.textContent = persona.name;
+}
+
+function renderPersonaList(){
+    const list = document.getElementById("personaList");
+    if(!list) return;
+    list.innerHTML = "";
+    const activeId = getActivePersonaId();
+
+    getPersonas().forEach(persona => {
+        const row = document.createElement("div");
+        row.className = "persona-row" + (persona.id === activeId ? " active" : "");
+
+        const info = document.createElement("div");
+        info.className = "persona-row-info";
+        info.innerHTML = `<span class="persona-row-emoji">${persona.emoji || "🤖"}</span><span class="persona-row-name">${persona.name}</span>`;
+        info.addEventListener("click", () => {
+            setActivePersonaId(persona.id);
+            renderPersonaList();
+            closeModal("personaModal");
+        });
+        row.appendChild(info);
+
+        if(!persona.builtin){
+            const editBtn = document.createElement("button");
+            editBtn.className = "persona-row-edit";
+            editBtn.textContent = "✎";
+            editBtn.title = "Edit";
+            editBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                showPersonaForm(persona);
+            });
+            row.appendChild(editBtn);
+
+            const delBtn = document.createElement("button");
+            delBtn.className = "persona-row-delete";
+            delBtn.textContent = "🗑";
+            delBtn.title = "Delete";
+            delBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const remaining = getCustomPersonas().filter(p => p.id !== persona.id);
+                saveCustomPersonas(remaining);
+                if(activeId === persona.id) setActivePersonaId("builtin-assistant");
+                renderPersonaList();
+            });
+            row.appendChild(delBtn);
+        }
+
+        list.appendChild(row);
+    });
+}
+
+let personaEditingId = null;
+
+function showPersonaForm(persona){
+    personaEditingId = persona ? persona.id : null;
+    document.getElementById("personaFormName").value = persona ? persona.name : "";
+    document.getElementById("personaFormEmoji").value = persona ? persona.emoji : "";
+    document.getElementById("personaFormInstructions").value = persona ? persona.instructions : "";
+    document.getElementById("personaCreateForm").style.display = "flex";
+    document.getElementById("personaAddNewBtn").style.display = "none";
+}
+
+function hidePersonaForm(){
+    personaEditingId = null;
+    document.getElementById("personaCreateForm").style.display = "none";
+    document.getElementById("personaAddNewBtn").style.display = "block";
+}
+
+document.getElementById("personaPillBtn")?.addEventListener("click", () => {
+    renderPersonaList();
+    hidePersonaForm();
+    openModal("personaModal");
+});
+document.getElementById("personaModalClose")?.addEventListener("click", () => closeModal("personaModal"));
+document.getElementById("personaAddNewBtn")?.addEventListener("click", () => showPersonaForm(null));
+document.getElementById("personaFormCancelBtn")?.addEventListener("click", hidePersonaForm);
+
+document.getElementById("personaFormSaveBtn")?.addEventListener("click", () => {
+    const name = document.getElementById("personaFormName").value.trim();
+    const emoji = document.getElementById("personaFormEmoji").value.trim() || "🤖";
+    const instructions = document.getElementById("personaFormInstructions").value.trim();
+    if(!name || !instructions){
+        alert("Give it a name and some instructions for how it should behave.");
+        return;
+    }
+    const custom = getCustomPersonas();
+    if(personaEditingId){
+        const idx = custom.findIndex(p => p.id === personaEditingId);
+        if(idx !== -1) custom[idx] = { ...custom[idx], name, emoji, instructions };
+    } else {
+        custom.push({ id: "persona-" + Date.now(), name, emoji, instructions, builtin: false });
+    }
+    saveCustomPersonas(custom);
+    hidePersonaForm();
+    renderPersonaList();
+    updatePersonaPill();
+});
+
+updatePersonaPill();
+
+// ==========================================================
+// Notifications inbox — bell icon with unread badge. Notifications
+// themselves are written server-side (Admin SDK, bypasses rules) by
+// api/run-scheduled.js (a scheduled task finished) and api/share-project.js
+// (added to a project); the frontend only ever reads them and writes
+// back read/cleared state, riding the same per-user Firestore doc the
+// app already syncs everything else through (getSessions/getMemories/
+// etc.) — no new backend function needed.
+// ==========================================================
+
+function getNotifications(){
+    try{
+        return JSON.parse(localStorage.getItem("zyntra-notifications") || "[]");
+    }catch{
+        return [];
+    }
+}
+
+function saveNotificationsLocal(list){
+    localStorage.setItem("zyntra-notifications", JSON.stringify(list));
+    updateNotifBadge();
+}
+
+function updateNotifBadge(){
+    const badge = document.getElementById("notifBellBadge");
+    if(!badge) return;
+    const unread = getNotifications().filter(n => !n.read).length;
+    if(unread > 0){
+        badge.textContent = unread > 9 ? "9+" : String(unread);
+        badge.style.display = "flex";
+    } else {
+        badge.style.display = "none";
+    }
+}
+
+async function syncNotificationsToCloud(list){
+    const ref = zyntraUserDocRef();
+    if(!ref) return;
+    try{
+        await ref.set({ notifications: list }, { merge: true });
+    }catch(err){
+        console.error("Notification sync failed:", err);
+    }
+}
+
+function renderNotifPanel(){
+    const list = document.getElementById("notifPanelList");
+    if(!list) return;
+    const notifs = [...getNotifications()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if(notifs.length === 0){
+        list.innerHTML = `<p style="text-align:center;color:var(--text-3);font-size:13px;padding:24px 0;">No notifications yet.</p>`;
+        return;
+    }
+    list.innerHTML = "";
+    notifs.forEach(n => {
+        const row = document.createElement(n.link ? "a" : "div");
+        if(n.link) row.href = n.link;
+        row.className = "notif-row" + (n.read ? "" : " unread");
+        row.innerHTML = `
+            <p class="notif-row-title">${n.title || "Notification"}</p>
+            <p class="notif-row-message">${n.message || ""}</p>
+        `;
+        row.addEventListener("click", () => {
+            if(!n.read){
+                const updated = getNotifications().map(x => x.id === n.id ? { ...x, read: true } : x);
+                saveNotificationsLocal(updated);
+                syncNotificationsToCloud(updated);
+                row.classList.remove("unread");
+            }
+        });
+        list.appendChild(row);
+    });
+}
+
+function positionNotifPanel(){
+    const panel = document.getElementById("notifPanel");
+    const btn = document.getElementById("notifBellBtn");
+    if(!panel || !btn) return;
+    const rect = btn.getBoundingClientRect();
+    panel.style.top = (rect.bottom + 8) + "px";
+    panel.style.left = Math.max(8, rect.right - 320) + "px";
+}
+
+document.getElementById("notifBellBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const panel = document.getElementById("notifPanel");
+    const isOpen = panel.classList.contains("open");
+    if(isOpen){
+        panel.classList.remove("open");
+        return;
+    }
+    positionNotifPanel();
+    renderNotifPanel();
+    panel.classList.add("open");
+});
+
+document.addEventListener("click", (e) => {
+    const panel = document.getElementById("notifPanel");
+    if(!panel || !panel.classList.contains("open")) return;
+    if(!e.target.closest("#notifPanel") && !e.target.closest("#notifBellBtn")){
+        panel.classList.remove("open");
+    }
+});
+
+document.getElementById("notifClearAllBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    saveNotificationsLocal([]);
+    syncNotificationsToCloud([]);
+    renderNotifPanel();
+});
+
+updateNotifBadge();
+
+setInterval(() => {
+    if(isLoggedIn()) pullCloudToLocal();
+}, 5 * 60 * 1000);
+
+const AGENT_STEP_LABELS = {
+    web_search: { icon: "🔍", label: "Searching the web" },
+    get_current_datetime: { icon: "🕐", label: "Checking the date/time" },
+    remember_fact: { icon: "🧠", label: "Saving a memory" },
+    send_email: { icon: "📧", label: "Sending an email" },
+    search_emails: { icon: "📧", label: "Searching Gmail" },
+    read_email: { icon: "📧", label: "Reading an email" },
+    create_email_draft: { icon: "📧", label: "Drafting an email" },
+    create_calendar_event: { icon: "📅", label: "Creating a calendar event" },
+    list_calendar_events: { icon: "📅", label: "Checking your calendar" },
+    update_calendar_event: { icon: "📅", label: "Updating a calendar event" },
+    cancel_calendar_event: { icon: "📅", label: "Cancelling a calendar event" },
+    search_drive_files: { icon: "📁", label: "Searching Google Drive" },
+    read_drive_file: { icon: "📁", label: "Reading a Drive file" },
+    create_drive_file: { icon: "📁", label: "Creating a Drive file" },
+    list_github_repos: { icon: "🐙", label: "Checking GitHub repos" },
+    list_github_issues: { icon: "🐙", label: "Checking GitHub issues" },
+    create_github_issue: { icon: "🐙", label: "Creating a GitHub issue" },
+    list_github_pull_requests: { icon: "🐙", label: "Checking pull requests" },
+    create_github_pull_request: { icon: "🐙", label: "Opening a pull request" },
+    list_slack_channels: { icon: "💬", label: "Checking Slack channels" },
+    read_slack_messages: { icon: "💬", label: "Reading Slack messages" },
+    send_slack_message: { icon: "💬", label: "Sending a Slack message" },
+    search_slack_messages: { icon: "💬", label: "Searching Slack" },
+    list_slack_users: { icon: "💬", label: "Checking Slack members" },
+    list_discord_channels: { icon: "🎮", label: "Checking Discord channels" },
+    read_discord_messages: { icon: "🎮", label: "Reading Discord messages" },
+    send_discord_message: { icon: "🎮", label: "Sending a Discord message" },
+    search_notion: { icon: "📝", label: "Searching Notion" },
+    read_notion_page: { icon: "📝", label: "Reading a Notion page" },
+    create_notion_page: { icon: "📝", label: "Creating a Notion page" },
+    list_trello_boards: { icon: "📋", label: "Checking Trello boards" },
+    list_trello_lists: { icon: "📋", label: "Checking Trello lists" },
+    list_trello_cards: { icon: "📋", label: "Checking Trello cards" },
+    create_trello_card: { icon: "📋", label: "Creating a Trello card" },
+    search_outlook_emails: { icon: "📧", label: "Searching Outlook" },
+    read_outlook_email: { icon: "📧", label: "Reading an Outlook email" },
+    send_outlook_email: { icon: "📧", label: "Sending an Outlook email" },
+    create_outlook_draft: { icon: "📧", label: "Drafting an Outlook email" }
+};
+
+function describeAgentStep(name){
+    if(AGENT_STEP_LABELS[name]) return AGENT_STEP_LABELS[name];
+    // Unknown/future tool name — fall back to a readable version of the
+    // raw function name rather than a hardcoded label needing upkeep.
+    const label = (name || "tool").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    return { icon: "⚙️", label };
+}
+
+const TOOL_PLACEHOLDERS = {
+    chat: "Ask me anything...",
+    business: "Ask a business or growth question...",
+    image: "Describe the image you want to create...",
+    codex: "Ask me to code, debug, or build a website/app...",
+    agent: "Give me a goal and I'll carry it out — e.g. \"find 5 competitors and summarize them\"...",
+    data: "Upload a spreadsheet, then ask a question about it..."
+};
+
+const TOOL_GREETINGS = {
+    chat: {
+        heading: 'Hey, I\'m <span>Zyntra AI</span>',
+        subtitle: "Your personal AI assistant. Ask me anything!"
+    },
+    business: {
+        heading: 'Let\'s Grow Your <span>Business</span>!',
+        subtitle: "Ask me for ideas, strategy, or growth tips."
+    },
+    image: {
+        heading: 'Let\'s Create an <span>Image</span>!',
+        subtitle: "Describe what you want to see, and I'll bring it to life."
+    },
+    codex: {
+        heading: '<span>Codex</span>',
+        subtitle: "Write and debug code, or describe a website or app and watch it come to life."
+    },
+    agent: {
+        heading: '<span>Agent Mode</span>',
+        subtitle: "Give me a goal, not a question — I'll chain tools together and work it end-to-end."
+    },
+    data: {
+        heading: '<span>Data Analysis</span>',
+        subtitle: "Upload a CSV or Excel file, then ask questions — I'll write and run real Python to answer them."
+    }
+};
+
+// A first-time visitor (never seen the app before, not signed in) gets a
+// slightly longer greeting that actually explains what Zyntra AI does and
+// that there's no sign-up needed to try it — cold traffic from search
+// shouldn't land on the exact same bare "ask me anything" a returning
+// user sees. Shown once per browser, then reverts to the normal greeting.
+function isFirstTimeVisitor(){
+    return !isLoggedIn() && !localStorage.getItem("zyntra-visited-before");
+}
+
+function applyToolGreeting(tool){
+    const greeting = TOOL_GREETINGS[tool];
+    if(!greeting) return;
+
+    if(tool === "chat" && isFirstTimeVisitor()){
+        document.getElementById("greetingHeading").innerHTML = 'Hey, I\'m <span>Zyntra AI</span>';
+        document.getElementById("greetingSubtitle").textContent =
+            "Chat, generate AI images, talk hands-free with Jarvis, or get coding help — try up to 10 messages free, no sign-up needed.";
+        localStorage.setItem("zyntra-visited-before", "1");
+        return;
+    }
+
+    document.getElementById("greetingHeading").innerHTML = greeting.heading;
+    document.getElementById("greetingSubtitle").textContent = greeting.subtitle;
+}
+
+// Which chat-mode tool is currently open (chat / study / business / code)
+let activeChatTool = "chat";
+
+// Temporary Chat: when on, this conversation skips history logging,
+// memory read/write, and custom-instructions/personalization injection.
+let temporaryChatActive = false;
+
+function openTool(tool, prefix){
+    showPageView("chat");
+    if(TOOL_PLACEHOLDERS[tool]){
+        // Switching to a different chat mode starts a clean chat.
+        // The previous conversation is already saved in history (it was
+        // logged message-by-message as it happened), so this is safe.
+        // Checked against the actual displayed messages (not chatHistory)
+        // since Image-mode conversations don't populate chatHistory at all.
+        if(tool !== activeChatTool && chatMessages.children.length > 0){
+            resetChatView();
+        }
+        activeChatTool = tool;
+        applyToolGreeting(tool);
+        userInput.placeholder = TOOL_PLACEHOLDERS[tool];
+        document.getElementById("chatGreeting").style.display = chatMessages.children.length ? "none" : "";
+        renderPromptSuggestions();
+        userInput.value = prefix || "";
+        userInput.focus();
+        closeSidebarMobile();
+        if(typeof updateTempChatToggleVisibility === "function") updateTempChatToggleVisibility();
+         } else if(tool === "voice"){
+        showPageView("voice");
+        document.getElementById("jarvisPermissionGate").style.display = jarvisMicGranted ? "none" : "";
+        document.getElementById("jarvisInterface").style.display = jarvisMicGranted ? "" : "none";
+        document.getElementById("voiceMicBtn").style.display = "";
+        document.getElementById("jarvisStatusLabel").textContent = "Say \"repeat\" any time to hear the last answer again.";
+        closeSidebarMobile();
+    }
+    setActiveNav(tool);
+    navigateToRoute(TOOL_TO_SLUG[tool] !== undefined ? TOOL_TO_SLUG[tool] : "");
+}
+
+document.querySelectorAll("[data-tool]").forEach(el => {
+    el.addEventListener("click", e => {
+        e.preventDefault();
+        currentProjectId = null; // manually picking a sidebar tool always exits project context
+        openTool(el.dataset.tool, el.dataset.prefix);
+    });
+});
+
+// ==========================
+// Image modal (with optional reference image upload)
+// ==========================
+
+document.getElementById("imageModalClose").addEventListener("click", () => closeModal("imageModal"));
+
+let imgUploadedFile = null;
+
+document.getElementById("imgUploadBtn").addEventListener("click", () => {
+    document.getElementById("imgUploadInput").click();
+});
+
+document.getElementById("imgUploadInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    if(!file.type.startsWith("image/")){
+        alert("Please select an image file.");
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        imgUploadedFile = reader.result;
+        renderImgUploadPreview();
+    };
+    reader.readAsDataURL(file);
+});
+
+function renderImgUploadPreview(){
+    const preview = document.getElementById("imgUploadPreview");
+    const removeBgBtn = document.getElementById("removeBgBtn");
+    preview.innerHTML = "";
+    if(!imgUploadedFile){
+        if(removeBgBtn) removeBgBtn.style.display = "none";
+        return;
+    }
+    if(removeBgBtn) removeBgBtn.style.display = "block";
+    const thumb = document.createElement("div");
+    thumb.className = "attach-thumb";
+    const img = document.createElement("img");
+    img.src = imgUploadedFile;
+    const removeBtn = document.createElement("button");
+    removeBtn.textContent = "✕";
+    removeBtn.addEventListener("click", () => {
+        imgUploadedFile = null;
+        document.getElementById("imgUploadInput").value = "";
+        renderImgUploadPreview();
+    });
+    thumb.appendChild(img);
+    thumb.appendChild(removeBtn);
+    preview.appendChild(thumb);
+}
+
+document.getElementById("removeBgBtn")?.addEventListener("click", async () => {
+    if(!imgUploadedFile) return;
+    const result = document.getElementById("imageResult");
+    const btn = document.getElementById("removeBgBtn");
+    const original = btn.textContent;
+    btn.textContent = "🪄 Removing background...";
+    btn.disabled = true;
+    showCreatingAnimation(result, "Removing background");
+
+    try{
+        const { removeBackground } = await import("https://esm.sh/@imgly/background-removal@1.5.5");
+        const response = await fetch(imgUploadedFile);
+        const sourceBlob = await response.blob();
+        const resultBlob = await removeBackground(sourceBlob);
+        const url = URL.createObjectURL(resultBlob);
+
+        // For history storage we need a URL that survives page reloads —
+        // blob: URLs are only valid for this page session, so convert to a
+        // data URL for anything we save.
+        const persistentUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(resultBlob);
+        });
+
+        const img = new Image();
+        img.className = "generated-img";
+        img.alt = "Background removed";
+        img.style.background = "repeating-conic-gradient(#2b3154 0% 25%, #171d3d 0% 50%) 50% / 20px 20px";
+        img.onload = () => {
+            result.innerHTML = "";
+            result.appendChild(img);
+
+            const actionsRow = document.createElement("div");
+            actionsRow.style.display = "flex";
+            actionsRow.style.gap = "8px";
+            actionsRow.style.marginTop = "8px";
+            result.appendChild(actionsRow);
+
+            const downloadBtn = document.createElement("button");
+            downloadBtn.className = "copy-btn";
+            downloadBtn.textContent = "⬇ Download PNG";
+            downloadBtn.addEventListener("click", () => {
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "zyntra-ai-no-background.png";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            });
+            actionsRow.appendChild(downloadBtn);
+            bumpStat("images");
+            logImageToHistory("Background removed from photo", persistentUrl);
+        };
+        img.src = url;
+    }catch(err){
+        result.innerHTML = '<p class="loading-text">Could not remove the background. Please try a different photo.</p>';
+    }
+
+    btn.textContent = original;
+    btn.disabled = false;
+});
+
+function showCreatingAnimation(container, label){
+    container.innerHTML = `
+        <div class="creating-box">
+            <p class="creating-label">${label}</p>
+            <div class="creating-dots"></div>
+        </div>
+    `;
+}
+
+async function describeUploadedImage(dataUrl){
+    const { content: reply } = await callChatAPI([
+        {
+            role: "user",
+            content: [
+                { type: "text", text: "Describe this image in one vivid sentence, focused on visual details useful for recreating a similar scene in a new AI-generated image." },
+                { type: "image_url", image_url: { url: dataUrl } }
+            ]
+        }
+    ]);
+    return reply.replace(/\*\*/g, "").trim();
+}
+
+document.getElementById("imageGenBtn").addEventListener("click", async () => {
+    const val = document.getElementById("imageInput").value.trim();
+    const result = document.getElementById("imageResult");
+    if(!val && !imgUploadedFile){ alert("Please describe the image or upload a reference image."); return; }
+
+    const waitLabel = "Creating image";
+    showCreatingAnimation(result, waitLabel);
+
+    let finalPrompt = val;
+
+    if(imgUploadedFile){
+        try{
+            const description = await describeUploadedImage(imgUploadedFile);
+            finalPrompt = val ? `${description}. ${val}` : description;
+        }catch(err){
+            // fall back to just the typed prompt if description fails
+        }
+    }
+
+    if(!finalPrompt){
+        result.innerHTML = '<p class="loading-text">Please describe the image or upload a reference image.</p>';
+        return;
+    }
+
+    const wantsRealistic = document.getElementById("imageRealisticToggle")?.checked;
+    if(wantsRealistic){
+        finalPrompt += ", photorealistic, ultra realistic, highly detailed, sharp focus, natural lighting, shot on DSLR, 8k";
+    }
+
+    function attemptGenerate(retryCount){
+        const img = new Image();
+        img.className = "generated-img";
+        img.alt = finalPrompt;
+        img.onload = () => {
+            result.innerHTML = "";
+
+            const wrap = document.createElement("div");
+            wrap.className = "generated-img-wrap";
+            wrap.appendChild(img);
+            const mark = document.createElement("span");
+            mark.className = "zyntra-watermark";
+            mark.textContent = "✨ Zyntra AI";
+            wrap.appendChild(mark);
+            result.appendChild(wrap);
+
+            bumpStat("images");
+            logImageToHistory(val || finalPrompt, img.src);
+
+            const actionsRow = document.createElement("div");
+            actionsRow.style.display = "flex";
+            actionsRow.style.gap = "8px";
+            actionsRow.style.marginTop = "8px";
+            result.appendChild(actionsRow);
+
+            const downloadBtn = document.createElement("button");
+            downloadBtn.className = "copy-btn";
+            downloadBtn.textContent = "⬇ Download";
+            downloadBtn.addEventListener("click", () => {
+                downloadBtn.textContent = "Downloading...";
+                downloadWatermarkedImage(img.src, "zyntra-ai-image.png").then(() => {
+                    downloadBtn.textContent = "⬇ Download";
+                });
             });
             actionsRow.appendChild(downloadBtn);
 
