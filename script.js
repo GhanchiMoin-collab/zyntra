@@ -305,7 +305,7 @@ function buildImageBlockHTML(image){
         <div class="ai-image-block">
             <div class="generated-img-wrap">
                 <img class="generated-img" src="${image.url}" alt="${escapeAttr(image.alt)}">
-                <span class="zyntra-watermark">✨ Zyntra AI</span>
+                <img class="zyntra-watermark" src="/favicon.png" alt="Zyntra AI">
             </div>
             <div class="ai-image-actions">
                 <button class="copy-btn ai-image-download" data-url="${image.url}">⬇ Download</button>
@@ -314,19 +314,42 @@ function buildImageBlockHTML(image){
     `;
 }
 
-// Draws the small corner watermark onto a canvas — shared by every place
-// that bakes the mark into a downloaded file (Gemini-style: visible on
-// screen via CSS, and burned into the actual saved image on download).
-function drawZyntraWatermark(ctx, w, h){
+// The logo watermarked onto generated images (both the on-screen badge
+// and the version baked into downloads) — loaded once and cached, since
+// it's the same little hexagon "Z" mark every time.
+let zyntraLogoImgPromise = null;
+function loadZyntraLogoImg(){
+    if(zyntraLogoImgPromise) return zyntraLogoImgPromise;
+    zyntraLogoImgPromise = new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => { zyntraLogoImgPromise = null; reject(new Error("logo failed to load")); };
+        img.src = "/favicon.png";
+    });
+    return zyntraLogoImgPromise;
+}
+
+// Draws the small corner logo watermark onto a canvas — shared by every
+// place that bakes the mark into a downloaded file (Gemini-style: visible
+// on screen via CSS, and burned into the actual saved image on download).
+async function drawZyntraWatermark(ctx, w, h){
+    let logo;
+    try{
+        logo = await loadZyntraLogoImg();
+    }catch(err){
+        return; // no logo available — download still succeeds, just unmarked
+    }
+    const size = Math.max(28, Math.round(w * 0.09));
     const pad = Math.round(w * 0.025);
-    const fontSize = Math.max(14, Math.round(w * 0.03));
-    ctx.font = `600 ${fontSize}px Poppins, Arial, sans-serif`;
-    ctx.textBaseline = "bottom";
-    ctx.textAlign = "right";
-    ctx.shadowColor = "rgba(0,0,0,0.6)";
-    ctx.shadowBlur = fontSize * 0.35;
-    ctx.fillStyle = "rgba(255,255,255,0.92)";
-    ctx.fillText("✨ Zyntra AI", w - pad, h - pad);
+    const x = w - pad - size;
+    const y = h - pad - size;
+
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.55)";
+    ctx.shadowBlur = size * 0.25;
+    ctx.globalAlpha = 0.92;
+    ctx.drawImage(logo, x, y, size, size);
+    ctx.restore();
 }
 
 // Fetches the image as a blob first (so it's same-origin local data by the
@@ -343,13 +366,13 @@ function downloadWatermarkedImage(url, filename){
             img.onerror = reject;
             img.src = objectUrl;
         }))
-        .then(({ img, objectUrl }) => {
+        .then(async ({ img, objectUrl }) => {
             const canvas = document.createElement("canvas");
             canvas.width = img.naturalWidth;
             canvas.height = img.naturalHeight;
             const ctx = canvas.getContext("2d");
             ctx.drawImage(img, 0, 0);
-            drawZyntraWatermark(ctx, canvas.width, canvas.height);
+            await drawZyntraWatermark(ctx, canvas.width, canvas.height);
             URL.revokeObjectURL(objectUrl);
 
             return new Promise((resolve) => {
@@ -1786,7 +1809,7 @@ async function startPlanUpgrade(plan){
 
                     localStorage.setItem("zyntra-plan", verifyData.plan);
                     applyPlanToUI(verifyData.plan);
-                    setPricingStatus(`You're now on the ${planDisplayName(verifyData.plan)} plan 🎉`);
+                    showPricingSuccess(verifyData.plan);
                     showToast(`Upgraded to ${planDisplayName(verifyData.plan)}!`);
                 }catch(err){
                     setPricingStatus(err.message || "Payment verification failed.");
@@ -1803,13 +1826,84 @@ async function startPlanUpgrade(plan){
     }
 }
 
+// Swaps the plan grid for a celebratory checkmark + confetti view, the
+// same general beat as ChatGPT/Gemini's upgrade-success moment.
+function showPricingSuccess(plan){
+    const plansView = document.getElementById("pricingPlansView");
+    const successView = document.getElementById("pricingSuccessView");
+    const nameEl = document.getElementById("pricingSuccessPlanName");
+    if(nameEl) nameEl.textContent = planDisplayName(plan);
+    if(plansView) plansView.style.display = "none";
+    if(successView){
+        // Re-trigger the CSS entrance/checkmark-draw animations even if
+        // this view was shown before in the same session.
+        successView.style.display = "none";
+        void successView.offsetWidth;
+        successView.style.display = "flex";
+    }
+    fireZyntraConfetti();
+}
+
+function resetPricingModalView(){
+    const plansView = document.getElementById("pricingPlansView");
+    const successView = document.getElementById("pricingSuccessView");
+    if(plansView) plansView.style.display = "";
+    if(successView) successView.style.display = "none";
+}
+
+// Lightweight, dependency-free confetti burst — a handful of colored
+// divs given random fall/spin physics via CSS transitions, cleaned up
+// after they finish. Not canvas-based on purpose: this fires once per
+// purchase, so a few dozen DOM nodes for ~2.5s is cheaper than pulling in
+// a whole confetti library for something this occasional.
+function fireZyntraConfetti(){
+    const colors = ["#6e5cff", "#ff59b0", "#3ddc84", "#ffc857", "#4fc3f7"];
+    const container = document.createElement("div");
+    container.className = "zyntra-confetti-canvas";
+    document.body.appendChild(container);
+
+    const pieceCount = 80;
+    for(let i = 0; i < pieceCount; i++){
+        const piece = document.createElement("div");
+        const size = 6 + Math.random() * 6;
+        const startX = Math.random() * window.innerWidth;
+        const duration = 1800 + Math.random() * 1400;
+        const delay = Math.random() * 250;
+        const drift = (Math.random() - 0.5) * 240;
+        const spin = 360 + Math.random() * 720;
+
+        piece.style.position = "absolute";
+        piece.style.top = "-20px";
+        piece.style.left = startX + "px";
+        piece.style.width = size + "px";
+        piece.style.height = size * (Math.random() > 0.5 ? 1 : 2.2) + "px";
+        piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+        piece.style.opacity = "0.9";
+        piece.style.borderRadius = Math.random() > 0.5 ? "50%" : "2px";
+        piece.style.transition = `transform ${duration}ms cubic-bezier(.15,.65,.3,1) ${delay}ms, opacity ${duration}ms ease ${delay}ms`;
+        container.appendChild(piece);
+
+        requestAnimationFrame(() => {
+            piece.style.transform = `translate(${drift}px, ${window.innerHeight + 40}px) rotate(${spin}deg)`;
+            piece.style.opacity = "0";
+        });
+    }
+
+    setTimeout(() => container.remove(), 3200);
+}
+
 document.getElementById("accountMenuUpgrade")?.addEventListener("click", () => {
     toggleAccountMenu(false);
     openModal("pricingModal");
+    resetPricingModalView();
     setPricingStatus("");
     applyPlanToUI(getCachedPlan());
 });
 document.getElementById("pricingModalClose")?.addEventListener("click", () => closeModal("pricingModal"));
+document.getElementById("pricingSuccessCloseBtn")?.addEventListener("click", () => {
+    closeModal("pricingModal");
+    resetPricingModalView();
+});
 document.querySelectorAll(".pricing-upgrade-btn").forEach(btn => {
     btn.addEventListener("click", () => startPlanUpgrade(btn.dataset.plan));
 });
@@ -6125,9 +6219,10 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
             const wrap = document.createElement("div");
             wrap.className = "generated-img-wrap";
             wrap.appendChild(img);
-            const mark = document.createElement("span");
+            const mark = document.createElement("img");
             mark.className = "zyntra-watermark";
-            mark.textContent = "✨ Zyntra AI";
+            mark.src = "/favicon.png";
+            mark.alt = "Zyntra AI";
             wrap.appendChild(mark);
             result.appendChild(wrap);
 
