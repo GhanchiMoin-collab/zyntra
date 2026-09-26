@@ -394,6 +394,30 @@ function downloadWatermarkedImage(url, filename){
         });
 }
 
+// Full-screen "click to expand" viewer for Image Generator results,
+// same beat as ChatGPT's image lightbox. Scoped only to that tool's
+// output (not chat's inline generated images) per how it was asked for.
+function openImageViewer(src, alt){
+    const viewerImg = document.getElementById("imageViewerImg");
+    if(viewerImg){
+        viewerImg.src = src;
+        viewerImg.alt = alt || "Generated image";
+    }
+    const downloadBtn = document.getElementById("imageViewerDownload");
+    if(downloadBtn){
+        downloadBtn.onclick = () => {
+            downloadBtn.textContent = "";
+            downloadBtn.style.opacity = "0.6";
+            downloadWatermarkedImage(src, "zyntra-ai-image.png").then(() => {
+                downloadBtn.textContent = "⬇";
+                downloadBtn.style.opacity = "1";
+            });
+        };
+    }
+    openModal("imageViewerModal");
+}
+document.getElementById("imageViewerClose")?.addEventListener("click", () => closeModal("imageViewerModal"));
+
 document.addEventListener("click", (e) => {
     const downloadBtn = e.target.closest(".ai-image-download");
     if(downloadBtn){
@@ -1325,13 +1349,17 @@ document.querySelectorAll(".modal-overlay").forEach(overlay => {
         if(e.target === overlay){
             overlay.classList.remove("show");
             if(typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
+            if(ROUTED_MODAL_SLUGS[overlay.id]) revertRouteToCurrentTool();
         }
     });
 });
 
 document.addEventListener("keydown", e => {
     if(e.key === "Escape"){
-        document.querySelectorAll(".modal-overlay.show").forEach(m => m.classList.remove("show"));
+        document.querySelectorAll(".modal-overlay.show").forEach(m => {
+            m.classList.remove("show");
+            if(ROUTED_MODAL_SLUGS[m.id]) revertRouteToCurrentTool();
+        });
         if(typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
         closeSidebarMobile();
         document.getElementById("accountMenu")?.classList.remove("show");
@@ -1405,10 +1433,11 @@ document.getElementById("mySharesQuickBtn")?.addEventListener("click", async (e)
     }
     closeSidebarMobile();
     openModal("mySharesModal");
+    navigateToRoute("shares");
     await loadMyShares();
 });
 
-document.getElementById("mySharesModalClose")?.addEventListener("click", () => closeModal("mySharesModal"));
+document.getElementById("mySharesModalClose")?.addEventListener("click", () => { closeModal("mySharesModal"); revertRouteToCurrentTool(); });
 
 async function loadMyShares(){
     const list = document.getElementById("mySharesList");
@@ -1899,11 +1928,13 @@ document.getElementById("accountMenuUpgrade")?.addEventListener("click", () => {
     resetPricingModalView();
     setPricingStatus("");
     applyPlanToUI(getCachedPlan());
+    navigateToRoute("plans");
 });
-document.getElementById("pricingModalClose")?.addEventListener("click", () => closeModal("pricingModal"));
+document.getElementById("pricingModalClose")?.addEventListener("click", () => { closeModal("pricingModal"); revertRouteToCurrentTool(); });
 document.getElementById("pricingSuccessCloseBtn")?.addEventListener("click", () => {
     closeModal("pricingModal");
     resetPricingModalView();
+    revertRouteToCurrentTool();
 });
 document.querySelectorAll(".pricing-upgrade-btn").forEach(btn => {
     btn.addEventListener("click", () => startPlanUpgrade(btn.dataset.plan));
@@ -1917,6 +1948,7 @@ function handleProfileEntry(){
     document.getElementById("signinContext").style.display = "none";
     resetSigninModalUI();
     openModal("signinModal");
+    navigateToRoute("login");
     closeSidebarMobile();
 }
 
@@ -2105,7 +2137,7 @@ document.getElementById("profileModalClose")?.addEventListener("click", () => {
 document.getElementById("profileSigninBtn")?.addEventListener("click", () => {
     closeModal("profileModal");
     document.getElementById("signinContext").style.display = "none";
-    resetSigninModalUI(); openModal("signinModal");
+    resetSigninModalUI(); openModal("signinModal"); navigateToRoute("login");
 });
 
 document.getElementById("profileSaveBtn")?.addEventListener("click", () => {
@@ -2156,7 +2188,7 @@ document.getElementById("signoutConfirm")?.addEventListener("click", () => {
         btn.disabled = false;
     });
 });
-document.getElementById("signinModalClose")?.addEventListener("click", () => closeModal("signinModal"));
+document.getElementById("signinModalClose")?.addEventListener("click", () => { closeModal("signinModal"); revertRouteToCurrentTool(); });
 let isSignupMode = false;
 
 function showSigninError(message){
@@ -2223,6 +2255,7 @@ function finishSignin(email){
             closeModal("signinModal");
             openModal("profileModal");
             renderProfileModal();
+            navigateToRoute("settings", "general");
             showToast("⚠️ That's already your signed-in account — try a different one.");
             return;
         }
@@ -2236,6 +2269,7 @@ function finishSignin(email){
     document.getElementById("signinContext").style.display = "none";
     clearSigninError();
     closeModal("signinModal");
+    revertRouteToCurrentTool();
     renderAuthNav();
     renderSidebarHistory();
     showToast("✅ You're signed in successfully!");
@@ -3426,6 +3460,7 @@ function renderSearchChatsList(query){
 
 function openSearchChatsModal(){
     openModal("searchChatsModal");
+    navigateToRoute("search");
     closeSidebarMobile();
     const input = document.getElementById("searchChatsInput");
     if(input){
@@ -3436,7 +3471,7 @@ function openSearchChatsModal(){
 }
 
 document.getElementById("searchChatsBtn")?.addEventListener("click", openSearchChatsModal);
-document.getElementById("searchChatsClose")?.addEventListener("click", () => closeModal("searchChatsModal"));
+document.getElementById("searchChatsClose")?.addEventListener("click", () => { closeModal("searchChatsModal"); revertRouteToCurrentTool(); });
 document.getElementById("searchChatsInput")?.addEventListener("input", (e) => {
     renderSearchChatsList(e.target.value);
 });
@@ -3676,6 +3711,7 @@ function openProjectForm(editId){
 document.getElementById("navProjects")?.addEventListener("click", async () => {
     if(!isLoggedIn()){
         openModal("signinModal");
+        navigateToRoute("login");
         closeSidebarMobile();
         return;
     }
@@ -3964,7 +4000,7 @@ function renderScheduledRecommended(){
         addBtn.textContent = "+";
         addBtn.title = "Add this task";
         addBtn.addEventListener("click", () => {
-            if(!isLoggedIn()){ openModal("signinModal"); return; }
+            if(!isLoggedIn()){ openModal("signinModal"); navigateToRoute("login"); return; }
             createScheduledTask(rec.prompt, rec.frequency);
             renderScheduledList();
             showToast("🕐 Added: " + rec.title);
@@ -4054,6 +4090,7 @@ function renderScheduledList(){
 document.getElementById("navScheduled")?.addEventListener("click", () => {
     if(!isLoggedIn()){
         openModal("signinModal");
+        navigateToRoute("login");
         closeSidebarMobile();
         return;
     }
@@ -4078,7 +4115,7 @@ function createScheduledTaskFromQuickBar(){
     const input = document.getElementById("scheduledQuickInput");
     const prompt = input.value.trim();
     if(!prompt){ showToast("Describe what Zyntra should do first."); return; }
-    if(!isLoggedIn()){ openModal("signinModal"); return; }
+    if(!isLoggedIn()){ openModal("signinModal"); navigateToRoute("login"); return; }
     createScheduledTask(prompt, scheduledQuickFrequency);
     input.value = "";
     renderScheduledList();
@@ -4440,9 +4477,10 @@ function ensureShareResultModal(){
     `;
     document.body.appendChild(modal);
     modal.querySelector("#shareResultCloseBtn").addEventListener("click", () => closeModal("shareResultModal"));
-    modal.querySelector("#shareResultManageBtn").addEventListener("click", async () => {
+    modal.querySelector("#shareResultManageBtn")?.addEventListener("click", async () => {
         closeModal("shareResultModal");
         openModal("mySharesModal");
+        navigateToRoute("shares");
         await loadMyShares();
     });
     modal.addEventListener("click", (e) => { if(e.target === modal) closeModal("shareResultModal"); });
@@ -5741,8 +5779,9 @@ document.getElementById("personaPillBtn")?.addEventListener("click", () => {
     renderPersonaList();
     hidePersonaForm();
     openModal("personaModal");
+    navigateToRoute("persona");
 });
-document.getElementById("personaModalClose")?.addEventListener("click", () => closeModal("personaModal"));
+document.getElementById("personaModalClose")?.addEventListener("click", () => { closeModal("personaModal"); revertRouteToCurrentTool(); });
 document.getElementById("personaAddNewBtn")?.addEventListener("click", () => showPersonaForm(null));
 document.getElementById("personaFormCancelBtn")?.addEventListener("click", hidePersonaForm);
 
@@ -6214,6 +6253,8 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
         const img = new Image();
         img.className = "generated-img";
         img.alt = finalPrompt;
+        img.style.cursor = "zoom-in";
+        img.title = "Click to view full size";
         img.onload = () => {
             result.innerHTML = "";
 
@@ -6226,6 +6267,7 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
             mark.alt = "Zyntra AI";
             wrap.appendChild(mark);
             result.appendChild(wrap);
+            img.addEventListener("click", () => openImageViewer(img.src, finalPrompt));
 
             bumpStat("images");
             logImageToHistory(val || finalPrompt, img.src);
@@ -7209,9 +7251,11 @@ function setTemporaryChatActive(active){
         document.getElementById("greetingHeading").textContent = "Temporary chat";
         document.getElementById("greetingSubtitle").textContent = "This chat will ignore memory, plugins, and custom instructions, and it won't appear in your history.";
         if(suggestions) suggestions.style.display = "none";
+        navigateToRoute("incognito");
     } else {
         applyToolGreeting(activeChatTool);
         if(suggestions) suggestions.style.display = "";
+        if(window.location.pathname === "/incognito") revertRouteToCurrentTool();
     }
 }
 
@@ -7542,6 +7586,7 @@ function startAddAccountFlow(){
     document.getElementById("signinContext").style.display = "none";
     resetSigninModalUI();
     openModal("signinModal");
+    navigateToRoute("login");
 }
 
 document.getElementById("addAccountBtn")?.addEventListener("click", startAddAccountFlow);
@@ -7559,6 +7604,7 @@ document.getElementById("signinModalClose")?.addEventListener("click", () => {
         localStorage.removeItem("zyntra-account-add-previous-slot");
         openModal("profileModal");
         renderProfileModal();
+        navigateToRoute("settings", "general");
     }
 });
 
@@ -7663,7 +7709,13 @@ const ROUTE_META = {
     "scheduled": { title: "Scheduled Tasks — Zyntra AI", description: "Set up recurring AI tasks in Zyntra AI that run automatically and wait for you." },
     "about": { title: "About — Zyntra AI", description: "Zyntra AI is a personal AI assistant built by Ghanchi Moin — AI chat, image generation, a voice assistant, coding help, and business tools, all in one place." },
     "privacy": { title: "Privacy Policy — Zyntra AI", description: "Zyntra AI's privacy policy — what data we collect, how it's processed, and your choices." },
-    "contact": { title: "Contact — Zyntra AI", description: "Get in touch with the Zyntra AI team — questions, feedback, or bug reports welcome." }
+    "contact": { title: "Contact — Zyntra AI", description: "Get in touch with the Zyntra AI team — questions, feedback, or bug reports welcome." },
+    "plans": { title: "Plans & Pricing — Zyntra AI", description: "Compare Zyntra AI plans and upgrade for a higher monthly message limit." },
+    "login": { title: "Sign in — Zyntra AI", description: "Sign in to Zyntra AI to sync your chats, memory, and settings across devices." },
+    "search": { title: "Search Chats — Zyntra AI", description: "Search across your Zyntra AI chat history." },
+    "shares": { title: "My Shared Chats — Zyntra AI", description: "Chats and projects you've shared from Zyntra AI." },
+    "persona": { title: "Personas — Zyntra AI", description: "Create and switch between custom AI personas in Zyntra AI." },
+    "incognito": { title: "Temporary Chat — Zyntra AI", description: "A Zyntra AI chat that skips memory, history, and personalization." }
 };
 
 const TOOL_TO_SLUG = { chat: "chat", image: "image-generator", voice: "jarvis", codex: "codex", agent: "agent-mode", business: "business-tools", data: "data-analysis" };
@@ -7691,6 +7743,22 @@ function navigateToRoute(slug, id){
     setRouteMeta(slug);
 }
 
+// Modals whose open/close should be reflected in the URL (plans, login,
+// search, shares, persona, contact, settings). Closing any of these
+// falls back to whatever tool the person was actually on.
+const ROUTED_MODAL_SLUGS = {
+    pricingModal: "plans",
+    signinModal: "login",
+    searchChatsModal: "search",
+    mySharesModal: "shares",
+    personaModal: "persona",
+    contactModal: "contact",
+    profileModal: "settings"
+};
+function revertRouteToCurrentTool(){
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+}
+
 function openSessionById(id){
     const session = getSessions().find(s => String(s.id) === String(id));
     if(session){
@@ -7704,6 +7772,17 @@ function applyRouteFromPath(){
     const parts = window.location.pathname.replace(/^\/+|\/+$/g, "").split("/");
     const slug = parts[0] || "";
     const subId = parts[1] || null;
+
+    // Close any routed modal that isn't the one this path calls for, and
+    // drop temporary-chat mode if we've navigated away from /incognito —
+    // otherwise a Back/Forward navigation would leave the old modal (or
+    // temp-chat state) sitting on top of whatever the new path shows.
+    Object.keys(ROUTED_MODAL_SLUGS).forEach(id => {
+        if(ROUTED_MODAL_SLUGS[id] !== slug) document.getElementById(id)?.classList.remove("show");
+    });
+    if(slug !== "incognito" && typeof temporaryChatActive !== "undefined" && temporaryChatActive){
+        setTemporaryChatActive(false);
+    }
 
     if(slug === "share" && subId){
         loadSharedChat(subId);
@@ -7756,6 +7835,50 @@ function applyRouteFromPath(){
     if(slug === "contact"){
         openModal("contactModal");
         setRouteMeta("contact");
+        return;
+    }
+    if(slug === "plans"){
+        openModal("pricingModal");
+        if(typeof resetPricingModalView === "function") resetPricingModalView();
+        if(typeof setPricingStatus === "function") setPricingStatus("");
+        if(typeof applyPlanToUI === "function") applyPlanToUI(getCachedPlan());
+        setRouteMeta("plans");
+        return;
+    }
+    if(slug === "login"){
+        if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+        openModal("signinModal");
+        setRouteMeta("login");
+        return;
+    }
+    if(slug === "search"){
+        if(typeof openSearchChatsModal === "function") openSearchChatsModal();
+        else openModal("searchChatsModal");
+        setRouteMeta("search");
+        return;
+    }
+    if(slug === "shares"){
+        if(!isLoggedIn()){
+            if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+            openModal("signinModal");
+            setRouteMeta("login");
+            return;
+        }
+        openModal("mySharesModal");
+        if(typeof loadMyShares === "function") loadMyShares();
+        setRouteMeta("shares");
+        return;
+    }
+    if(slug === "persona"){
+        if(typeof renderPersonaList === "function") renderPersonaList();
+        if(typeof hidePersonaForm === "function") hidePersonaForm();
+        openModal("personaModal");
+        setRouteMeta("persona");
+        return;
+    }
+    if(slug === "incognito"){
+        setTemporaryChatActive(true);
+        setRouteMeta("incognito");
         return;
     }
     if(slug === "plugins"){
