@@ -1237,11 +1237,19 @@ async function callChatAPI(messages, options){
             : "Unexpected response from the server (status " + res.status + "). Please try again.");
     }
 
-    if(!res.ok) throw new Error(data.error || "Request failed");
+    if(!res.ok){
+        const err = new Error(data.error || "Request failed");
+        if(data.code) err.code = data.code;
+        if(data.plan) err.plan = data.plan;
+        if(data.limit) err.limit = data.limit;
+        if(data.resetsAt) err.resetsAt = data.resetsAt;
+        throw err;
+    }
     return {
         content: data.choices[0].message.content,
         sources: Array.isArray(data.zyntra_sources) ? data.zyntra_sources : [],
-        memoryWrites: Array.isArray(data.zyntra_memory_writes) ? data.zyntra_memory_writes : []
+        memoryWrites: Array.isArray(data.zyntra_memory_writes) ? data.zyntra_memory_writes : [],
+        usage: data.zyntra_usage || null
     };
 }
 
@@ -1275,10 +1283,16 @@ async function streamChatAPI(messages, onDelta, options, onStep){
 
     if(!res.ok || !res.body){
         // Errors are still sent as normal JSON when the request fails
-        // before streaming can start (e.g. missing messages).
+        // before streaming can start (e.g. missing messages, or the
+        // plan's monthly message limit has been reached).
         let data = {};
         try{ data = await res.json(); }catch{}
-        throw new Error(data.error || "Request failed");
+        const err = new Error(data.error || "Request failed");
+        if(data.code) err.code = data.code;
+        if(data.plan) err.plan = data.plan;
+        if(data.limit) err.limit = data.limit;
+        if(data.resetsAt) err.resetsAt = data.resetsAt;
+        throw err;
     }
 
     const reader = res.body.getReader();
@@ -1287,6 +1301,7 @@ async function streamChatAPI(messages, onDelta, options, onStep){
     let sources = [];
     let memoryWrites = [];
     let errorMessage = null;
+    let usage = null;
 
     while(true){
         const { done, value } = await reader.read();
@@ -1314,6 +1329,7 @@ async function streamChatAPI(messages, onDelta, options, onStep){
             } else if(payload.type === "done"){
                 sources = Array.isArray(payload.sources) ? payload.sources : [];
                 memoryWrites = Array.isArray(payload.memoryWrites) ? payload.memoryWrites : [];
+                usage = payload.usage || null;
             } else if(payload.type === "error"){
                 errorMessage = payload.message || "Something went wrong. Please try again.";
             }
@@ -1321,7 +1337,7 @@ async function streamChatAPI(messages, onDelta, options, onStep){
     }
 
     if(errorMessage) throw new Error(errorMessage);
-    return { sources, memoryWrites };
+    return { sources, memoryWrites, usage };
 }
 
 // ---------- Generic modal open/close ----------
@@ -5464,7 +5480,7 @@ async function streamAssistantReply(){
     try{
         let accumulated = "";
         let firstChunkReceived = false;
-        const { sources, memoryWrites } = await streamChatAPI(chatHistory, (chunk) => {
+        const { sources, memoryWrites, usage } = await streamChatAPI(chatHistory, (chunk) => {
             if(!firstChunkReceived){
                 aiContent.textContent = "";
                 firstChunkReceived = true;
@@ -5473,6 +5489,8 @@ async function streamAssistantReply(){
             aiContent.innerHTML = formatAIText(accumulated);
             chatAutoScroll();
         }, { research: researchModeEnabled, website: activeChatTool === "codex", agent: activeChatTool === "agent" }, onAgentStep);
+
+        maybeWarnLowMessageBalance(usage);
 
         if(!accumulated){
             aiContent.textContent = "Sorry, I didn't get a response. Please try again.";
@@ -5496,9 +5514,57 @@ async function streamAssistantReply(){
             }
         }
     }catch(err){
-        aiContent.textContent = friendlyErrorMessage(err);
+        if(err.code === "limit_reached"){
+            renderLimitReachedCard(aiContent, err);
+        } else {
+            aiContent.textContent = friendlyErrorMessage(err);
+        }
     }
     chatAutoScroll();
+}
+
+// Special-cased instead of just plain error text, since this is the one
+// error that has an actual next step for the person to take. Reuses the
+// pricing modal/route that already exists rather than inventing new UI.
+// A quiet heads-up before someone hits the hard wall, not after — shown
+// at most once per calendar month (matches the quota's own reset), via
+// localStorage so refreshing the page doesn't spam it again immediately.
+const LOW_BALANCE_WARN_THRESHOLD = 5;
+function maybeWarnLowMessageBalance(usage){
+    if(!usage || typeof usage.remaining !== "number") return;
+    if(usage.remaining > LOW_BALANCE_WARN_THRESHOLD) return;
+    const month = new Date().toISOString().slice(0, 7);
+    const key = "zyntra-low-balance-warned-" + month;
+    if(localStorage.getItem(key)) return;
+    localStorage.setItem(key, "1");
+    const planLabel = planDisplayName(usage.plan);
+    if(usage.remaining <= 0){
+        showToast(`You're out of messages on your ${planLabel} plan this month.`);
+    } else {
+        showToast(`⚠️ Only ${usage.remaining} message${usage.remaining === 1 ? "" : "s"} left on your ${planLabel} plan this month.`);
+    }
+}
+
+function renderLimitReachedCard(container, err){
+    container.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "limit-reached-card";
+    card.innerHTML = `
+        <p class="limit-reached-text">${escapeForDisplay(err.message || "You've reached your monthly message limit.")}</p>
+    `;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "limit-reached-upgrade-btn";
+    btn.textContent = "Upgrade plan";
+    btn.addEventListener("click", () => {
+        openModal("pricingModal");
+        if(typeof resetPricingModalView === "function") resetPricingModalView();
+        if(typeof setPricingStatus === "function") setPricingStatus("");
+        if(typeof applyPlanToUI === "function") applyPlanToUI(getCachedPlan());
+        navigateToRoute("plans");
+    });
+    card.appendChild(btn);
+    container.appendChild(card);
 }
 
 // Truncates chatHistory + the DOM back to right after the user message
@@ -6899,10 +6965,16 @@ if(!hasMediaRecorderSupport){
         }catch(err){
             if(myTurnId !== jarvisTurnId) return;
             voiceBox.removeChild(voiceBox.lastChild);
-            setJarvisStatus("Sorry, I couldn't process that.");
+            clearJarvisSpeechQueue();
+            if(err.code === "limit_reached"){
+                const spokenLimitMsg = err.message || "You've reached your monthly message limit. You can upgrade your plan from the menu.";
+                setJarvisStatus(spokenLimitMsg);
+                enqueueJarvisSpeech(spokenLimitMsg, "en");
+            } else {
+                setJarvisStatus("Sorry, I couldn't process that.");
+            }
             jarvisStreamDone = true;
             jarvisOnTurnDone = null;
-            clearJarvisSpeechQueue();
             if(jarvisContinuousMode) startJarvisListening();
         }
     }
