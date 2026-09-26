@@ -17,6 +17,66 @@ export const config = {
   maxDuration: 60
 };
 
+// ================= Plan-limit enforcement =================
+// The real, server-side gate for monthly message quotas. Mirrors the
+// tiers drafted for Razorpay (billing/{uid}.plan, written only via a
+// verified payment in api/payment.js — never trust the client's own
+// idea of its plan). Usage itself piggybacks on the usage-tracking
+// system that already existed here (users/{uid}/usage/{YYYY-MM},
+// incremented once per completed reply in logUsage() below) — a new
+// calendar month is automatically a fresh, empty doc, so there's no
+// separate reset job to run or forget to run.
+const PLAN_LIMITS = { free: 50, starter: 150, pro: 500, ultra: 1500 };
+const PLAN_LABELS = { free: "Free", starter: "Starter", pro: "Pro", ultra: "Ultra" };
+
+function startOfNextMonthISO() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
+}
+
+// Read-only check — deliberately does NOT increment anything itself.
+// The single source of truth for the "messages" counter stays logUsage()
+// (below), which only fires after a reply actually completes, so a
+// request that fails partway through never costs the user a message.
+// This does mean two truly simultaneous requests from the same user
+// could both pass this check right at the boundary and push the count
+// one over the limit — an acceptable, standard trade-off (the same one
+// most consumer usage-quota systems make) rather than paying for a full
+// transaction on every single chat message for a one-message edge case.
+async function checkPlanLimit(uid) {
+  try {
+    const db = getAdminDb();
+    const month = new Date().toISOString().slice(0, 7);
+    const [billingSnap, usageSnap] = await Promise.all([
+      db.collection("billing").doc(uid).get(),
+      db.collection("users").doc(uid).collection("usage").doc(month).get()
+    ]);
+
+    const plan = billingSnap.exists ? (billingSnap.data().plan || "free") : "free";
+    const limit = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
+    const used = usageSnap.exists ? (usageSnap.data().messages || 0) : 0;
+
+    if (used >= limit) {
+      const resetsAt = startOfNextMonthISO();
+      const resetLabel = new Date(resetsAt).toLocaleDateString("en-US", { month: "long", day: "numeric" });
+      return {
+        allowed: false,
+        plan,
+        limit,
+        used,
+        resetsAt,
+        message: `You've used all ${limit} messages on your ${PLAN_LABELS[plan] || "Free"} plan this month. Upgrade for a higher limit, or wait until it resets on ${resetLabel}.`
+      };
+    }
+    return { allowed: true, plan, limit, used };
+  } catch (err) {
+    // Never let our own tracking failure block someone from chatting —
+    // fail open, same philosophy as logUsage()'s error handling below.
+    console.error("Plan limit check failed — allowing the request through:", err.message);
+    return { allowed: true };
+  }
+}
+
 // ================= Agent tools =================
 // Each tool has a JSON schema (sent to the model so it knows the tool
 // exists and how to call it) and an `execute` function (runs server-side
@@ -1491,6 +1551,33 @@ export default async function handler(req, res) {
       console.error("Auth/Google/GitHub/Slack/Discord/Notion/Trello lookup failed (continuing without those tools):", err.message);
     }
 
+    // Signed-in users are gated by their plan's monthly message quota;
+    // guests (no verified uid) aren't tracked here at all today, same as
+    // the usage-logging below — they only get the un-synced local chat,
+    // so this isn't a real bypass for anyone who actually wants their
+    // history saved.
+    let planUsageInfo = null; // attached to the response so the client can show a low-balance warning before the hard cutoff
+    if (uid) {
+      const limitCheck = await checkPlanLimit(uid);
+      if (!limitCheck.allowed) {
+        return res.status(402).json({
+          error: limitCheck.message,
+          code: "limit_reached",
+          plan: limitCheck.plan,
+          limit: limitCheck.limit,
+          used: limitCheck.used,
+          resetsAt: limitCheck.resetsAt
+        });
+      }
+      // -1 accounts for the message this very request is about to use,
+      // so "remaining" reflects what's left AFTER this reply completes.
+      planUsageInfo = {
+        plan: limitCheck.plan,
+        limit: limitCheck.limit,
+        remaining: Math.max(0, limitCheck.limit - limitCheck.used - 1)
+      };
+    }
+
     // ---- Usage tracking ----
     // Accumulates real Groq usage across every round of the agent loop
     // (including retries/fallbacks) for THIS single /api/chat call, then
@@ -2004,7 +2091,7 @@ Rules:
       if (compoundAnswer) {
         onDelta(compoundAnswer);
         await logUsage();
-        sendEvent({ type: "done", sources: [], memoryWrites: [] });
+        sendEvent({ type: "done", sources: [], memoryWrites: [], usage: planUsageInfo });
         return res.end();
       }
 
@@ -2041,7 +2128,7 @@ Rules:
       const zyntra_sources = extractSourcesFromToolMessages(streamResult.finalMessages || [], research ? 12 : 6);
       const zyntra_memory_writes = extractMemoryWrites(streamResult.finalMessages || []);
       await logUsage();
-      sendEvent({ type: "done", sources: zyntra_sources, memoryWrites: zyntra_memory_writes });
+      sendEvent({ type: "done", sources: zyntra_sources, memoryWrites: zyntra_memory_writes, usage: planUsageInfo });
       return res.end();
     }
 
@@ -2052,7 +2139,8 @@ Rules:
       return res.status(200).json({
         choices: [{ message: { role: 'assistant', content: compoundAnswer }, finish_reason: 'stop' }],
         zyntra_sources: [],
-        zyntra_memory_writes: []
+        zyntra_memory_writes: [],
+        zyntra_usage: planUsageInfo
       });
     }
 
@@ -2079,7 +2167,7 @@ Rules:
     const zyntra_memory_writes = extractMemoryWrites(result.finalMessages || []);
 
     await logUsage();
-    return res.status(200).json({ ...result.data, zyntra_sources, zyntra_memory_writes });
+    return res.status(200).json({ ...result.data, zyntra_sources, zyntra_memory_writes, zyntra_usage: planUsageInfo });
   } catch (error) {
     console.error('Unhandled /api/chat error:', error);
     if (res.headersSent) {
