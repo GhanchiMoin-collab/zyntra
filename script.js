@@ -1278,7 +1278,8 @@ async function streamChatAPI(messages, onDelta, options, onStep){
     const res = await fetch("/api/chat", {
         method: "POST",
         headers,
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: opts.signal
     });
 
     if(!res.ok || !res.body){
@@ -5161,7 +5162,11 @@ function appendLoadingAiBubble(initialHTML){
     aiAvatar.className = "ai-message-avatar";
     const aiContent = document.createElement("div");
     aiContent.className = "ai-message-content";
-    aiContent.innerHTML = initialHTML;
+    if(initialHTML === "Thinking..."){
+        renderThinkingIndicator(aiContent, "Thinking");
+    } else {
+        aiContent.innerHTML = initialHTML;
+    }
     loadingDiv.appendChild(aiAvatar);
     loadingDiv.appendChild(aiContent);
     chatMessages.appendChild(loadingDiv);
@@ -5209,7 +5214,7 @@ function runImageGeneration(msg, loadingDiv, aiContent){
 }
 
 async function runImageModeConversationalReply(msg, loadingDiv, aiContent){
-    aiContent.textContent = "Thinking...";
+    renderThinkingIndicator(aiContent, "Thinking");
 
     // A lightweight system note so the reply understands the context it's
     // replying in, without needing the actual image data.
@@ -5304,6 +5309,7 @@ function startEditingUserMessage(userDiv, p, originalText){
 }
 
 async function sendChatMessage(prefill){
+    if(activeStreamController) return; // a reply is already streaming — Stop it first
     const msg = (prefill !== undefined ? prefill : userInput.value.trim());
     if(!msg && !attachedImage && !attachedDocument) return;
 
@@ -5437,6 +5443,7 @@ async function sendChatMessage(prefill){
 // user's message, then calls this again instead of duplicating all this
 // streaming/UI logic).
 async function streamAssistantReply(){
+    if(activeStreamController) return; // guard against two overlapping streams (e.g. Regenerate clicked mid-reply)
     const loadingDiv = document.createElement("div");
     loadingDiv.className = "ai-message";
     loadingDiv.dataset.historyIndex = String(chatHistory.length); // where this reply will land once pushed
@@ -5449,7 +5456,7 @@ async function streamAssistantReply(){
     stepsDiv.style.display = "none";
     const aiContent = document.createElement("div");
     aiContent.className = "ai-message-content";
-    aiContent.textContent = researchModeEnabled ? "🔎 Researching…" : (activeChatTool === "agent" ? "🤖 Starting up..." : "Thinking...");
+    renderThinkingIndicator(aiContent, researchModeEnabled ? "Researching" : (activeChatTool === "agent" ? "Starting up" : "Thinking"));
     loadingDiv.appendChild(aiAvatar);
     loadingDiv.appendChild(stepsDiv);
     loadingDiv.appendChild(aiContent);
@@ -5477,9 +5484,24 @@ async function streamAssistantReply(){
         }
     }
 
+    let accumulated = "";
+    let firstChunkReceived = false;
+    const controller = new AbortController();
+    setGeneratingState(true, controller);
+
+    function finalizeReply(){
+        chatHistory.push({ role: "assistant", content: accumulated });
+        logMessageToHistory("assistant", accumulated);
+        loadingDiv.classList.add("done");
+        const bar = addMessageActionBar(aiContent, accumulated);
+        addRegenerateButton(bar, loadingDiv);
+        const aiTime = document.createElement("span");
+        aiTime.className = "msg-time";
+        aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        aiContent.appendChild(aiTime);
+    }
+
     try{
-        let accumulated = "";
-        let firstChunkReceived = false;
         const { sources, memoryWrites, usage } = await streamChatAPI(chatHistory, (chunk) => {
             if(!firstChunkReceived){
                 aiContent.textContent = "";
@@ -5488,39 +5510,62 @@ async function streamAssistantReply(){
             accumulated += chunk;
             aiContent.innerHTML = formatAIText(accumulated);
             chatAutoScroll();
-        }, { research: researchModeEnabled, website: activeChatTool === "codex", agent: activeChatTool === "agent" }, onAgentStep);
+        }, { research: researchModeEnabled, website: activeChatTool === "codex", agent: activeChatTool === "agent", signal: controller.signal }, onAgentStep);
 
         maybeWarnLowMessageBalance(usage);
 
         if(!accumulated){
             aiContent.textContent = "Sorry, I didn't get a response. Please try again.";
         } else {
-            chatHistory.push({ role: "assistant", content: accumulated });
-            logMessageToHistory("assistant", accumulated);
+            finalizeReply();
             addMemories(memoryWrites);
-            loadingDiv.classList.add("done");
             if(sources && sources.length){
                 aiContent.appendChild(buildSourcesRow(sources));
             }
-            const bar = addMessageActionBar(aiContent, accumulated);
-            addRegenerateButton(bar, loadingDiv);
-            const aiTime = document.createElement("span");
-            aiTime.className = "msg-time";
-            aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-            aiContent.appendChild(aiTime);
 
             if(activeChatTool === "data" && dataAnalysisDataset){
                 runDataAnalysisCodeIfPresent(accumulated, aiContent);
             }
         }
     }catch(err){
-        if(err.code === "limit_reached"){
+        if(err.name === "AbortError"){
+            // The person hit Stop — keep whatever was written so far as a
+            // real, normal message (matches ChatGPT/Claude/Gemini: stopping
+            // never throws the partial answer away) rather than treating
+            // this as a failure.
+            if(accumulated){
+                finalizeReply();
+            } else {
+                loadingDiv.remove();
+            }
+        } else if(err.code === "limit_reached"){
             renderLimitReachedCard(aiContent, err);
         } else {
             aiContent.textContent = friendlyErrorMessage(err);
         }
     }
+    setGeneratingState(false, null);
     chatAutoScroll();
+}
+
+// A small animated three-dot indicator instead of static "Thinking..."
+// text — the kind of detail that makes an AI chat feel like a real,
+// finished product rather than a placeholder string.
+function renderThinkingIndicator(container, label){
+    container.innerHTML = `<span class="thinking-indicator"><span class="thinking-label">${escapeForDisplay(label)}</span><span class="thinking-dots"><i></i><i></i><i></i></span></span>`;
+}
+
+// Toggles the composer between "Send" and "Stop generating" — the other
+// half of feeling like a real product: every mainstream AI chat lets you
+// interrupt a reply instead of being stuck waiting it out.
+let activeStreamController = null;
+function setGeneratingState(generating, controller){
+    activeStreamController = generating ? controller : null;
+    const sendBtn = document.getElementById("sendMessage");
+    if(!sendBtn) return;
+    sendBtn.classList.toggle("is-stop", generating);
+    sendBtn.innerHTML = generating ? "&#9632;" : "&#10148;"; // ■ stop / ➤ send
+    sendBtn.title = generating ? "Stop generating" : "Send";
 }
 
 // Special-cased instead of just plain error text, since this is the one
@@ -5593,7 +5638,13 @@ function addRegenerateButton(bar, aiMessageDiv){
     bar.appendChild(btn);
 }
 
-document.getElementById("sendMessage").addEventListener("click", () => sendChatMessage());
+document.getElementById("sendMessage").addEventListener("click", () => {
+    if(activeStreamController){
+        activeStreamController.abort();
+        return;
+    }
+    sendChatMessage();
+});
 userInput.addEventListener("keydown", e => {
     if(e.key === "Enter") sendChatMessage();
 });
