@@ -12,6 +12,10 @@ import { signState } from "./oauthState.js";
 // history reads via REST, kept intentionally minimal.
 const SCOPES = "identify guilds bot";
 const BOT_PERMISSIONS = "66560"; // View Channels + Send Messages + Read Message History
+// Separate, much narrower scope for "Sign in with Discord" — no bot
+// invite, no server picker, just enough to identify the person and
+// (if they've made it public) their email.
+const SIGNIN_SCOPES = "identify email";
 
 function clientId() { return process.env.DISCORD_CLIENT_ID?.trim(); }
 function clientSecret() { return process.env.DISCORD_CLIENT_SECRET?.trim(); }
@@ -31,6 +35,23 @@ export function getConsentUrl(uid, req) {
     scope: SCOPES,
     permissions: BOT_PERMISSIONS,
     state: signState("discord", uid)
+  });
+  return `https://discord.com/oauth2/authorize?${params.toString()}`;
+}
+
+// The sign-in variant: no uid yet (that's the whole point — this is how
+// someone gets one), no bot/guild scopes, no server-picker screen. Uses
+// the sentinel uid "signin" through the same signed-state mechanism so
+// oauth-callback.js can tell the two flows apart without a second
+// callback endpoint or a schema change to signState/verifyState.
+export function getSigninConsentUrl(req) {
+  if (!clientId()) throw new Error("Discord OAuth environment variables are not fully set.");
+  const params = new URLSearchParams({
+    client_id: clientId(),
+    redirect_uri: redirectUri(req),
+    response_type: "code",
+    scope: SIGNIN_SCOPES,
+    state: signState("discord", "signin")
   });
   return `https://discord.com/oauth2/authorize?${params.toString()}`;
 }
