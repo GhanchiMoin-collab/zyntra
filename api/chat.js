@@ -26,12 +26,26 @@ export const config = {
 // incremented once per completed reply in logUsage() below) — a new
 // calendar month is automatically a fresh, empty doc, so there's no
 // separate reset job to run or forget to run.
-const PLAN_LIMITS = { free: 50, starter: 150, pro: 500, ultra: 1500 };
-const PLAN_LABELS = { free: "Free", starter: "Starter", pro: "Pro", ultra: "Ultra" };
+const PLAN_LIMITS = { guest: 10, free: 50, starter: 150, pro: 500, ultra: 1500 };
+const PLAN_LABELS = { guest: "Guest", free: "Free", starter: "Starter", pro: "Pro", ultra: "Ultra" };
 
 function startOfNextMonthISO() {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
+}
+
+// Best-effort client IP for guest tracking — Vercel populates
+// x-forwarded-for. Not cryptographically solid (a VPN or shared network
+// changes it), but that's an acceptable ceiling for a soft guest quota
+// whose whole point is nudging people toward a free account, not a
+// security boundary.
+function getClientIp(req) {
+  const fwd = req.headers["x-forwarded-for"];
+  if (fwd) return String(fwd).split(",")[0].trim();
+  return req.socket?.remoteAddress || "unknown";
+}
+function safeDocId(str) {
+  return String(str).replace(/[^a-zA-Z0-9.:_-]/g, "_").slice(0, 200) || "unknown";
 }
 
 // Read-only check — deliberately does NOT increment anything itself.
@@ -52,8 +66,11 @@ async function checkPlanLimit(uid) {
       db.collection("users").doc(uid).collection("usage").doc(month).get()
     ]);
 
-    const plan = billingSnap.exists ? (billingSnap.data().plan || "free") : "free";
-    const limit = PLAN_LIMITS[plan] || PLAN_LIMITS.free;
+    const billingData = billingSnap.exists ? billingSnap.data() : {};
+    const plan = billingData.plan || "free";
+    // Referral bonus messages (granted via api/payment.js's
+    // claim-referral action) stack on top of the plan's base limit.
+    const limit = (PLAN_LIMITS[plan] || PLAN_LIMITS.free) + (billingData.bonusMessages || 0);
     const used = usageSnap.exists ? (usageSnap.data().messages || 0) : 0;
 
     if (used >= limit) {
@@ -73,6 +90,38 @@ async function checkPlanLimit(uid) {
     // Never let our own tracking failure block someone from chatting —
     // fail open, same philosophy as logUsage()'s error handling below.
     console.error("Plan limit check failed — allowing the request through:", err.message);
+    return { allowed: true };
+  }
+}
+
+// Same idea as checkPlanLimit but for people who aren't signed in at
+// all — tracked by IP+month in a separate collection since there's no
+// uid to key off. Deliberately a lower ceiling than the signed-in Free
+// plan, so hitting it is a nudge toward creating a free account rather
+// than a wall.
+async function checkGuestLimit(ip) {
+  try {
+    const db = getAdminDb();
+    const month = new Date().toISOString().slice(0, 7);
+    const ref = db.collection("guestUsage").doc(`${safeDocId(ip)}_${month}`);
+    const snap = await ref.get();
+    const used = snap.exists ? (snap.data().messages || 0) : 0;
+    const limit = PLAN_LIMITS.guest;
+
+    if (used >= limit) {
+      const resetsAt = startOfNextMonthISO();
+      const resetLabel = new Date(resetsAt).toLocaleDateString("en-US", { month: "long", day: "numeric" });
+      return {
+        allowed: false,
+        limit,
+        used,
+        resetsAt,
+        message: `You've used all ${limit} free messages this month. Sign in for a free account with a higher monthly limit (${PLAN_LIMITS.free} messages), or wait until it resets on ${resetLabel}.`
+      };
+    }
+    return { allowed: true, limit, used };
+  } catch (err) {
+    console.error("Guest limit check failed — allowing the request through:", err.message);
     return { allowed: true };
   }
 }
@@ -1551,12 +1600,12 @@ export default async function handler(req, res) {
       console.error("Auth/Google/GitHub/Slack/Discord/Notion/Trello lookup failed (continuing without those tools):", err.message);
     }
 
-    // Signed-in users are gated by their plan's monthly message quota;
-    // guests (no verified uid) aren't tracked here at all today, same as
-    // the usage-logging below — they only get the un-synced local chat,
-    // so this isn't a real bypass for anyone who actually wants their
-    // history saved.
+    // Signed-in users are gated by their plan's monthly quota; guests are
+    // now tracked too (by IP, see checkGuestLimit) with a lower ceiling —
+    // hitting it is the moment they're prompted to sign in, not a wall
+    // with no way through.
     let planUsageInfo = null; // attached to the response so the client can show a low-balance warning before the hard cutoff
+    let guestIp = null;
     if (uid) {
       const limitCheck = await checkPlanLimit(uid);
       if (!limitCheck.allowed) {
@@ -1575,6 +1624,23 @@ export default async function handler(req, res) {
         plan: limitCheck.plan,
         limit: limitCheck.limit,
         remaining: Math.max(0, limitCheck.limit - limitCheck.used - 1)
+      };
+    } else {
+      guestIp = getClientIp(req);
+      const guestCheck = await checkGuestLimit(guestIp);
+      if (!guestCheck.allowed) {
+        return res.status(402).json({
+          error: guestCheck.message,
+          code: "guest_limit_reached",
+          limit: guestCheck.limit,
+          used: guestCheck.used,
+          resetsAt: guestCheck.resetsAt
+        });
+      }
+      planUsageInfo = {
+        plan: "guest",
+        limit: guestCheck.limit,
+        remaining: Math.max(0, guestCheck.limit - guestCheck.used - 1)
       };
     }
 
@@ -1599,23 +1665,29 @@ export default async function handler(req, res) {
     // (Firestore down, admin not configured, etc.) is logged and swallowed
     // — it must never break the actual chat response the user is waiting on.
     async function logUsage() {
-      if (!uid) return; // not signed in — nothing to attribute this to
       try {
         const month = new Date().toISOString().slice(0, 7); // "2026-09"
-        const ref = getAdminDb().collection('users').doc(uid).collection('usage').doc(month);
-        const update = {
-          messages: increment(1),
-          groqRequests: increment(usageStats.groqRequests),
-          inputTokens: increment(usageStats.inputTokens),
-          outputTokens: increment(usageStats.outputTokens),
-          totalTokens: increment(usageStats.totalTokens),
-          lastUpdated: new Date().toISOString()
-        };
-        if (research) update.researchRequests = increment(1);
-        for (const [model, count] of Object.entries(usageStats.modelCounts)) {
-          update[`modelCounts.${model}`] = increment(count);
+        if (uid) {
+          const ref = getAdminDb().collection('users').doc(uid).collection('usage').doc(month);
+          const update = {
+            messages: increment(1),
+            groqRequests: increment(usageStats.groqRequests),
+            inputTokens: increment(usageStats.inputTokens),
+            outputTokens: increment(usageStats.outputTokens),
+            totalTokens: increment(usageStats.totalTokens),
+            lastUpdated: new Date().toISOString()
+          };
+          if (research) update.researchRequests = increment(1);
+          for (const [model, count] of Object.entries(usageStats.modelCounts)) {
+            update[`modelCounts.${model}`] = increment(count);
+          }
+          await ref.set(update, { merge: true });
+        } else if (guestIp) {
+          // Lighter-weight — just the message count that gates the guest
+          // quota, not the full token/model breakdown signed-in usage gets.
+          const ref = getAdminDb().collection('guestUsage').doc(`${safeDocId(guestIp)}_${month}`);
+          await ref.set({ messages: increment(1), lastUpdated: new Date().toISOString() }, { merge: true });
         }
-        await ref.set(update, { merge: true });
       } catch (err) {
         console.error('Usage logging failed (non-fatal, response already served):', err.message);
       }
