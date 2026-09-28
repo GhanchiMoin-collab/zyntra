@@ -24,6 +24,7 @@ import {
 } from "./slackOAuth.js";
 import {
   getConsentUrl as discordConsentUrl,
+  getSigninConsentUrl as discordSigninConsentUrl,
   exchangeCodeForToken as discordExchangeCodeForToken,
   saveDiscordTokens,
   getStoredDiscordTokens,
@@ -141,6 +142,26 @@ export const PROVIDERS = {
   },
   discord: {
     getConsentUrl: (uid, req) => discordConsentUrl(uid, req),
+    getSigninConsentUrl: (req) => discordSigninConsentUrl(req),
+    // Used only by the "Sign in with Discord" flow (oauth-callback.js
+    // branches to this instead of handleCallback when state's uid is
+    // the "signin" sentinel). Deliberately doesn't touch
+    // discord_oauth_tokens at all — that collection is for the bot
+    // connector, a completely separate concern from authentication.
+    async handleSigninCallback(code, req) {
+      const tokenData = await discordExchangeCodeForToken(code, req);
+      const userRes = await fetch("https://discord.com/api/users/@me", {
+        headers: { "Authorization": `Bearer ${tokenData.access_token}` }
+      });
+      const profile = await userRes.json();
+      if (!profile?.id) throw new Error("Could not read your Discord profile.");
+      return {
+        externalId: profile.id,
+        // Only trust it if Discord itself says it's verified.
+        email: (profile.verified && profile.email) ? profile.email : null,
+        displayName: profile.global_name || profile.username || null
+      };
+    },
     async handleCallback(code, req, uid) {
       const tokenData = await discordExchangeCodeForToken(code, req);
       if (!tokenData.guild) {
