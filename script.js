@@ -1809,7 +1809,7 @@ async function claimPendingReferralIfAny(){
 }
 
 async function fetchReferralInfo(){
-    if(!isLoggedIn()) return null;
+    if(!isLoggedIn()) return { error: "Sign in to get your invite link." };
     try{
         const idToken = await activeAuth().currentUser.getIdToken();
         const resp = await fetch("/api/payment?action=get-referral-info", {
@@ -1817,10 +1817,23 @@ async function fetchReferralInfo(){
             headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
             body: "{}"
         });
-        if(!resp.ok) return null;
-        return await resp.json();
+        const raw = await resp.text();
+        let data = {};
+        try{ data = raw ? JSON.parse(raw) : {}; }catch{}
+        if(!resp.ok){
+            // "Unknown action" means the server is still running an older
+            // api/payment.js without the referral actions.
+            if(data.error && /unknown action/i.test(data.error)){
+                return { error: "Referrals aren't live on the server yet — the latest api/payment.js needs to be deployed." };
+            }
+            if(!data.error){
+                return { error: "The referral service didn't respond (HTTP " + resp.status + "). Check that api/payment.js is deployed." };
+            }
+            return { error: data.error };
+        }
+        return data;
     }catch(err){
-        return null;
+        return { error: "Couldn't reach the server — check your connection and try again." };
     }
 }
 
@@ -1842,8 +1855,8 @@ async function openReferralModal(){
 function renderReferralModal(info){
     const body = document.getElementById("referralModalBody");
     if(!body) return;
-    if(!info){
-        body.innerHTML = `<p class="pricing-status">Couldn't load your invite link right now — try again in a moment.</p>`;
+    if(!info || info.error){
+        body.innerHTML = `<p class="pricing-status">${escapeForDisplay((info && info.error) || "Couldn't load your invite link right now — try again in a moment.")}</p>`;
         return;
     }
     const link = `${window.location.origin}/r/${info.code}`;
