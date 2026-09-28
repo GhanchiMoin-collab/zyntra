@@ -35,6 +35,19 @@ export default async function handler(req, res) {
       return res.status(200).json({ url });
     }
 
+    // "Sign in with <provider>" — the one action here that deliberately
+    // does NOT require an existing session, since its whole job is to
+    // create one. Only providers that define getSigninConsentUrl
+    // (currently Discord) support it.
+    if (action === "signin-start") {
+      if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+      if (!provider.getSigninConsentUrl) {
+        return res.status(400).json({ error: `Sign-in with ${providerKey} isn't supported.` });
+      }
+      const url = await provider.getSigninConsentUrl(req);
+      return res.status(200).json({ url });
+    }
+
     if (action === "status") {
       if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
       if (!idToken) return res.status(401).json({ error: "Not signed in." });
