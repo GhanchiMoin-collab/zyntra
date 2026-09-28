@@ -1722,7 +1722,7 @@ function renderAuthNav(){
 // Admin SDK, can ever change it. See firestore.rules and api/payment.js
 // for the full reasoning.
 
-const PLAN_LABELS = { free: "Free", starter: "Starter", pro: "Pro", ultra: "Ultra" };
+const PLAN_LABELS = { guest: "Guest", free: "Free", starter: "Starter", pro: "Pro", ultra: "Ultra" };
 function planDisplayName(plan){
     return PLAN_LABELS[plan] || "Free";
 }
@@ -1770,6 +1770,113 @@ async function refreshUserPlan(){
         return getCachedPlan();
     }
 }
+
+// ================= Referrals =================
+// A referral link is /r/<code> (see applyRouteFromPath). Visiting one
+// while signed out stashes the code in localStorage and opens sign-in;
+// once sign-in actually completes (any method — email, Google, Apple,
+// Discord, phone), finishSignin() calls claimPendingReferralIfAny(),
+// which hands the code to api/payment.js's claim-referral action. That
+// endpoint owns every real rule (self-referral, already-claimed, code
+// must exist) — this is just the trigger, never the source of truth.
+function stashPendingReferral(code){
+    if(code) localStorage.setItem("zyntra-pending-referral", code.trim().toUpperCase());
+}
+
+async function claimPendingReferralIfAny(){
+    const code = localStorage.getItem("zyntra-pending-referral");
+    if(!code) return;
+    localStorage.removeItem("zyntra-pending-referral");
+    try{
+        const idToken = await activeAuth().currentUser.getIdToken();
+        const resp = await fetch("/api/payment?action=claim-referral", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: JSON.stringify({ code })
+        });
+        const data = await resp.json();
+        if(resp.ok){
+            showToast(`🎁 Referral bonus applied — +${data.bonusMessages} messages this month!`);
+            refreshUserPlan();
+        }
+        // A failed claim (already used, self-referral, bad code) fails
+        // completely silently — the person just signed in successfully,
+        // and a referral bonus is a nice-to-have, not something worth
+        // interrupting that moment to complain about.
+    }catch(err){
+        // Same reasoning — swallow it.
+    }
+}
+
+async function fetchReferralInfo(){
+    if(!isLoggedIn()) return null;
+    try{
+        const idToken = await activeAuth().currentUser.getIdToken();
+        const resp = await fetch("/api/payment?action=get-referral-info", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: "{}"
+        });
+        if(!resp.ok) return null;
+        return await resp.json();
+    }catch(err){
+        return null;
+    }
+}
+
+async function openReferralModal(){
+    if(!isLoggedIn()){
+        if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+        openModal("signinModal");
+        navigateToRoute("login");
+        return;
+    }
+    openModal("referralModal");
+    navigateToRoute("invite");
+    const body = document.getElementById("referralModalBody");
+    if(body) body.innerHTML = `<p class="pricing-status">Loading your invite link...</p>`;
+    const info = await fetchReferralInfo();
+    renderReferralModal(info);
+}
+
+function renderReferralModal(info){
+    const body = document.getElementById("referralModalBody");
+    if(!body) return;
+    if(!info){
+        body.innerHTML = `<p class="pricing-status">Couldn't load your invite link right now — try again in a moment.</p>`;
+        return;
+    }
+    const link = `${window.location.origin}/r/${info.code}`;
+    body.innerHTML = `
+        <p class="referral-blurb">Share your link — you and your friend each get <strong>+${REFERRAL_BONUS_DISPLAY} messages</strong> for the month once they sign in.</p>
+        <div class="referral-link-row">
+            <input type="text" id="referralLinkInput" class="referral-link-input" readonly value="${escapeAttr(link)}">
+            <button type="button" id="referralCopyBtn" class="referral-copy-btn">Copy</button>
+        </div>
+        <div class="referral-stats-row">
+            <div class="referral-stat"><span class="referral-stat-num">${info.referralCount}</span><span class="referral-stat-label">Friends joined</span></div>
+            <div class="referral-stat"><span class="referral-stat-num">${info.bonusMessages}</span><span class="referral-stat-label">Bonus messages</span></div>
+        </div>
+    `;
+    document.getElementById("referralCopyBtn")?.addEventListener("click", () => {
+        const input = document.getElementById("referralLinkInput");
+        input.select();
+        navigator.clipboard?.writeText(link).then(() => {
+            const btn = document.getElementById("referralCopyBtn");
+            btn.textContent = "Copied!";
+            setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+        }).catch(() => {
+            document.execCommand("copy");
+        });
+    });
+}
+const REFERRAL_BONUS_DISPLAY = 20; // matches REFERRAL_BONUS_MESSAGES in api/payment.js — display-only, server enforces the real number
+
+document.getElementById("accountMenuInvite")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openReferralModal();
+});
+document.getElementById("referralModalClose")?.addEventListener("click", () => { closeModal("referralModal"); revertRouteToCurrentTool(); });
 
 function applyPlanToUI(plan){
     const sidebarPlanEl = document.getElementById("sidebarUserPlan");
@@ -2290,6 +2397,7 @@ function finishSignin(email){
     renderAuthNav();
     renderSidebarHistory();
     showToast("✅ You're signed in successfully!");
+    claimPendingReferralIfAny();
 
     // Adding a second account started from Settings — hop back there so
     // the newly added account shows up in the switcher right away.
@@ -3011,7 +3119,7 @@ setTimeout(tryApplyInitialRoute, 4000); // safety net if auth never resolves
 function attachAuthStateListener(authInstance, slot){
     authInstance.onAuthStateChanged(user => {
         if(user){
-            saveKnownAccount(slot, user.email);
+            saveKnownAccount(slot, user.email || user.phoneNumber || user.displayName);
         } else {
             removeKnownAccount(slot);
         }
@@ -3085,6 +3193,12 @@ function resetSigninModalUI(){
     document.getElementById("signinSubmit").textContent = "Sign In";
     document.getElementById("signupToggleText").innerHTML = 'Don\'t have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign up</a>';
     document.getElementById("signupToggleLink").addEventListener("click", handleSignupToggleClick);
+    const phonePanel = document.getElementById("phoneSigninPanel");
+    if(phonePanel) phonePanel.style.display = "none";
+    const phoneCodeRow = document.getElementById("phoneCodeRow");
+    if(phoneCodeRow) phoneCodeRow.style.display = "none";
+    const discordBtn = document.getElementById("discordSigninBtn");
+    if(discordBtn) discordBtn.disabled = false;
 }
 
 function handleSignupToggleClick(e){
@@ -3176,6 +3290,153 @@ document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
 // currentSessionId must be declared before renderAuthNav() runs, since
 // renderAuthNav -> updateDeleteChatBtnVisibility reads it.
 let currentSessionId = null;
+
+// ---------- Apple ----------
+// Firebase supports Apple natively — but it only works once Apple is
+// enabled as a provider in the Firebase console, which itself needs a
+// paid Apple Developer account (Services ID, key, Team ID). Until then
+// the button shows Firebase's own "operation not allowed" error.
+document.getElementById("appleSigninBtn")?.addEventListener("click", () => {
+    clearSigninError();
+    const provider = new firebase.auth.OAuthProvider("apple.com");
+    provider.addScope("email");
+    provider.addScope("name");
+    activeAuth().signInWithPopup(provider)
+        .then(result => {
+            finishSignin(result.user.email || result.user.displayName || "Apple account");
+        })
+        .catch(err => {
+            if(err.code === "auth/operation-not-allowed"){
+                showSigninError("Sign in with Apple isn't set up yet.");
+                return;
+            }
+            const msg = firebaseErrorMessage(err.code, err.message);
+            if(msg) showSigninError(msg);
+        });
+});
+
+// ---------- Discord ----------
+// Firebase has no built-in Discord provider, so this is a small custom
+// flow: our backend runs the Discord OAuth handshake, finds/creates a
+// Firebase account for that Discord user, and hands the browser a custom
+// token in the URL fragment (see api/auth/oauth-callback.js) which
+// consumeOAuthSigninHash() below exchanges for a real Firebase session.
+document.getElementById("discordSigninBtn")?.addEventListener("click", async () => {
+    clearSigninError();
+    const btn = document.getElementById("discordSigninBtn");
+    btn.disabled = true;
+    try{
+        const resp = await fetch("/api/auth/oauth-manage?action=signin-start&provider=discord");
+        const data = await resp.json();
+        if(!resp.ok || !data.url) throw new Error(data.error || "Discord sign-in isn't available right now.");
+        window.location.href = data.url;
+    }catch(err){
+        showSigninError(err.message || "Discord sign-in isn't available right now.");
+        btn.disabled = false;
+    }
+});
+
+// Runs when /login loads: picks up either a Discord custom token in the
+// URL fragment or an error the callback bounced back with.
+function consumeOAuthSigninHash(){
+    const params = new URLSearchParams(window.location.search);
+    const oauthError = params.get("oauth_error");
+    if(oauthError){
+        window.history.replaceState({}, "", "/login");
+        resetSigninModalUI();
+        openModal("signinModal");
+        showSigninError(oauthError);
+        return true;
+    }
+    const match = (window.location.hash || "").match(/^#discord_token=(.+)$/);
+    if(!match) return false;
+    const token = decodeURIComponent(match[1]);
+    // Scrub the token out of the address bar and history right away.
+    window.history.replaceState({}, "", "/login");
+    activeAuth().signInWithCustomToken(token)
+        .then(result => {
+            finishSignin(result.user.email || result.user.displayName || "Discord account");
+        })
+        .catch(err => {
+            resetSigninModalUI();
+            openModal("signinModal");
+            showSigninError(firebaseErrorMessage(err.code, err.message) || "Discord sign-in failed. Please try again.");
+        });
+    return true;
+}
+
+// ---------- Phone number ----------
+// Firebase Phone Auth: invisible reCAPTCHA -> SMS code -> confirm.
+// Needs the Phone provider enabled in the Firebase console, and real
+// SMS delivery needs the project on the Blaze (pay-as-you-go) plan.
+let phoneConfirmationResult = null;
+let phoneRecaptchaVerifier = null;
+
+document.getElementById("phoneSigninBtn")?.addEventListener("click", () => {
+    clearSigninError();
+    const panel = document.getElementById("phoneSigninPanel");
+    panel.style.display = panel.style.display === "none" ? "" : "none";
+    if(panel.style.display !== "none") document.getElementById("phoneSigninNumber")?.focus();
+});
+
+document.getElementById("phoneSendCodeBtn")?.addEventListener("click", async () => {
+    clearSigninError();
+    const numberInput = document.getElementById("phoneSigninNumber");
+    const number = numberInput.value.replace(/[\s()-]/g, "");
+    if(!/^\+\d{8,15}$/.test(number)){
+        showSigninError("Enter your number with country code, like +919876543210.");
+        return;
+    }
+    const btn = document.getElementById("phoneSendCodeBtn");
+    btn.disabled = true;
+    btn.textContent = "Sending...";
+    try{
+        if(!phoneRecaptchaVerifier){
+            phoneRecaptchaVerifier = new firebase.auth.RecaptchaVerifier("phoneRecaptchaContainer", { size: "invisible" });
+        }
+        phoneConfirmationResult = await activeAuth().signInWithPhoneNumber(number, phoneRecaptchaVerifier);
+        document.getElementById("phoneCodeRow").style.display = "";
+        document.getElementById("phoneSigninCode")?.focus();
+        showToast("📩 Code sent — check your messages.");
+    }catch(err){
+        // A used-up verifier can't be reused after a failure.
+        try{ phoneRecaptchaVerifier?.clear(); }catch{}
+        phoneRecaptchaVerifier = null;
+        const msg = err.code === "auth/operation-not-allowed"
+            ? "Phone sign-in isn't set up yet."
+            : (firebaseErrorMessage(err.code, err.message) || "Couldn't send the code. Check the number and try again.");
+        showSigninError(msg);
+    }finally{
+        btn.disabled = false;
+        btn.textContent = "Send code";
+    }
+});
+
+document.getElementById("phoneVerifyBtn")?.addEventListener("click", async () => {
+    clearSigninError();
+    const code = document.getElementById("phoneSigninCode").value.trim();
+    if(!phoneConfirmationResult){
+        showSigninError("Request a code first.");
+        return;
+    }
+    if(!/^\d{6}$/.test(code)){
+        showSigninError("Enter the 6-digit code.");
+        return;
+    }
+    const btn = document.getElementById("phoneVerifyBtn");
+    btn.disabled = true;
+    try{
+        const result = await phoneConfirmationResult.confirm(code);
+        phoneConfirmationResult = null;
+        finishSignin(result.user.phoneNumber || "Phone account");
+    }catch(err){
+        showSigninError(err.code === "auth/invalid-verification-code"
+            ? "That code isn't right. Try again."
+            : (firebaseErrorMessage(err.code, err.message) || "Couldn't verify the code."));
+    }finally{
+        btn.disabled = false;
+    }
+});
 
 renderAuthNav();
 
@@ -5538,7 +5799,7 @@ async function streamAssistantReply(){
             } else {
                 loadingDiv.remove();
             }
-        } else if(err.code === "limit_reached"){
+        } else if(err.code === "limit_reached" || err.code === "guest_limit_reached"){
             renderLimitReachedCard(aiContent, err);
         } else {
             aiContent.textContent = friendlyErrorMessage(err);
@@ -5600,14 +5861,23 @@ function renderLimitReachedCard(container, err){
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "limit-reached-upgrade-btn";
-    btn.textContent = "Upgrade plan";
-    btn.addEventListener("click", () => {
-        openModal("pricingModal");
-        if(typeof resetPricingModalView === "function") resetPricingModalView();
-        if(typeof setPricingStatus === "function") setPricingStatus("");
-        if(typeof applyPlanToUI === "function") applyPlanToUI(getCachedPlan());
-        navigateToRoute("plans");
-    });
+    if(err.code === "guest_limit_reached"){
+        btn.textContent = "Sign in — it's free";
+        btn.addEventListener("click", () => {
+            if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+            openModal("signinModal");
+            navigateToRoute("login");
+        });
+    } else {
+        btn.textContent = "Upgrade plan";
+        btn.addEventListener("click", () => {
+            openModal("pricingModal");
+            if(typeof resetPricingModalView === "function") resetPricingModalView();
+            if(typeof setPricingStatus === "function") setPricingStatus("");
+            if(typeof applyPlanToUI === "function") applyPlanToUI(getCachedPlan());
+            navigateToRoute("plans");
+        });
+    }
     card.appendChild(btn);
     container.appendChild(card);
 }
@@ -7017,7 +7287,7 @@ if(!hasMediaRecorderSupport){
             if(myTurnId !== jarvisTurnId) return;
             voiceBox.removeChild(voiceBox.lastChild);
             clearJarvisSpeechQueue();
-            if(err.code === "limit_reached"){
+            if(err.code === "limit_reached" || err.code === "guest_limit_reached"){
                 const spokenLimitMsg = err.message || "You've reached your monthly message limit. You can upgrade your plan from the menu.";
                 setJarvisStatus(spokenLimitMsg);
                 enqueueJarvisSpeech(spokenLimitMsg, "en");
@@ -7838,7 +8108,8 @@ const ROUTE_META = {
     "search": { title: "Search Chats — Zyntra AI", description: "Search across your Zyntra AI chat history." },
     "shares": { title: "My Shared Chats — Zyntra AI", description: "Chats and projects you've shared from Zyntra AI." },
     "persona": { title: "Personas — Zyntra AI", description: "Create and switch between custom AI personas in Zyntra AI." },
-    "incognito": { title: "Temporary Chat — Zyntra AI", description: "A Zyntra AI chat that skips memory, history, and personalization." }
+    "incognito": { title: "Temporary Chat — Zyntra AI", description: "A Zyntra AI chat that skips memory, history, and personalization." },
+    "invite": { title: "Invite Friends — Zyntra AI", description: "Share your Zyntra AI referral link and earn bonus messages." }
 };
 
 const TOOL_TO_SLUG = { chat: "chat", image: "image-generator", voice: "jarvis", codex: "codex", agent: "agent-mode", business: "business-tools", data: "data-analysis" };
@@ -7876,7 +8147,8 @@ const ROUTED_MODAL_SLUGS = {
     mySharesModal: "shares",
     personaModal: "persona",
     contactModal: "contact",
-    profileModal: "settings"
+    profileModal: "settings",
+    referralModal: "invite"
 };
 function revertRouteToCurrentTool(){
     navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
@@ -7969,6 +8241,7 @@ function applyRouteFromPath(){
         return;
     }
     if(slug === "login"){
+        if(consumeOAuthSigninHash()) return;
         if(typeof resetSigninModalUI === "function") resetSigninModalUI();
         openModal("signinModal");
         setRouteMeta("login");
@@ -8002,6 +8275,28 @@ function applyRouteFromPath(){
     if(slug === "incognito"){
         setTemporaryChatActive(true);
         setRouteMeta("incognito");
+        return;
+    }
+    if(slug === "invite"){
+        openReferralModal();
+        setRouteMeta("invite");
+        return;
+    }
+    if(slug === "r" && subId){
+        // Not a page of its own — just the trigger. Stash the code, then
+        // immediately go back to "/" so the URL doesn't stay on a route
+        // with nothing to actually show.
+        stashPendingReferral(subId);
+        if(isLoggedIn()){
+            showToast("You're already signed in on this device.");
+        } else {
+            if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+            openModal("signinModal");
+            document.getElementById("signinContext").textContent = "🎁 Sign up to claim your referral bonus.";
+            document.getElementById("signinContext").style.display = "";
+        }
+        window.history.replaceState({}, "", isLoggedIn() ? "/" : "/login");
+        setRouteMeta(isLoggedIn() ? "" : "login");
         return;
     }
     if(slug === "plugins"){
