@@ -1344,7 +1344,6 @@ async function streamChatAPI(messages, onDelta, options, onStep){
 // ---------- Generic modal open/close ----------
 
 function openModal(id){
-    if(id === "signinModal" && typeof showPhoneView === "function") showPhoneView(false);
     // Every modal shares one overlay layer/z-index, so if another modal is
     // still open underneath, whichever happens to sit later in the HTML
     // would silently paint on top — not necessarily the one just opened.
@@ -1645,18 +1644,30 @@ if(!localStorage.getItem("zyntra-visited")){
 
 // ---------- Splash screen ----------
 
+// Was keyed off window's "load" event before, which only fires once every
+// external resource (fonts, any remaining third-party script, images)
+// has finished — on a slow or flaky connection that can take anywhere
+// from instant to "never", which is exactly why this used to show up
+// inconsistently. DOMContentLoaded only waits on the page's own HTML, so
+// it's consistent regardless of network conditions, and the fallback
+// timeout below is a hard ceiling so the splash can never get stuck up
+// even in a worst case.
+let splashHidden = false;
 function hideSplashScreen(){
+    if(splashHidden) return;
+    splashHidden = true;
     setTimeout(() => {
         const splash = document.getElementById("splashScreen");
         if(splash) splash.classList.add("hide");
     }, 900);
 }
 
-if(document.readyState === "complete"){
-    hideSplashScreen();
+if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", hideSplashScreen);
 } else {
-    window.addEventListener("load", hideSplashScreen);
+    hideSplashScreen();
 }
+setTimeout(hideSplashScreen, 4000); // hard ceiling — never stays up longer than this no matter what
 
 // ---------- Install app button ----------
 
@@ -2305,6 +2316,8 @@ document.getElementById("signoutCancel")?.addEventListener("click", () => closeM
 document.getElementById("signoutConfirm")?.addEventListener("click", () => {
     const btn = document.getElementById("signoutConfirm");
     btn.disabled = true;
+    closeModal("signoutModal");
+    showAuthLoading("Signing you out…");
 
     // Save this account's latest state to the cloud before wiping the
     // local copy, so nothing is lost — then always drop to a clean Guest
@@ -2324,12 +2337,14 @@ document.getElementById("signoutConfirm")?.addEventListener("click", () => {
         renderAuthNav();
         renderSidebarHistory();
         btn.disabled = false;
+        hideAuthLoading(1000);
     });
 });
 document.getElementById("signinModalClose")?.addEventListener("click", () => { closeModal("signinModal"); revertRouteToCurrentTool(); });
 let isSignupMode = false;
 
 function showSigninError(message){
+    hideAuthLoading(0);
     const errEl = document.getElementById("signinError");
     errEl.textContent = message;
     errEl.style.display = "block";
@@ -2355,7 +2370,7 @@ function firebaseErrorMessage(code, rawMessage){
         case "auth/too-many-requests":
             return "Too many attempts. Please wait a moment and try again.";
         case "auth/account-exists-with-different-credential":
-            return "This email already has a password-based account. Please sign in with your email and password instead of Google.";
+            return "This email is already registered with a different sign-in method. Please sign in with that method instead.";
         case "auth/popup-closed-by-user":
             return "Sign-in was closed before finishing. Please try again.";
         case "auth/popup-blocked":
@@ -2372,6 +2387,7 @@ function firebaseErrorMessage(code, rawMessage){
 }
 
 function finishSignin(email){
+    hideAuthLoading(1000);
     const wasAddingAccount = accountAddPreviousSlot !== null;
 
     // Adding an account you're already signed into elsewhere on this
@@ -3207,7 +3223,6 @@ function resetSigninModalUI(){
     document.getElementById("signinSubmit").textContent = "Sign In";
     document.getElementById("signupToggleText").innerHTML = 'Don\'t have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign up</a>';
     document.getElementById("signupToggleLink").addEventListener("click", handleSignupToggleClick);
-    showPhoneView(false);
 }
 
 function handleSignupToggleClick(e){
@@ -3239,6 +3254,7 @@ document.getElementById("signinSubmit")?.addEventListener("click", () => {
     const original = btn.textContent;
     btn.textContent = isSignupMode ? "Creating account..." : "Signing in...";
     btn.disabled = true;
+    showAuthLoading(isSignupMode ? "Creating your account…" : "Signing you in…");
 
     if(!isSignupMode){
         activeAuth().signInWithEmailAndPassword(email, password)
@@ -3288,6 +3304,7 @@ document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
     // https://firebase.google.com/docs/auth/web/redirect-best-practices
     activeAuth().signInWithPopup(provider)
         .then(result => {
+            showAuthLoading("Signing you in…");
             finishSignin(result.user.email);
         })
         .catch(err => {
@@ -3300,282 +3317,58 @@ document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
 // renderAuthNav -> updateDeleteChatBtnVisibility reads it.
 let currentSessionId = null;
 
-// ---------- Apple ----------
-// Firebase supports Apple natively — but it only works once Apple is
-// enabled as a provider in the Firebase console, which itself needs a
-// paid Apple Developer account (Services ID, key, Team ID). Until then
-// the button shows Firebase's own "operation not allowed" error.
-document.getElementById("appleSigninBtn")?.addEventListener("click", () => {
+// ---------- Loading screen (sign in / sign out) ----------
+// One full-screen overlay shared by every sign-in method and sign-out.
+// It stays up for a minimum time so it never just flashes, and a safety
+// timer guarantees it can't get stuck if something upstream never
+// reports back.
+let authLoadingShownAt = 0;
+let authLoadingHideTimer = null;
+let authLoadingSafetyTimer = null;
+function showAuthLoading(text){
+    const el = document.getElementById("authLoadingOverlay");
+    if(!el) return;
+    clearTimeout(authLoadingHideTimer);
+    const label = document.getElementById("authLoadingText");
+    if(label) label.textContent = text || "Signing you in…";
+    el.style.display = "flex";
+    authLoadingShownAt = Date.now();
+    clearTimeout(authLoadingSafetyTimer);
+    authLoadingSafetyTimer = setTimeout(() => hideAuthLoading(0), 12000);
+}
+function hideAuthLoading(minVisibleMs){
+    const el = document.getElementById("authLoadingOverlay");
+    if(!el || el.style.display === "none") return;
+    const min = minVisibleMs === undefined ? 900 : minVisibleMs;
+    const wait = Math.max(0, min - (Date.now() - authLoadingShownAt));
+    clearTimeout(authLoadingHideTimer);
+    authLoadingHideTimer = setTimeout(() => {
+        el.style.display = "none";
+        clearTimeout(authLoadingSafetyTimer);
+    }, wait);
+}
+
+// ---------- Microsoft ----------
+// Firebase supports Microsoft natively (free). It only works once
+// Microsoft is enabled in the Firebase console with an app registered in
+// Azure (Application/client ID + client secret).
+document.getElementById("microsoftSigninBtn")?.addEventListener("click", () => {
     clearSigninError();
-    const provider = new firebase.auth.OAuthProvider("apple.com");
-    provider.addScope("email");
-    provider.addScope("name");
+    const provider = new firebase.auth.OAuthProvider("microsoft.com");
+    provider.setCustomParameters({ prompt: "select_account" });
     activeAuth().signInWithPopup(provider)
         .then(result => {
-            finishSignin(result.user.email || result.user.displayName || "Apple account");
+            showAuthLoading("Signing you in…");
+            finishSignin(result.user.email || result.user.displayName || "Microsoft account");
         })
         .catch(err => {
             if(err.code === "auth/operation-not-allowed"){
-                showSigninError("Sign in with Apple isn't available yet.");
+                showSigninError("Sign in with Microsoft isn't available yet.");
                 return;
             }
             const msg = firebaseErrorMessage(err.code, err.message);
             if(msg) showSigninError(msg);
         });
-});
-
-// ---------- Phone number ----------
-// A dedicated screen (opened from "Continue with phone number") with a
-// country picker, then a code-entry step. Uses Firebase Phone Auth:
-// invisible reCAPTCHA -> SMS code -> confirm. Needs the Phone provider
-// enabled in the Firebase console; real SMS delivery needs the project on
-// the Blaze (pay-as-you-go) plan.
-const PHONE_COUNTRIES = "AF|Afghanistan|93;AL|Albania|355;DZ|Algeria|213;AS|American Samoa|1;AD|Andorra|376;AO|Angola|244;AI|Anguilla|1;AG|Antigua and Barbuda|1;AR|Argentina|54;AM|Armenia|374;AW|Aruba|297;AU|Australia|61;AT|Austria|43;AZ|Azerbaijan|994;BS|Bahamas|1;BH|Bahrain|973;BD|Bangladesh|880;BB|Barbados|1;BY|Belarus|375;BE|Belgium|32;BZ|Belize|501;BJ|Benin|229;BM|Bermuda|1;BT|Bhutan|975;BO|Bolivia|591;BA|Bosnia and Herzegovina|387;BW|Botswana|267;BR|Brazil|55;VG|British Virgin Islands|1;BN|Brunei|673;BG|Bulgaria|359;BF|Burkina Faso|226;BI|Burundi|257;KH|Cambodia|855;CM|Cameroon|237;CA|Canada|1;CV|Cape Verde|238;KY|Cayman Islands|1;CF|Central African Republic|236;TD|Chad|235;CL|Chile|56;CN|China|86;CO|Colombia|57;KM|Comoros|269;CG|Congo|242;CD|Congo (DRC)|243;CK|Cook Islands|682;CR|Costa Rica|506;CI|Côte d'Ivoire|225;HR|Croatia|385;CU|Cuba|53;CW|Curaçao|599;CY|Cyprus|357;CZ|Czechia|420;DK|Denmark|45;DJ|Djibouti|253;DM|Dominica|1;DO|Dominican Republic|1;EC|Ecuador|593;EG|Egypt|20;SV|El Salvador|503;GQ|Equatorial Guinea|240;ER|Eritrea|291;EE|Estonia|372;SZ|Eswatini|268;ET|Ethiopia|251;FJ|Fiji|679;FI|Finland|358;FR|France|33;GF|French Guiana|594;PF|French Polynesia|689;GA|Gabon|241;GM|Gambia|220;GE|Georgia|995;DE|Germany|49;GH|Ghana|233;GI|Gibraltar|350;GR|Greece|30;GL|Greenland|299;GD|Grenada|1;GP|Guadeloupe|590;GU|Guam|1;GT|Guatemala|502;GN|Guinea|224;GW|Guinea-Bissau|245;GY|Guyana|592;HT|Haiti|509;HN|Honduras|504;HK|Hong Kong|852;HU|Hungary|36;IS|Iceland|354;IN|India|91;ID|Indonesia|62;IR|Iran|98;IQ|Iraq|964;IE|Ireland|353;IL|Israel|972;IT|Italy|39;JM|Jamaica|1;JP|Japan|81;JO|Jordan|962;KZ|Kazakhstan|7;KE|Kenya|254;KI|Kiribati|686;XK|Kosovo|383;KW|Kuwait|965;KG|Kyrgyzstan|996;LA|Laos|856;LV|Latvia|371;LB|Lebanon|961;LS|Lesotho|266;LR|Liberia|231;LY|Libya|218;LI|Liechtenstein|423;LT|Lithuania|370;LU|Luxembourg|352;MO|Macao|853;MG|Madagascar|261;MW|Malawi|265;MY|Malaysia|60;MV|Maldives|960;ML|Mali|223;MT|Malta|356;MQ|Martinique|596;MR|Mauritania|222;MU|Mauritius|230;MX|Mexico|52;MD|Moldova|373;MC|Monaco|377;MN|Mongolia|976;ME|Montenegro|382;MS|Montserrat|1;MA|Morocco|212;MZ|Mozambique|258;MM|Myanmar|95;NA|Namibia|264;NR|Nauru|674;NP|Nepal|977;NL|Netherlands|31;NC|New Caledonia|687;NZ|New Zealand|64;NI|Nicaragua|505;NE|Niger|227;NG|Nigeria|234;MK|North Macedonia|389;NO|Norway|47;OM|Oman|968;PK|Pakistan|92;PW|Palau|680;PS|Palestine|970;PA|Panama|507;PG|Papua New Guinea|675;PY|Paraguay|595;PE|Peru|51;PH|Philippines|63;PL|Poland|48;PT|Portugal|351;PR|Puerto Rico|1;QA|Qatar|974;RE|Réunion|262;RO|Romania|40;RU|Russia|7;RW|Rwanda|250;KN|Saint Kitts and Nevis|1;LC|Saint Lucia|1;VC|Saint Vincent and the Grenadines|1;WS|Samoa|685;SM|San Marino|378;ST|São Tomé and Príncipe|239;SA|Saudi Arabia|966;SN|Senegal|221;RS|Serbia|381;SC|Seychelles|248;SL|Sierra Leone|232;SG|Singapore|65;SK|Slovakia|421;SI|Slovenia|386;SB|Solomon Islands|677;SO|Somalia|252;ZA|South Africa|27;KR|South Korea|82;SS|South Sudan|211;ES|Spain|34;LK|Sri Lanka|94;SD|Sudan|249;SR|Suriname|597;SE|Sweden|46;CH|Switzerland|41;SY|Syria|963;TW|Taiwan|886;TJ|Tajikistan|992;TZ|Tanzania|255;TH|Thailand|66;TL|Timor-Leste|670;TG|Togo|228;TO|Tonga|676;TT|Trinidad and Tobago|1;TN|Tunisia|216;TR|Türkiye|90;TM|Turkmenistan|993;TC|Turks and Caicos Islands|1;UG|Uganda|256;UA|Ukraine|380;AE|United Arab Emirates|971;GB|United Kingdom|44;US|United States|1;UY|Uruguay|598;VI|U.S. Virgin Islands|1;UZ|Uzbekistan|998;VU|Vanuatu|678;VE|Venezuela|58;VN|Vietnam|84;YE|Yemen|967;ZM|Zambia|260;ZW|Zimbabwe|263".split(";").map(entry => {
-    const [iso, name, dial] = entry.split("|");
-    return { iso, name, dial };
-}).sort((a, b) => a.name.localeCompare(b.name));
-
-let phoneCountry = null;
-let phoneConfirmationResult = null;
-let phoneRecaptchaVerifier = null;
-
-function phoneFlagUrl(iso){
-    return "https://flagcdn.com/w40/" + iso.toLowerCase() + ".png";
-}
-
-// Best-effort default: India by timezone (browser language is often en-US
-// even in India), otherwise the region in the browser language, else US.
-function guessDefaultPhoneCountry(){
-    let region = null;
-    try{
-        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-        if(/Kolkata|Calcutta/i.test(tz)) region = "IN";
-        if(!region){
-            const m = (navigator.language || "").match(/-([A-Za-z]{2})$/);
-            if(m) region = m[1].toUpperCase();
-        }
-    }catch{}
-    return PHONE_COUNTRIES.find(c => c.iso === region) || PHONE_COUNTRIES.find(c => c.iso === "US");
-}
-
-function setPhoneCountry(country){
-    phoneCountry = country;
-    const flag = document.getElementById("countryPickerFlag");
-    if(flag){ flag.src = phoneFlagUrl(country.iso); flag.alt = country.name; }
-    const label = document.getElementById("countryPickerLabel");
-    if(label) label.textContent = `${country.name} (+${country.dial})`;
-    const prefix = document.getElementById("phoneDialPrefix");
-    if(prefix) prefix.textContent = "+" + country.dial;
-}
-
-function renderCountryList(filter){
-    const box = document.getElementById("countryListItems");
-    if(!box) return;
-    box.innerHTML = "";
-    const q = (filter || "").trim().toLowerCase();
-    const digitsQuery = q.replace(/^\+/, "");
-    const isDialQuery = /^\d+$/.test(digitsQuery);
-    const matches = PHONE_COUNTRIES.filter(c => !q || (isDialQuery ? c.dial.startsWith(digitsQuery) : c.name.toLowerCase().includes(q)));
-    if(!matches.length){
-        const empty = document.createElement("div");
-        empty.className = "country-empty";
-        empty.textContent = "No matching country";
-        box.appendChild(empty);
-        return;
-    }
-    matches.forEach(c => {
-        const item = document.createElement("button");
-        item.type = "button";
-        item.className = "country-item";
-        if(phoneCountry && c.iso === phoneCountry.iso) item.classList.add("selected");
-        const flag = document.createElement("img");
-        flag.className = "country-flag";
-        flag.loading = "lazy";
-        flag.alt = "";
-        flag.src = phoneFlagUrl(c.iso);
-        const text = document.createElement("span");
-        text.textContent = `${c.name} (+${c.dial})`;
-        item.appendChild(flag);
-        item.appendChild(text);
-        if(phoneCountry && c.iso === phoneCountry.iso){
-            const check = document.createElement("span");
-            check.className = "country-item-check";
-            check.textContent = "✓";
-            item.appendChild(check);
-        }
-        item.addEventListener("click", () => {
-            setPhoneCountry(c);
-            closeCountryList();
-            document.getElementById("phoneSigninNumber")?.focus();
-        });
-        box.appendChild(item);
-    });
-}
-
-function openCountryList(){
-    const list = document.getElementById("countryPickerList");
-    const search = document.getElementById("countrySearch");
-    if(!list) return;
-    list.style.display = "";
-    if(search) search.value = "";
-    renderCountryList("");
-    const box = document.getElementById("countryListItems");
-    const selected = box?.querySelector(".selected");
-    if(box && selected) box.scrollTop = Math.max(0, selected.offsetTop - box.clientHeight / 2);
-    search?.focus();
-}
-function closeCountryList(){
-    const list = document.getElementById("countryPickerList");
-    if(list) list.style.display = "none";
-}
-
-function setPhoneError(which, message){
-    const el = document.getElementById(which === "code" ? "phoneCodeError" : "phoneNumberError");
-    if(!el) return;
-    el.textContent = message || "";
-    el.style.display = message ? "" : "none";
-}
-
-function showPhoneStep(step){
-    document.getElementById("phoneStepNumber").style.display = step === "number" ? "" : "none";
-    document.getElementById("phoneStepCode").style.display = step === "code" ? "" : "none";
-    setPhoneError("number", "");
-    setPhoneError("code", "");
-    closeCountryList();
-}
-
-// Swaps the whole sign-in modal between the normal options screen and the
-// phone screen. Also called with false every time the modal opens (see
-// openModal) so it never reopens stuck on the phone screen.
-function showPhoneView(show){
-    const main = document.getElementById("signinMainView");
-    const view = document.getElementById("phoneSigninView");
-    if(!main || !view) return;
-    main.style.display = show ? "none" : "";
-    view.style.display = show ? "" : "none";
-    const tag = document.getElementById("signinTag");
-    const title = document.getElementById("signinTitle");
-    if(tag) tag.style.display = show ? "none" : "";
-    if(title) title.style.display = show ? "none" : "";
-    if(show){
-        if(!phoneCountry) setPhoneCountry(guessDefaultPhoneCountry());
-        showPhoneStep("number");
-        setTimeout(() => document.getElementById("phoneSigninNumber")?.focus(), 60);
-    } else {
-        closeCountryList();
-        phoneConfirmationResult = null;
-    }
-}
-
-function phoneErrorText(err){
-    switch(err.code){
-        case "auth/operation-not-allowed":
-        case "auth/billing-not-enabled":
-            return "Phone sign-in isn't available yet.";
-        case "auth/invalid-phone-number":
-            return "That phone number doesn't look right.";
-        case "auth/too-many-requests":
-            return "Too many attempts. Please try again later.";
-        case "auth/quota-exceeded":
-            return "We can't send more codes right now. Please try again later.";
-        case "auth/invalid-verification-code":
-            return "That code isn't right. Try again.";
-        case "auth/code-expired":
-            return "That code has expired. Request a new one.";
-        default:
-            return firebaseErrorMessage(err.code, err.message) || "Something went wrong. Please try again.";
-    }
-}
-
-async function sendPhoneCode(){
-    setPhoneError("number", "");
-    const input = document.getElementById("phoneSigninNumber");
-    let digits = input.value.replace(/\D/g, "").replace(/^0+/, ""); // drop the local trunk "0"
-    if(phoneCountry.dial === "1" && digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1);
-    const validLength = phoneCountry.dial === "1" ? digits.length === 10 : (digits.length >= 6 && digits.length <= 13);
-    if(!validLength){
-        setPhoneError("number", "Enter a valid phone number.");
-        return;
-    }
-    const e164 = "+" + phoneCountry.dial + digits;
-    const btn = document.getElementById("phoneSendCodeBtn");
-    btn.disabled = true;
-    btn.textContent = "Sending...";
-    try{
-        if(!phoneRecaptchaVerifier){
-            phoneRecaptchaVerifier = new firebase.auth.RecaptchaVerifier("phoneRecaptchaContainer", { size: "invisible" }, activeAuth().app);
-        }
-        phoneConfirmationResult = await activeAuth().signInWithPhoneNumber(e164, phoneRecaptchaVerifier);
-        document.getElementById("phoneCodeSub").textContent = `We sent a 6-digit code to ${e164}.`;
-        document.getElementById("phoneSigninCode").value = "";
-        showPhoneStep("code");
-        setTimeout(() => document.getElementById("phoneSigninCode")?.focus(), 60);
-    }catch(err){
-        // A verifier that has failed once can't be reused.
-        try{ phoneRecaptchaVerifier?.clear(); }catch{}
-        phoneRecaptchaVerifier = null;
-        setPhoneError("number", phoneErrorText(err));
-    }finally{
-        btn.disabled = false;
-        btn.textContent = "Continue with phone";
-    }
-}
-
-async function verifyPhoneCode(){
-    setPhoneError("code", "");
-    const code = document.getElementById("phoneSigninCode").value.trim();
-    if(!phoneConfirmationResult){
-        setPhoneError("code", "Request a new code first.");
-        return;
-    }
-    if(!/^\d{6}$/.test(code)){
-        setPhoneError("code", "Enter the 6-digit code.");
-        return;
-    }
-    const btn = document.getElementById("phoneVerifyBtn");
-    btn.disabled = true;
-    btn.textContent = "Verifying...";
-    try{
-        const result = await phoneConfirmationResult.confirm(code);
-        phoneConfirmationResult = null;
-        finishSignin(result.user.phoneNumber || "Phone account");
-    }catch(err){
-        setPhoneError("code", phoneErrorText(err));
-    }finally{
-        btn.disabled = false;
-        btn.textContent = "Verify and continue";
-    }
-}
-
-document.getElementById("phoneSigninBtn")?.addEventListener("click", () => {
-    clearSigninError();
-    showPhoneView(true);
-});
-document.getElementById("phoneBackBtn")?.addEventListener("click", () => {
-    const onCodeStep = document.getElementById("phoneStepCode").style.display !== "none";
-    if(onCodeStep) showPhoneStep("number");
-    else showPhoneView(false);
-});
-document.getElementById("phoneChangeNumberBtn")?.addEventListener("click", () => {
-    phoneConfirmationResult = null;
-    showPhoneStep("number");
-    document.getElementById("phoneSigninNumber")?.focus();
-});
-document.getElementById("countryPickerBtn")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const list = document.getElementById("countryPickerList");
-    if(list.style.display === "none") openCountryList(); else closeCountryList();
-});
-document.getElementById("countrySearch")?.addEventListener("input", (e) => renderCountryList(e.target.value));
-document.getElementById("countryPickerList")?.addEventListener("click", (e) => e.stopPropagation());
-document.addEventListener("click", () => closeCountryList());
-document.getElementById("phoneSendCodeBtn")?.addEventListener("click", sendPhoneCode);
-document.getElementById("phoneVerifyBtn")?.addEventListener("click", verifyPhoneCode);
-document.getElementById("phoneSigninNumber")?.addEventListener("keydown", (e) => {
-    if(e.key === "Enter"){ e.preventDefault(); sendPhoneCode(); }
-});
-document.getElementById("phoneSigninCode")?.addEventListener("keydown", (e) => {
-    if(e.key === "Enter"){ e.preventDefault(); verifyPhoneCode(); }
 });
 
 renderAuthNav();
