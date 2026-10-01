@@ -3154,6 +3154,11 @@ function attachAuthStateListener(authInstance, slot){
             removeKnownAccount(slot);
         }
         if(slot !== activeAccountSlot) return;
+        // Safety net: Firebase says signed in but the app is still showing
+        // Guest (e.g. a popup flow whose .then never ran) — finish sign-in.
+        if(user && !isLoggedIn() && accountAddPreviousSlot === null){
+            finishSignin(user.email || user.displayName || user.providerData?.[0]?.email || "Account");
+        }
         if(user){
             pullCloudToLocal().then(tryApplyInitialRoute).catch(tryApplyInitialRoute);
             refreshProjectsCache();
@@ -3353,15 +3358,19 @@ function hideAuthLoading(minVisibleMs){
 // Microsoft is enabled in the Firebase console with an app registered in
 // Azure (Application/client ID + client secret).
 document.getElementById("microsoftSigninBtn")?.addEventListener("click", () => {
+    console.log("[Zyntra][Microsoft] button clicked");
     clearSigninError();
     const provider = new firebase.auth.OAuthProvider("microsoft.com");
     provider.setCustomParameters({ prompt: "select_account" });
     activeAuth().signInWithPopup(provider)
         .then(result => {
+            console.log("[Zyntra][Microsoft] popup success", result.user && { email: result.user.email, name: result.user.displayName, uid: result.user.uid });
             showAuthLoading("Signing you in…");
-            finishSignin(result.user.email || result.user.displayName || "Microsoft account");
+            const u = result.user || {};
+            finishSignin(u.email || u.providerData?.[0]?.email || u.displayName || "Microsoft account");
         })
         .catch(err => {
+            console.error("[Zyntra][Microsoft] sign-in failed:", err.code, err.message);
             if(err.code === "auth/operation-not-allowed"){
                 showSigninError("Sign in with Microsoft isn't available yet.");
                 return;
