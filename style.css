@@ -51,8 +51,6 @@
     --blur-glass:blur(28px) saturate(180%);
     --blur-soft:blur(16px) saturate(160%);
 
-    scrollbar-width:thin;
-    scrollbar-color:#5d5d6b transparent;
 }
 
 *{
@@ -60,8 +58,6 @@ margin:0;
 padding:0;
 box-sizing:border-box;
 font-family:"Inter",-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
-scrollbar-width:thin;
-scrollbar-color:#5d5d6b transparent;
 }
 
 /* ---------- Custom scrollbar (Webkit) ---------- */
@@ -3717,8 +3713,6 @@ padding:0 14px 14px;
     --blur-glass:blur(28px) saturate(180%);
     --blur-soft:blur(16px) saturate(160%);
 
-    scrollbar-width:thin;
-    scrollbar-color:#5d5d6b transparent;
 }
 
 *{
@@ -3726,8 +3720,6 @@ margin:0;
 padding:0;
 box-sizing:border-box;
 font-family:"Inter",-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
-scrollbar-width:thin;
-scrollbar-color:#5d5d6b transparent;
 }
 
 /* ---------- Custom scrollbar (Webkit) ---------- */
@@ -9610,3 +9602,33 @@ padding:12px;
     background:#1f2650;
     border-color:#3a4275;
 }
+
+
+/* ==========================================================
+   Scrollbars — one consistent, slim style everywhere.
+   (Chrome ignores ::-webkit-scrollbar when scrollbar-width /
+   scrollbar-color are set, which is what produced the old
+   arrow-button bars sticking out of rounded boxes.)
+   ========================================================== */
+::-webkit-scrollbar{ width:8px; height:8px; }
+::-webkit-scrollbar-button{ display:none !important; width:0; height:0; }
+::-webkit-scrollbar-corner{ background:transparent; }
+::-webkit-scrollbar-track{ background:transparent; margin:14px 0; }
+::-webkit-scrollbar-track:horizontal{ margin:0 14px; }
+::-webkit-scrollbar-thumb{
+    background:rgba(255,255,255,.18);
+    border-radius:10px;
+    border:2px solid transparent;
+    background-clip:content-box;
+}
+::-webkit-scrollbar-thumb:hover{ background:rgba(255,255,255,.32); background-clip:content-box; }
+body.light-mode ::-webkit-scrollbar-thumb{ background:rgba(10,10,20,.20); background-clip:content-box; }
+body.light-mode ::-webkit-scrollbar-thumb:hover{ background:rgba(10,10,20,.34); background-clip:content-box; }
+
+/* Firefox (no ::-webkit-scrollbar support) */
+@supports not selector(::-webkit-scrollbar){
+    *{ scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.22) transparent; }
+}
+
+/* Popups never scroll sideways; long messages wrap inside the box */
+.modal-box{ overflow-x:hidden; overflow-wrap:anywhere; }
