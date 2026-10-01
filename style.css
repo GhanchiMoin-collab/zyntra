@@ -9866,3 +9866,72 @@ body.light-mode .table-card .table-wrap thead th{ background:#f1f1f6; }
     .paste-card{ width:170px; }
     .paste-viewer-box{ height:86vh; border-radius:14px; }
 }
+
+
+/* ==========================================================
+   Keyboard shortcuts sheet
+   ========================================================== */
+.shortcuts-overlay{
+    position:fixed;
+    inset:0;
+    z-index:410;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:16px;
+    background:rgba(0,0,0,.6);
+    backdrop-filter:blur(6px);
+    -webkit-backdrop-filter:blur(6px);
+}
+.shortcuts-box{
+    width:100%;
+    max-width:440px;
+    background:#12121a;
+    color:#ececf3;
+    border:1px solid var(--glass-border-strong, rgba(255,255,255,.16));
+    border-radius:18px;
+    box-shadow:0 30px 80px rgba(0,0,0,.55);
+    overflow:hidden;
+}
+.shortcuts-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:16px 18px;
+    border-bottom:1px solid rgba(255,255,255,.1);
+}
+.shortcuts-title{ font-weight:700; font-size:16px; }
+.shortcuts-x{
+    width:30px; height:30px;
+    border:none; border-radius:50%;
+    background:rgba(255,255,255,.08);
+    color:inherit; cursor:pointer;
+}
+.shortcuts-x:hover{ background:rgba(255,255,255,.18); }
+.shortcuts-list{ padding:8px 18px 14px; }
+.shortcuts-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    padding:11px 0;
+    border-bottom:1px solid rgba(255,255,255,.06);
+    font-size:14px;
+}
+.shortcuts-row:last-child{ border-bottom:none; }
+.shortcuts-keys{ display:flex; gap:5px; flex-shrink:0; }
+.shortcuts-keys kbd{
+    min-width:26px;
+    padding:3px 8px;
+    text-align:center;
+    font:600 12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    color:#ececf3;
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.18);
+    border-bottom-width:2px;
+    border-radius:7px;
+}
+@media (max-width:900px){
+    /* phones have no keyboard shortcuts to show off */
+    #accountMenuShortcuts{ display:none; }
+}
