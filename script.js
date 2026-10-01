@@ -3370,7 +3370,7 @@ document.getElementById("microsoftSigninBtn")?.addEventListener("click", () => {
             finishSignin(u.email || u.providerData?.[0]?.email || u.displayName || "Microsoft account");
         })
         .catch(err => {
-            console.error("[Zyntra][Microsoft] sign-in failed:", err.code, err.message);
+            console.error("[Zyntra][Microsoft] sign-in failed:", err.code, err.message, err.customData || "", err);
             if(err.code === "auth/operation-not-allowed"){
                 showSigninError("Sign in with Microsoft isn't available yet.");
                 return;
@@ -3379,7 +3379,7 @@ document.getElementById("microsoftSigninBtn")?.addEventListener("click", () => {
             // which is misleading here: for Microsoft it means Firebase
             // couldn't exchange Microsoft's login code (app setup problem).
             if(err.code === "auth/invalid-credential" || err.code === "auth/internal-error"){
-                showSigninError("Microsoft sign-in couldn't be completed (" + err.code + "). The Microsoft app settings in Firebase need to be checked.");
+                showSigninError("Microsoft sign-in couldn't be completed (" + err.code + "): " + String(err.message || "").slice(0, 400));
                 return;
             }
             const msg = firebaseErrorMessage(err.code, err.message);
