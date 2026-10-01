@@ -1909,17 +1909,19 @@ function applyPlanToUI(plan){
     if(sidebarPlanEl && isLoggedIn()) sidebarPlanEl.textContent = planDisplayName(plan);
     if(menuPlanEl) menuPlanEl.textContent = planDisplayName(plan);
 
-    document.querySelectorAll(".pricing-card-btn[data-plan]").forEach(btn => {
-        const cardPlan = btn.dataset.plan;
+    document.querySelectorAll(".pricing-card").forEach(card => {
+        const cardPlan = card.dataset.plan;
+        const btn = card.querySelector(".pricing-card-btn");
+        if(!btn) return;
         if(cardPlan === plan){
-            btn.textContent = "Current plan";
+            btn.textContent = "Your current plan";
             btn.disabled = true;
         } else if(cardPlan === "free"){
             // Free has no checkout — it's just the floor everyone starts at.
-            btn.textContent = "Use Free";
+            btn.textContent = "Included with sign-up";
             btn.disabled = true;
         } else {
-            btn.textContent = "Subscribe";
+            btn.textContent = `Upgrade to ${planDisplayName(cardPlan)}`;
             btn.disabled = false;
         }
     });
