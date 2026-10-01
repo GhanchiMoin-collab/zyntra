@@ -3375,6 +3375,13 @@ document.getElementById("microsoftSigninBtn")?.addEventListener("click", () => {
                 showSigninError("Sign in with Microsoft isn't available yet.");
                 return;
             }
+            // The generic invalid-credential text talks about email/password,
+            // which is misleading here: for Microsoft it means Firebase
+            // couldn't exchange Microsoft's login code (app setup problem).
+            if(err.code === "auth/invalid-credential" || err.code === "auth/internal-error"){
+                showSigninError("Microsoft sign-in couldn't be completed (" + err.code + "). The Microsoft app settings in Firebase need to be checked.");
+                return;
+            }
             const msg = firebaseErrorMessage(err.code, err.message);
             if(msg) showSigninError(msg);
         });
