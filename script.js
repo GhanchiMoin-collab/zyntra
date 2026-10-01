@@ -8661,3 +8661,116 @@ function decorateUserMessage(div){
     obs.observe(chatMessages, { childList: true, subtree: true });
     scan(chatMessages);
 })();
+
+
+// ==========================================================
+// Keyboard shortcuts + cheat sheet
+// ==========================================================
+const IS_MAC_KEYS = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || "");
+const MOD_LABEL = IS_MAC_KEYS ? "⌘" : "Ctrl";
+const SHORTCUT_LIST = [
+    { keys: [MOD_LABEL, "K"],            what: "Search chats" },
+    { keys: [MOD_LABEL, "Shift", "O"],   what: "Start a new chat" },
+    { keys: [MOD_LABEL, "B"],            what: "Show / hide the sidebar" },
+    { keys: ["/"],                       what: "Jump to the message box" },
+    { keys: ["?"],                       what: "Show this list" },
+    { keys: ["Enter"],                   what: "Send your message" },
+    { keys: ["Esc"],                     what: "Close pop-ups and menus" }
+];
+
+function isTypingTarget(el){
+    if(!el) return false;
+    const tag = (el.tagName || "").toLowerCase();
+    return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable;
+}
+
+function closeShortcutsSheet(){
+    document.querySelector(".shortcuts-overlay")?.remove();
+}
+
+function openShortcutsSheet(){
+    if(document.querySelector(".shortcuts-overlay")){ closeShortcutsSheet(); return; }
+    document.getElementById("accountMenu")?.classList.remove("show");
+    document.getElementById("accountMenuBackdrop")?.classList.remove("show");
+
+    const overlay = document.createElement("div");
+    overlay.className = "shortcuts-overlay";
+    const rows = SHORTCUT_LIST.map(item => `
+        <div class="shortcuts-row">
+            <span class="shortcuts-what">${item.what}</span>
+            <span class="shortcuts-keys">${item.keys.map(k => `<kbd>${k}</kbd>`).join("")}</span>
+        </div>`).join("");
+    overlay.innerHTML = `
+        <div class="shortcuts-box" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+            <div class="shortcuts-head">
+                <span class="shortcuts-title">Keyboard shortcuts</span>
+                <button type="button" class="shortcuts-x" title="Close">✕</button>
+            </div>
+            <div class="shortcuts-list">${rows}</div>
+        </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("mousedown", ev => { if(ev.target === overlay) closeShortcutsSheet(); });
+    overlay.querySelector(".shortcuts-x").addEventListener("click", closeShortcutsSheet);
+}
+
+function toggleSidebarShortcut(){
+    const sidebar = document.getElementById("sidebar");
+    if(window.innerWidth <= 900){
+        if(sidebar && sidebar.classList.contains("show")) closeSidebarMobile();
+        else if(typeof openSidebarMobile === "function") openSidebarMobile();
+        return;
+    }
+    const collapsed = document.body.classList.contains("sidebar-collapsed");
+    document.getElementById(collapsed ? "sidebarToggleBtnOuter" : "sidebarToggleBtnInner")?.click();
+}
+
+document.addEventListener("keydown", e => {
+    if(e.key === "Escape" && document.querySelector(".shortcuts-overlay")){
+        closeShortcutsSheet();
+        return;
+    }
+
+    const mod = e.ctrlKey || e.metaKey;
+    const key = (e.key || "").toLowerCase();
+
+    if(mod && !e.altKey){
+        if(key === "k" && !e.shiftKey){
+            e.preventDefault();
+            closeShortcutsSheet();
+            openSearchChatsModal();
+            return;
+        }
+        if(key === "o" && e.shiftKey){
+            e.preventDefault();
+            closeShortcutsSheet();
+            document.getElementById("newChatBtn")?.click();
+            return;
+        }
+        if(key === "b" && !e.shiftKey){
+            e.preventDefault();
+            toggleSidebarShortcut();
+            return;
+        }
+    }
+
+    // Plain-key shortcuts only when you're not typing somewhere.
+    if(mod || e.altKey || isTypingTarget(e.target)) return;
+    if(document.querySelector(".modal-overlay.show")) return;
+
+    if(e.key === "/"){
+        e.preventDefault();
+        userInput?.focus();
+    } else if(e.key === "?"){
+        e.preventDefault();
+        openShortcutsSheet();
+    }
+});
+
+document.getElementById("accountMenuShortcuts")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openShortcutsSheet();
+});
+
+// Hints on the buttons the shortcuts trigger.
+document.getElementById("newChatBtn")?.setAttribute("title", `New chat (${MOD_LABEL}+Shift+O)`);
+document.getElementById("searchChatsBtn")?.setAttribute("title", `Search chats (${MOD_LABEL}+K)`);
