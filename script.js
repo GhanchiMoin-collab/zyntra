@@ -2184,7 +2184,15 @@ function renderProfileViewModal(){
 
     document.getElementById("profileViewAvatar").textContent = letter;
     document.getElementById("profileViewName").textContent = displayName;
-    document.getElementById("profileViewHandle").textContent = `${handle} · Free`;
+    const handleEl = document.getElementById("profileViewHandle");
+    handleEl.textContent = `${handle} · ${email ? planDisplayName(getCachedPlan()) : "Guest"}`;
+    // The cached plan can be stale right after an upgrade — re-read the
+    // real one from the server and correct the label if it differs.
+    if(email && typeof refreshUserPlan === "function"){
+        refreshUserPlan().then(plan => {
+            if(plan) handleEl.textContent = `${handle} · ${planDisplayName(plan)}`;
+        }).catch(() => {});
+    }
 
     document.getElementById("profileViewTotalChats").textContent = getSessions().length;
     document.getElementById("profileViewTotalProjects").textContent = getProjects().length;
