@@ -499,7 +499,7 @@ function formatAIText(text){
         if(isTableRow(trimmed) && i + 1 < lines.length && isTableSeparator(lines[i + 1])){
             closeList();
             const headerCells = parseTableRow(trimmed);
-            let tableHtml = "<div class=\"table-wrap\"><table><thead><tr>"
+            let tableHtml = "<div class=\"table-card\"><div class=\"table-card-head\"><span class=\"table-card-label\">Table</span><button type=\"button\" class=\"table-copy-btn\">Copy</button></div><div class=\"table-wrap\"><table><thead><tr>"
                 + headerCells.map(c => "<th>" + c + "</th>").join("")
                 + "</tr></thead><tbody>";
             i += 2;
@@ -508,7 +508,7 @@ function formatAIText(text){
                 tableHtml += "<tr>" + rowCells.map(c => "<td>" + c + "</td>").join("") + "</tr>";
                 i++;
             }
-            tableHtml += "</tbody></table></div>";
+            tableHtml += "</tbody></table></div></div>";
             html += tableHtml;
             continue;
         }
@@ -1909,19 +1909,17 @@ function applyPlanToUI(plan){
     if(sidebarPlanEl && isLoggedIn()) sidebarPlanEl.textContent = planDisplayName(plan);
     if(menuPlanEl) menuPlanEl.textContent = planDisplayName(plan);
 
-    document.querySelectorAll(".pricing-card").forEach(card => {
-        const cardPlan = card.dataset.plan;
-        const btn = card.querySelector(".pricing-card-btn");
-        if(!btn) return;
+    document.querySelectorAll(".pricing-card-btn[data-plan]").forEach(btn => {
+        const cardPlan = btn.dataset.plan;
         if(cardPlan === plan){
-            btn.textContent = "Your current plan";
+            btn.textContent = "Current plan";
             btn.disabled = true;
         } else if(cardPlan === "free"){
             // Free has no checkout — it's just the floor everyone starts at.
-            btn.textContent = "Included with sign-up";
+            btn.textContent = "Use Free";
             btn.disabled = true;
         } else {
-            btn.textContent = `Upgrade to ${planDisplayName(cardPlan)}`;
+            btn.textContent = "Subscribe";
             btn.disabled = false;
         }
     });
@@ -5520,7 +5518,9 @@ function startEditingUserMessage(userDiv, p, originalText){
 
 async function sendChatMessage(prefill){
     if(activeStreamController) return; // a reply is already streaming — Stop it first
-    const msg = (prefill !== undefined ? prefill : userInput.value.trim());
+    let msg = (prefill !== undefined ? prefill : userInput.value.trim());
+    const usedPaste = (prefill === undefined && activeChatTool !== "image" && typeof composeMessageWithPaste === "function" && !!pastedChunk);
+    if(usedPaste) msg = composeMessageWithPaste(msg);
     if(!msg && !attachedImage && !attachedDocument) return;
 
     if(activeChatTool === "image" && msg){
@@ -5581,6 +5581,7 @@ async function sendChatMessage(prefill){
     userDiv.appendChild(userTime);
     chatMessages.appendChild(userDiv);
     userInput.value = "";
+    if(usedPaste) clearPastedChunk();
     chatAutoScroll();
 
     let historyContent;
@@ -8404,3 +8405,257 @@ function renderDataChart(canvas, chartData){
         }
     });
 }
+
+
+// ==========================================================
+// Table "Copy" buttons + long pasted text shown as a card
+// ==========================================================
+
+// ---- Copy a table (tab-separated, so it pastes straight into Excel / Sheets) ----
+document.addEventListener("click", e => {
+    const btn = e.target.closest(".table-copy-btn");
+    if(!btn) return;
+    const card = btn.closest(".table-card");
+    const table = card && card.querySelector("table");
+    if(!table) return;
+    const tsv = [...table.rows].map(r => [...r.cells].map(c => c.innerText.replace(/\s+/g, " ").trim()).join("\t")).join("\n");
+    const done = () => {
+        btn.textContent = "Copied ✓";
+        btn.classList.add("copied");
+        setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 1600);
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(tsv).then(done).catch(() => { fallbackCopyText(tsv); done(); });
+    } else {
+        fallbackCopyText(tsv); done();
+    }
+});
+
+function fallbackCopyText(text){
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;opacity:0;top:0;left:0;";
+    document.body.appendChild(ta);
+    ta.select();
+    try{ document.execCommand("copy"); }catch(err){}
+    ta.remove();
+}
+
+// ---- Long pasted text ----
+const PASTE_MIN_CHARS = 700;      // paste at least this long → becomes a card
+const PASTE_MIN_LINES = 10;       // ...or at least this many lines
+const LONG_BUBBLE_CHARS = 1200;   // a sent message this long is shown as a card too
+const PASTE_OPEN = "[Pasted text]";
+const PASTE_CLOSE = "[/Pasted text]";
+let pastedChunk = "";
+
+const PASTE_EDIT_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>';
+
+function pastePreviewText(t){
+    return t.replace(/\s+/g, " ").trim().slice(0, 150);
+}
+
+function composeMessageWithPaste(typed){
+    if(!pastedChunk) return typed;
+    return (typed ? typed + "\n\n" : "") + PASTE_OPEN + "\n" + pastedChunk + "\n" + PASTE_CLOSE;
+}
+
+function clearPastedChunk(){
+    pastedChunk = "";
+    renderPasteCard();
+}
+
+// Pop-up that shows ALL of the text (and lets the composer card edit it).
+function openPasteViewer(opts){
+    const old = document.querySelector(".paste-viewer-overlay");
+    if(old) old.remove();
+
+    const overlay = document.createElement("div");
+    overlay.className = "paste-viewer-overlay";
+    overlay.innerHTML = `
+        <div class="paste-viewer-box" role="dialog" aria-modal="true">
+            <div class="paste-viewer-head">
+                <span class="paste-viewer-title">${opts.editable ? "Edit pasted text" : "Pasted text"}</span>
+                <span class="paste-viewer-count"></span>
+                <button type="button" class="paste-viewer-x" title="Close">✕</button>
+            </div>
+            <textarea class="paste-viewer-text" spellcheck="false"></textarea>
+            <div class="paste-viewer-actions">
+                <button type="button" class="paste-viewer-btn paste-viewer-copy">Copy</button>
+                ${opts.editable ? '<button type="button" class="paste-viewer-btn paste-viewer-remove">Remove</button><button type="button" class="paste-viewer-btn paste-viewer-save">Save</button>' : ''}
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    const ta = overlay.querySelector(".paste-viewer-text");
+    const count = overlay.querySelector(".paste-viewer-count");
+    ta.value = opts.text;
+    ta.readOnly = !opts.editable;
+    const updateCount = () => { count.textContent = ta.value.length.toLocaleString() + " characters · " + ta.value.split(/\n/).length.toLocaleString() + " lines"; };
+    updateCount();
+    ta.addEventListener("input", updateCount);
+
+    const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); };
+    const onKey = ev => { if(ev.key === "Escape") close(); };
+    document.addEventListener("keydown", onKey);
+
+    overlay.addEventListener("mousedown", ev => { if(ev.target === overlay) close(); });
+    overlay.querySelector(".paste-viewer-x").addEventListener("click", close);
+    overlay.querySelector(".paste-viewer-copy").addEventListener("click", ev => {
+        const b = ev.currentTarget;
+        const text = ta.value;
+        if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).catch(() => fallbackCopyText(text));
+        else fallbackCopyText(text);
+        b.textContent = "Copied ✓";
+        setTimeout(() => { b.textContent = "Copy"; }, 1500);
+    });
+    if(opts.editable){
+        overlay.querySelector(".paste-viewer-save").addEventListener("click", () => {
+            const v = ta.value;
+            if(opts.onSave) opts.onSave(v);
+            close();
+        });
+        overlay.querySelector(".paste-viewer-remove").addEventListener("click", () => {
+            if(opts.onRemove) opts.onRemove();
+            close();
+        });
+    }
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(0, 0); ta.scrollTop = 0; }, 30);
+}
+
+// The card that sits above the input box while a long paste is waiting to be sent.
+function renderPasteCard(){
+    const bar = document.querySelector(".chat-input-bar");
+    if(!bar) return;
+    let host = document.getElementById("pasteCardHost");
+    if(!host){
+        host = document.createElement("div");
+        host.id = "pasteCardHost";
+        bar.insertBefore(host, bar.querySelector(".chat-input-inner"));
+    }
+    if(!pastedChunk){
+        host.innerHTML = "";
+        host.style.display = "none";
+        return;
+    }
+    host.style.display = "";
+    host.innerHTML = "";
+
+    const card = document.createElement("div");
+    card.className = "paste-card";
+    card.tabIndex = 0;
+    card.title = "Click to view all of it";
+
+    const prev = document.createElement("div");
+    prev.className = "paste-card-preview";
+    prev.textContent = pastePreviewText(pastedChunk);
+
+    const foot = document.createElement("div");
+    foot.className = "paste-card-foot";
+    foot.innerHTML = '<span class="paste-badge">PASTED</span>';
+
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "paste-card-edit";
+    edit.title = "View / edit";
+    edit.innerHTML = PASTE_EDIT_ICON;
+    foot.appendChild(edit);
+
+    const rm = document.createElement("button");
+    rm.type = "button";
+    rm.className = "paste-card-remove";
+    rm.title = "Remove";
+    rm.textContent = "✕";
+
+    card.appendChild(rm);
+    card.appendChild(prev);
+    card.appendChild(foot);
+    host.appendChild(card);
+
+    const openIt = () => openPasteViewer({
+        text: pastedChunk,
+        editable: true,
+        onSave: v => { pastedChunk = v.trim() ? v : ""; renderPasteCard(); },
+        onRemove: () => clearPastedChunk()
+    });
+    card.addEventListener("click", ev => {
+        if(ev.target.closest(".paste-card-remove")) return;
+        openIt();
+    });
+    card.addEventListener("keydown", ev => { if(ev.key === "Enter"){ ev.preventDefault(); ev.stopPropagation(); openIt(); } });
+    rm.addEventListener("click", ev => { ev.stopPropagation(); clearPastedChunk(); userInput.focus(); });
+}
+
+userInput.addEventListener("paste", e => {
+    const cd = e.clipboardData || window.clipboardData;
+    const text = cd ? cd.getData("text") : "";
+    if(!text) return;
+    const lines = text.split(/\r\n|\r|\n/).length;
+    if(text.length >= PASTE_MIN_CHARS || lines >= PASTE_MIN_LINES){
+        e.preventDefault();
+        pastedChunk = pastedChunk ? pastedChunk + "\n\n" + text : text;
+        renderPasteCard();
+    }
+});
+
+// Enter on an empty box with a paste card waiting should still send.
+// (sendChatMessage already folds the paste in; nothing extra needed here.)
+
+// ---- Sent messages: show long / pasted text as the same card ----
+function splitPastedMessage(text){
+    const m = text.match(/^([\s\S]*?)\[Pasted text\]\n([\s\S]*?)\n\[\/Pasted text\]\s*$/);
+    if(m) return { typed: m[1].trim(), pasted: m[2] };
+    if(text.length >= LONG_BUBBLE_CHARS) return { typed: "", pasted: text };
+    return null;
+}
+
+function decorateUserMessage(div){
+    if(div.dataset.pasteDone) return;
+    const p = div.querySelector(":scope > p");
+    if(!p) return;
+    div.dataset.pasteDone = "1";
+    const parts = splitPastedMessage(p.textContent || "");
+    if(!parts) return;
+
+    p.classList.add("user-msg-collapsed");
+
+    const card = document.createElement("div");
+    card.className = "paste-card paste-card-sent";
+    card.tabIndex = 0;
+    card.title = "Click to view all of it";
+    const prev = document.createElement("div");
+    prev.className = "paste-card-preview";
+    prev.textContent = pastePreviewText(parts.pasted);
+    const foot = document.createElement("div");
+    foot.className = "paste-card-foot";
+    foot.innerHTML = '<span class="paste-badge">PASTED</span><span class="paste-card-size">' + parts.pasted.length.toLocaleString() + ' chars</span>';
+    card.appendChild(prev);
+    card.appendChild(foot);
+    const openIt = () => openPasteViewer({ text: parts.pasted, editable: false });
+    card.addEventListener("click", openIt);
+    card.addEventListener("keydown", ev => { if(ev.key === "Enter") openIt(); });
+    div.insertBefore(card, p);
+
+    if(parts.typed){
+        const typedP = document.createElement("p");
+        typedP.className = "paste-typed";
+        typedP.style.margin = "8px 0 0";
+        typedP.textContent = parts.typed;
+        div.insertBefore(typedP, p);
+    }
+}
+
+(function watchUserMessages(){
+    const scan = root => (root || document).querySelectorAll(".user-message").forEach(decorateUserMessage);
+    const obs = new MutationObserver(muts => {
+        for(const mu of muts){
+            mu.addedNodes.forEach(n => {
+                if(n.nodeType !== 1) return;
+                if(n.classList && n.classList.contains("user-message")) decorateUserMessage(n);
+                else if(n.querySelectorAll) n.querySelectorAll(".user-message").forEach(decorateUserMessage);
+            });
+        }
+    });
+    obs.observe(chatMessages, { childList: true, subtree: true });
+    scan(chatMessages);
+})();
