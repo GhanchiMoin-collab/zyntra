@@ -9632,3 +9632,295 @@ body.light-mode ::-webkit-scrollbar-thumb:hover{ background:rgba(10,10,20,.34); 
 
 /* Popups never scroll sideways; long messages wrap inside the box */
 .modal-box{ overflow-x:hidden; overflow-wrap:anywhere; }
+
+/* ==========================================================
+   Tables with a Copy button
+   ========================================================== */
+.table-card{
+    width:100%;
+    margin:12px 0;
+    border:1px solid var(--glass-border-strong, rgba(255,255,255,.14));
+    border-radius:var(--r-md, 14px);
+    background:rgba(255,255,255,.03);
+    overflow:hidden;
+}
+.table-card-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:8px 12px;
+    border-bottom:1px solid var(--glass-border-strong, rgba(255,255,255,.12));
+    background:rgba(255,255,255,.04);
+}
+.table-card-label{
+    font-size:12px;
+    font-weight:600;
+    letter-spacing:.04em;
+    color:var(--text-3, #9a9aa8);
+}
+.table-copy-btn{
+    border:1px solid var(--glass-border-strong, rgba(255,255,255,.16));
+    background:rgba(255,255,255,.06);
+    color:inherit;
+    font:inherit;
+    font-size:12px;
+    font-weight:600;
+    padding:4px 12px;
+    border-radius:999px;
+    cursor:pointer;
+    transition:background .15s, border-color .15s;
+}
+.table-copy-btn:hover{ background:rgba(255,255,255,.14); }
+.table-copy-btn.copied{ border-color:#4ade80; color:#4ade80; }
+.table-card .table-wrap{
+    margin:0;
+    border:none;
+    border-radius:0;
+    max-height:440px;         /* long tables scroll inside the card */
+    overflow:auto;
+}
+.table-card .table-wrap thead th{
+    position:sticky;
+    top:0;
+    z-index:1;
+    background:#16161f;
+}
+body.light-mode .table-card{ border-color:rgba(10,10,25,.10); background:rgba(10,10,25,.02); }
+body.light-mode .table-card-head{ border-color:rgba(10,10,25,.08); background:rgba(10,10,25,.035); }
+body.light-mode .table-copy-btn{ border-color:rgba(10,10,25,.14); background:rgba(10,10,25,.05); }
+body.light-mode .table-card .table-wrap thead th{ background:#f1f1f6; }
+
+/* ==========================================================
+   Long pasted text → "PASTED" card
+   ========================================================== */
+#pasteCardHost{
+    max-width:820px;
+    margin:0 auto 8px;
+    display:flex;
+    padding:0 4px;
+}
+.paste-card{
+    position:relative;
+    width:200px;
+    padding:12px 12px 10px;
+    border:1px solid var(--glass-border-strong, rgba(255,255,255,.16));
+    border-radius:16px;
+    background:rgba(255,255,255,.05);
+    cursor:pointer;
+    text-align:left;
+    transition:border-color .15s, background .15s;
+}
+.paste-card:hover,.paste-card:focus-visible{ border-color:rgba(167,139,250,.7); background:rgba(255,255,255,.08); outline:none; }
+.paste-card-preview{
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:11px;
+    line-height:1.45;
+    color:var(--text-3, #a1a1ae);
+    height:80px;
+    overflow:hidden;
+    word-break:break-all;
+    display:-webkit-box;
+    -webkit-line-clamp:5;
+    -webkit-box-orient:vertical;
+}
+.paste-card-foot{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-top:10px;
+}
+.paste-badge{
+    font-size:12px;
+    font-weight:700;
+    letter-spacing:.03em;
+    padding:3px 9px;
+    border:1px solid var(--glass-border-strong, rgba(255,255,255,.2));
+    border-radius:8px;
+    background:rgba(255,255,255,.05);
+}
+.paste-card-size{ font-size:11px; opacity:.7; }
+.paste-card-edit{
+    width:30px;
+    height:30px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border:none;
+    border-radius:8px;
+    background:rgba(255,255,255,.1);
+    color:inherit;
+    cursor:pointer;
+}
+.paste-card-edit:hover{ background:rgba(255,255,255,.2); }
+.paste-card-remove{
+    position:absolute;
+    top:-8px;
+    right:-8px;
+    width:22px;
+    height:22px;
+    border-radius:50%;
+    border:1px solid var(--glass-border-strong, rgba(255,255,255,.2));
+    background:#1b1b26;
+    color:#fff;
+    font-size:11px;
+    line-height:1;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+.paste-card-remove:hover{ background:#ef4444; border-color:#ef4444; }
+
+/* the same card inside a sent (purple) message bubble */
+.user-message .paste-card-sent{
+    width:260px;
+    max-width:100%;
+    background:rgba(0,0,0,.28);
+    border-color:rgba(255,255,255,.22);
+    color:#fff;
+}
+.user-message .paste-card-sent .paste-card-preview{ color:rgba(255,255,255,.72); height:72px; }
+.user-message .paste-card-sent .paste-badge{ background:rgba(255,255,255,.1); }
+.user-msg-collapsed{ display:none !important; }
+.user-message:has(.user-msg-edit-box) .paste-card,
+.user-message:has(.user-msg-edit-box) .paste-typed{ display:none; }
+
+/* full-text viewer / editor */
+.paste-viewer-overlay{
+    position:fixed;
+    inset:0;
+    z-index:400;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:16px;
+    background:rgba(0,0,0,.62);
+    backdrop-filter:blur(6px);
+    -webkit-backdrop-filter:blur(6px);
+}
+.paste-viewer-box{
+    width:100%;
+    max-width:760px;
+    height:min(78vh,640px);
+    display:flex;
+    flex-direction:column;
+    background:#12121a;
+    color:#ececf3;
+    border:1px solid var(--glass-border-strong, rgba(255,255,255,.16));
+    border-radius:18px;
+    box-shadow:0 30px 80px rgba(0,0,0,.55);
+    overflow:hidden;
+}
+.paste-viewer-head{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:14px 16px;
+    border-bottom:1px solid rgba(255,255,255,.1);
+}
+.paste-viewer-title{ font-weight:700; font-size:15px; }
+.paste-viewer-count{ flex:1; font-size:12px; opacity:.6; }
+.paste-viewer-x{
+    width:30px; height:30px;
+    border:none; border-radius:50%;
+    background:rgba(255,255,255,.08);
+    color:inherit; cursor:pointer;
+}
+.paste-viewer-x:hover{ background:rgba(255,255,255,.18); }
+.paste-viewer-text{
+    flex:1;
+    width:100%;
+    padding:16px;
+    border:none;
+    outline:none;
+    resize:none;
+    background:transparent;
+    color:inherit;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:13px;
+    line-height:1.55;
+}
+.paste-viewer-actions{
+    display:flex;
+    justify-content:flex-end;
+    gap:10px;
+    padding:12px 16px;
+    border-top:1px solid rgba(255,255,255,.1);
+}
+.paste-viewer-btn{
+    padding:8px 18px;
+    border-radius:999px;
+    border:1px solid rgba(255,255,255,.18);
+    background:rgba(255,255,255,.06);
+    color:inherit;
+    font:inherit;
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+}
+.paste-viewer-btn:hover{ background:rgba(255,255,255,.14); }
+.paste-viewer-save{ background:var(--accent-grad, linear-gradient(135deg,#7c5cff,#ff5ca8)); border-color:transparent; color:#fff; }
+.paste-viewer-remove:hover{ background:#ef4444; border-color:#ef4444; }
+
+@media (max-width:600px){
+    .paste-card{ width:170px; }
+    .paste-viewer-box{ height:86vh; border-radius:14px; }
+}
+
+/* ==========================================================
+   Pricing — comparison table
+   ========================================================== */
+.pricing-table-wrap{
+    margin-top:22px;
+    border:1px solid var(--glass-border-strong, rgba(255,255,255,.14));
+    border-radius:16px;
+    overflow-x:auto;
+    background:rgba(255,255,255,.02);
+}
+.pricing-table{
+    width:100%;
+    min-width:640px;
+    border-collapse:collapse;
+    table-layout:fixed;
+    font-size:13.5px;
+}
+.pricing-table th,
+.pricing-table td{
+    padding:14px 16px;
+    text-align:left;
+    vertical-align:middle;
+    border-bottom:1px solid var(--glass-border, rgba(255,255,255,.08));
+    line-height:1.4;
+}
+.pricing-table thead th{
+    font-size:14px;
+    font-weight:500;
+    padding:18px 16px;
+    background:rgba(255,255,255,.04);
+    white-space:normal;
+}
+.pricing-table tbody tr:last-child td{ border-bottom:none; }
+.pricing-table .pricing-none{ opacity:.45; }
+.pricing-table .pricing-col-pro{ background:rgba(124,92,255,.10); }
+.pricing-table thead th.pricing-col-pro{ background:rgba(124,92,255,.22); }
+.pricing-table .pricing-price-row td{ font-size:16px; padding-top:18px; padding-bottom:18px; }
+.pricing-table .pricing-action-row td{ padding:16px; }
+.pricing-table .pricing-card-btn{
+    width:100%;
+    margin:0;
+    padding:10px 12px;
+    white-space:nowrap;
+}
+.pricing-table .pricing-card-btn.pricing-btn-strong{ font-weight:700; }
+.pricing-table .pricing-col-pro .pricing-card-btn:not(:disabled){
+    background:var(--accent-grad, linear-gradient(135deg,#7c5cff,#ff5ca8));
+    color:#fff;
+    border-color:transparent;
+}
+body.light-mode .pricing-table-wrap{ border-color:rgba(10,10,25,.10); }
+body.light-mode .pricing-table thead th{ background:rgba(10,10,25,.04); }
+body.light-mode .pricing-table th,
+body.light-mode .pricing-table td{ border-color:rgba(10,10,25,.08); }
+@media (max-width:640px){
+    .pricing-table th,.pricing-table td{ padding:12px 12px; font-size:13px; }
+}
