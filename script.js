@@ -837,20 +837,85 @@ function stripForSpeech(text){
 // the voice assistant can speak many languages, not just the browser's
 // default. Falls back to the browser/system language for Latin-script text
 // (English, Spanish, French, etc. can't be told apart by characters alone).
-function detectSpeechLang(text){
-    if(/[\u0900-\u097F]/.test(text)) return "hi-IN";   // Devanagari (Hindi, Marathi...)
-    if(/[\u0600-\u06FF]/.test(text)) return "ar-SA";   // Arabic
-    if(/[\u4E00-\u9FFF]/.test(text)) return "zh-CN";   // Chinese
-    if(/[\u3040-\u30FF]/.test(text)) return "ja-JP";   // Japanese (Hiragana/Katakana)
-    if(/[\uAC00-\uD7AF]/.test(text)) return "ko-KR";   // Korean (Hangul)
-    if(/[\u0400-\u04FF]/.test(text)) return "ru-RU";   // Cyrillic
+// Language Whisper heard the person speak (set after every voice-call
+// utterance). Used as a hint for Latin-script languages, where the reply's
+// letters alone can't tell Spanish from French from English.
+let lastUserSpeechLang = null;
+
+const WHISPER_LANG_CODES = {
+    english:"en-US", hindi:"hi-IN", gujarati:"gu-IN", marathi:"mr-IN", bengali:"bn-IN", tamil:"ta-IN",
+    telugu:"te-IN", kannada:"kn-IN", malayalam:"ml-IN", punjabi:"pa-IN", urdu:"ur-PK", nepali:"ne-NP",
+    spanish:"es-ES", french:"fr-FR", german:"de-DE", portuguese:"pt-BR", italian:"it-IT", dutch:"nl-NL",
+    russian:"ru-RU", ukrainian:"uk-UA", polish:"pl-PL", turkish:"tr-TR", indonesian:"id-ID", malay:"ms-MY",
+    vietnamese:"vi-VN", thai:"th-TH", japanese:"ja-JP", korean:"ko-KR", chinese:"zh-CN", arabic:"ar-SA",
+    hebrew:"he-IL", persian:"fa-IR", greek:"el-GR", swedish:"sv-SE", norwegian:"nb-NO", danish:"da-DK",
+    finnish:"fi-FI", czech:"cs-CZ", romanian:"ro-RO", hungarian:"hu-HU", swahili:"sw-KE"
+};
+function whisperLangToBcp47(name){
+    return WHISPER_LANG_CODES[(name || "").toLowerCase().trim()] || null;
+}
+
+// Common words per Latin-script language — enough to tell them apart.
+const LATIN_STOPWORDS = {
+    en: "the and is are to of in that it you for with on this be as have not but what can your do will was they we".split(" "),
+    es: "de la que el en y los se del las un por con no una su para es al lo como más pero sus le ya este sí porque esta entre cuando muy sin sobre también me hasta hay donde quien desde todo nos".split(" "),
+    fr: "le la les des un une et est en que qui dans pour pas sur au avec ce il elle nous vous je ne se plus par mais ou où son sa ses du très être avoir fait comme".split(" "),
+    de: "der die das und ist nicht ein eine zu den mit sich auf für von dem im ich es auch dass sie wir aber wie oder wenn noch nur wird bei".split(" "),
+    pt: "de a o que e do da em um para é com não uma os no se na por mais as dos como mas foi ao ele das tem seu sua ou ser quando muito há nos já está eu também só pelo pela".split(" "),
+    it: "di e il la che è per un in una sono mi si lo ha le non con ma come più ci da del della questo anche io al".split(" "),
+    nl: "de het een en van ik te dat die in is niet op aan met als voor zijn er maar om ook dan je".split(" "),
+    id: "yang dan di ini itu dengan untuk tidak dari dalam akan pada juga saya ke karena ada mereka kamu bisa atau sudah".split(" "),
+    tr: "ve bir bu için ile da de çok ne var mı ben sen o gibi daha değil ama".split(" ")
+};
+const LATIN_REGION = { en:"en-US", es:"es-ES", fr:"fr-FR", de:"de-DE", pt:"pt-BR", it:"it-IT", nl:"nl-NL", id:"id-ID", tr:"tr-TR" };
+
+function detectLatinLang(text, hint){
+    const lower = text.toLowerCase();
+    const words = lower.match(/[\p{L}']+/gu) || [];
+    const scores = {};
+    for(const code in LATIN_STOPWORDS){
+        const set = new Set(LATIN_STOPWORDS[code]);
+        scores[code] = words.reduce((n, w) => n + (set.has(w) ? 1 : 0), 0);
+    }
+    if(/[¿¡ñ]/.test(lower)) scores.es += 3;
+    if(/[ãõ]/.test(lower)) scores.pt += 3;
+    if(/[ß]/.test(lower)) scores.de += 3;
+    if(/[àâêèîôûçœ]/.test(lower)) scores.fr += 1;
+    if(/[ğışİ]/.test(lower)) scores.tr += 3;
+
+    let best = "en", bestScore = scores.en;
+    for(const code in scores){
+        if(scores[code] > bestScore){ best = code; bestScore = scores[code]; }
+    }
+    // Not enough evidence in the text itself → trust what the person spoke.
+    const hintPrefix = hint ? hint.split("-")[0].toLowerCase() : null;
+    if(bestScore < 2 && hintPrefix && LATIN_REGION[hintPrefix]) return hint;
+    if(bestScore >= 2 || words.length >= 4) return best === "en"
+        ? ((navigator.language || "").toLowerCase().startsWith("en") ? navigator.language : "en-US")
+        : LATIN_REGION[best];
+    return hint || ((navigator.language || "").toLowerCase().startsWith("en") ? navigator.language : "en-US");
+}
+
+function detectSpeechLang(text, hint){
+    const h = hint || null;
+    const hp = h ? h.split("-")[0].toLowerCase() : "";
+    if(/[\u0900-\u097F]/.test(text)) return (hp === "mr" || hp === "ne") ? h : "hi-IN";   // Devanagari (Hindi, Marathi, Nepali)
+    if(/[\u0600-\u06FF]/.test(text)) return (hp === "ur" || hp === "fa") ? h : "ar-SA";   // Arabic script
+    if(/[\u3040-\u30FF]/.test(text)) return "ja-JP";                                      // Japanese kana
+    if(/[\u4E00-\u9FFF]/.test(text)) return "zh-CN";                                      // Chinese
+    if(/[\uAC00-\uD7AF]/.test(text)) return "ko-KR";                                      // Korean (Hangul)
+    if(/[\u0400-\u04FF]/.test(text)) return (hp === "uk" || hp === "bg") ? h : "ru-RU";   // Cyrillic
     if(/[\u0E00-\u0E7F]/.test(text)) return "th-TH";   // Thai
     if(/[\u0980-\u09FF]/.test(text)) return "bn-IN";   // Bengali
     if(/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";   // Gujarati
+    if(/[\u0A00-\u0A7F]/.test(text)) return "pa-IN";   // Gurmukhi (Punjabi)
     if(/[\u0B80-\u0BFF]/.test(text)) return "ta-IN";   // Tamil
     if(/[\u0C00-\u0C7F]/.test(text)) return "te-IN";   // Telugu
+    if(/[\u0C80-\u0CFF]/.test(text)) return "kn-IN";   // Kannada
+    if(/[\u0D00-\u0D7F]/.test(text)) return "ml-IN";   // Malayalam
     if(/[\u0590-\u05FF]/.test(text)) return "he-IL";   // Hebrew
-    return navigator.language || "en-US";
+    if(/[\u0370-\u03FF]/.test(text)) return "el-GR";   // Greek
+    return detectLatinLang(text, h);
 }
 
 // Picks the closest available system voice for a language, since setting
@@ -865,38 +930,67 @@ function getPreferredVoice(){
     return voices.find(v => v.voiceURI === uri) || null;
 }
 
-function pickVoiceForLang(lang){
-    const preferred = getPreferredVoice();
-    if(preferred) return preferred;
+function langPrefix(lang){ return (lang || "").split("-")[0].toLowerCase(); }
+function voiceMatchesLang(voice, lang){
+    if(!voice || !lang) return true;
+    return langPrefix(voice.lang) === langPrefix(lang);
+}
 
+// Prefers natural / neural voices, then exact region matches.
+function scoreVoice(v, lang){
+    let score = 0;
+    if(/natural|neural|online|premium|enhanced/i.test(v.name)) score += 3;
+    if(/compact|espeak/i.test(v.name)) score -= 2;
+    if(v.lang && lang && v.lang.toLowerCase().replace("_", "-") === lang.toLowerCase()) score += 2;
+    if(v.default) score += 1;
+    return score;
+}
+
+function pickVoiceForLang(lang){
     const voices = speechSynthesis.getVoices();
     if(!voices || !voices.length) return null;
-    const prefix = lang.split("-")[0];
-    return voices.find(v => v.lang === lang)
-        || voices.find(v => v.lang && v.lang.startsWith(prefix))
-        || null;
+    const matches = voices.filter(v => voiceMatchesLang(v, lang));
+    if(!matches.length) return null;
+    return matches.sort((a, b) => scoreVoice(b, lang) - scoreVoice(a, lang))[0];
+}
+
+// The person's chosen voice is used whenever it can actually speak the
+// language of the text. If the text is in another language (they spoke
+// Hindi, so the reply is Hindi), a voice for THAT language is used instead
+// — an English voice reading Hindi just sounds wrong.
+function chooseVoice(lang){
+    const preferred = getPreferredVoice();
+    if(preferred && voiceMatchesLang(preferred, lang)) return preferred;
+    const match = pickVoiceForLang(lang);
+    if(match) return match;
+    if(lang && !preferred) warnNoVoiceForLang(lang);
+    else if(lang && preferred) warnNoVoiceForLang(lang);
+    return preferred || null;
+}
+
+const warnedNoVoiceLangs = new Set();
+function warnNoVoiceForLang(lang){
+    const p = langPrefix(lang);
+    if(!p || p === "en" || warnedNoVoiceLangs.has(p)) return;
+    warnedNoVoiceLangs.add(p);
+    const name = voiceLangLabel(lang);
+    if(typeof showToast === "function"){
+        showToast(`No ${name} voice is installed on this device, so it may not sound right. Add one in your system's speech settings.`);
+    }
 }
 
 function browserSpeakText(text, lang, onEnd){
     speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
 
-    // A chosen voice always wins, for every message in every language —
-    // and its own .lang is used (not the message's detected language),
-    // since pairing a voice with a mismatched lang makes some browsers
-    // silently reject the voice and fall back (or stay silent) instead of
-    // actually speaking. A single voice can't natively pronounce every
-    // language fluently — that's a real OS/browser limitation — but this
-    // way it reliably speaks every message in its own accent rather than
-    // failing outright.
-    const preferred = getPreferredVoice();
-    if(preferred){
-        utter.voice = preferred;
-        utter.lang = preferred.lang;
+    const voice = chooseVoice(lang);
+    if(voice){
+        utter.voice = voice;
+        // Always the voice's own language: pairing a voice with a mismatched
+        // lang makes some browsers silently reject it and stay quiet.
+        utter.lang = voice.lang;
     } else {
         utter.lang = lang;
-        const voice = pickVoiceForLang(lang);
-        if(voice) utter.voice = voice;
     }
 
     if(onEnd) utter.onend = onEnd;
@@ -912,8 +1006,11 @@ let currentJarvisAudio = null;
 // way the call keeps going instead of going silent.
 async function speakText(text, lang, onEnd){
     // Someone who's explicitly picked a voice in Settings gets exactly
-    // that voice, always — never silently swapped for the neural one.
-    if(getPreferredVoice()){
+    // that voice whenever it speaks the language of the text — never
+    // silently swapped for the neural one. (Another language gets a voice
+    // for that language instead.)
+    const chosen = getPreferredVoice();
+    if(chosen && voiceMatchesLang(chosen, lang)){
         browserSpeakText(text, lang, onEnd);
         return;
     }
@@ -950,10 +1047,45 @@ async function speakText(text, lang, onEnd){
 
 let voiceCarouselIndex = 0;
 
+// "Microsoft David - English (United States)" → "David".
+function cleanVoiceName(raw){
+    let n = String(raw || "");
+    n = n.replace(/\s*[-–]\s*[^-–]*\([^)]*\)\s*$/, "");          // " - English (United States)"
+    n = n.replace(/^(Microsoft|Google|Apple|Android)\s+/i, "");     // vendor prefix
+    n = n.replace(/\s*(Online\s*)?\((Natural|Neural)\)/ig, "");     // "Online (Natural)"
+    n = n.replace(/\s*\((Enhanced|Premium|Compact)\)\s*/ig, " ");
+    n = n.replace(/\s+(Online|Desktop|Mobile)\b/ig, "");
+    n = n.replace(/\s{2,}/g, " ").trim();
+    return n || String(raw || "");
+}
+
+// "en-US" → "English (United States)"
+function voiceLangLabel(code){
+    if(!code) return "";
+    try{
+        const dn = new Intl.DisplayNames(["en"], { type: "language", languageDisplay: "standard" });
+        return dn.of(code.replace("_", "-")) || code;
+    }catch(e){
+        return code;
+    }
+}
+
 function getVoiceCarouselOptions(){
     const voices = speechSynthesis.getVoices();
-    return [{ uri: "", name: "Auto", lang: "", desc: "Matches each message's language" }]
-        .concat(voices.map(v => ({ uri: v.voiceURI, name: v.name, lang: v.lang, desc: "" })));
+    const cleaned = voices.map(v => ({ uri: v.voiceURI, name: cleanVoiceName(v.name), lang: v.lang, desc: "" }));
+
+    // Two voices can shorten to the same name (same voice, different
+    // languages) — tell those apart by language code, then by number.
+    const langsByName = {};
+    cleaned.forEach(o => { (langsByName[o.name] = langsByName[o.name] || new Set()).add(o.lang); });
+    cleaned.forEach(o => { if(langsByName[o.name].size > 1 && o.lang) o.name = `${o.name} (${o.lang})`; });
+    const seen2 = {};
+    cleaned.forEach(o => {
+        seen2[o.name] = (seen2[o.name] || 0) + 1;
+        if(seen2[o.name] > 1) o.name = `${o.name} ${seen2[o.name]}`;
+    });
+
+    return [{ uri: "", name: "Auto", lang: "", desc: "Matches each message's language" }].concat(cleaned);
 }
 
 function renderVoiceCarousel(){
@@ -985,7 +1117,7 @@ function updateVoiceCarouselDisplay(options){
     // Real info only — a browser voice doesn't come with a curated
     // personality description, so we show its actual language instead of
     // inventing one.
-    document.getElementById("voiceCarouselDesc").textContent = opt.lang ? `Language: ${opt.lang}` : opt.desc;
+    document.getElementById("voiceCarouselDesc").textContent = opt.lang ? `Language: ${voiceLangLabel(opt.lang)}` : opt.desc;
 
     const dotsEl = document.getElementById("voiceCarouselDots");
     dotsEl.innerHTML = "";
@@ -1080,8 +1212,25 @@ document.addEventListener("click", () => {
     document.querySelectorAll(".custom-picker.open").forEach(p => p.classList.remove("open"));
 });
 
+const VOICE_TEST_SAMPLES = {
+    en: "Hi! This is how I'll sound.",
+    hi: "नमस्ते! मैं ऐसी सुनाई दूँगी।",
+    gu: "નમસ્તે! હું આવી સંભળાઈશ.",
+    es: "¡Hola! Así sonaré.",
+    fr: "Bonjour ! Voici comment je sonne.",
+    de: "Hallo! So werde ich klingen.",
+    pt: "Olá! É assim que eu vou soar.",
+    it: "Ciao! Ecco come suonerò.",
+    ru: "Привет! Вот так я буду звучать.",
+    ja: "こんにちは！こんな声で話します。",
+    ko: "안녕하세요! 이런 목소리로 말할게요.",
+    zh: "你好！我的声音就是这样。"
+};
 document.getElementById("voiceTestBtn")?.addEventListener("click", () => {
-    speakText("Hi! This is how I'll sound.", navigator.language || "en-US");
+    const voice = getPreferredVoice();
+    const lang = voice ? voice.lang : ((navigator.language || "").toLowerCase().startsWith("en") ? navigator.language : "en-US");
+    const text = VOICE_TEST_SAMPLES[langPrefix(lang)] || VOICE_TEST_SAMPLES.en;
+    speakText(text, lang);
 });
 
 const MSG_ICONS = {
@@ -7170,6 +7319,12 @@ function recordJarvisUtterance(stream){
     });
 }
 
+const ACK_PHRASES = {
+    hi: "ठीक है।", gu: "ઠીક છે.", mr: "ठीक आहे.", bn: "ঠিক আছে।", ta: "சரி.", te: "సరే.",
+    es: "Voy.", fr: "Je m'en occupe.", de: "Mache ich.", pt: "Já estou fazendo.", it: "Subito.",
+    ru: "Сейчас.", ja: "了解しました。", ko: "알겠습니다.", zh: "好的。", ar: "حسناً."
+};
+
 async function transcribeAudioBlob(blob){
     const res = await fetch("/api/transcribe", {
         method: "POST",
@@ -7178,6 +7333,8 @@ async function transcribeAudioBlob(blob){
     });
     if(!res.ok) throw new Error("Transcription failed");
     const data = await res.json();
+    const heard = whisperLangToBcp47(data.language);
+    if(heard) lastUserSpeechLang = heard;
     return (data.text || "").trim();
 }
 
@@ -7379,7 +7536,8 @@ if(!hasMediaRecorderSupport){
         if(command){
             command.run();
             setJarvisStatus("Opening that now…");
-            speakText("On it.", "en-US", () => {
+            const ackLang = lastUserSpeechLang || detectSpeechLang(said);
+            speakText(ACK_PHRASES[langPrefix(ackLang)] || "On it.", ACK_PHRASES[langPrefix(ackLang)] ? ackLang : "en-US", () => {
                 if(jarvisContinuousMode) startJarvisListening();
             });
             return; // recognized as a command, never sent to the AI
@@ -7417,7 +7575,7 @@ if(!hasMediaRecorderSupport){
                 sentences.forEach(sentenceRaw => {
                     const spoken = stripForSpeech(sentenceRaw);
                     if(!spoken.trim()) return;
-                    if(!detectedLang) detectedLang = detectSpeechLang(spoken);
+                    if(!detectedLang) detectedLang = detectSpeechLang(spoken, lastUserSpeechLang);
                     enqueueJarvisSpeech(spoken, detectedLang);
                     if(!spokeYet){ spokeYet = true; setJarvisStatus("Speaking…"); }
                 });
@@ -7428,7 +7586,7 @@ if(!hasMediaRecorderSupport){
             if(sentenceBuffer.trim()){
                 const spoken = stripForSpeech(sentenceBuffer);
                 if(spoken.trim()){
-                    if(!detectedLang) detectedLang = detectSpeechLang(spoken);
+                    if(!detectedLang) detectedLang = detectSpeechLang(spoken, lastUserSpeechLang);
                     enqueueJarvisSpeech(spoken, detectedLang);
                 }
             }
@@ -7439,7 +7597,7 @@ if(!hasMediaRecorderSupport){
             voiceBox.removeChild(voiceBox.lastChild);
             const clean = accumulated.replace(/\*\*/g, "");
             const fullSpoken = stripForSpeech(accumulated);
-            lastJarvisSpoken = { text: fullSpoken, lang: detectedLang || detectSpeechLang(fullSpoken) };
+            lastJarvisSpoken = { text: fullSpoken, lang: detectedLang || detectSpeechLang(fullSpoken, lastUserSpeechLang) };
             const aiDiv = document.createElement("div");
             aiDiv.className = "chat-msg ai";
             voiceBox.appendChild(aiDiv);
