@@ -35,7 +35,9 @@ export default async function handler(req, res) {
     const form = new FormData();
     form.append('file', blob, 'audio.webm');
     form.append('model', 'whisper-large-v3-turbo');
-    form.append('response_format', 'json');
+    // verbose_json adds the language Whisper detected in the audio, which
+    // the client uses to reply (and speak) in that same language.
+    form.append('response_format', 'verbose_json');
 
     const groqRes = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method: 'POST',
@@ -49,7 +51,7 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: data?.error?.message || 'Transcription failed.' });
     }
 
-    return res.status(200).json({ text: (data?.text || '').trim() });
+    return res.status(200).json({ text: (data?.text || '').trim(), language: (data?.language || '').toString().toLowerCase() });
   } catch (error) {
     console.error('transcribe error:', error);
     return res.status(500).json({ error: 'Could not transcribe that.' });
