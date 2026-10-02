@@ -305,7 +305,6 @@ function buildImageBlockHTML(image){
         <div class="ai-image-block">
             <div class="generated-img-wrap">
                 <img class="generated-img" src="${image.url}" alt="${escapeAttr(image.alt)}">
-                <img class="zyntra-watermark" src="/favicon.png" alt="Zyntra AI">
             </div>
             <div class="ai-image-actions">
                 <button class="copy-btn ai-image-download" data-url="${image.url}">⬇ Download</button>
@@ -314,109 +313,680 @@ function buildImageBlockHTML(image){
     `;
 }
 
-// The logo watermarked onto generated images (both the on-screen badge
-// and the version baked into downloads) — loaded once and cached, since
-// it's the same little hexagon "Z" mark every time.
-let zyntraLogoImgPromise = null;
-function loadZyntraLogoImg(){
-    if(zyntraLogoImgPromise) return zyntraLogoImgPromise;
-    zyntraLogoImgPromise = new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => { zyntraLogoImgPromise = null; reject(new Error("logo failed to load")); };
-        img.src = "/favicon.png";
-    });
-    return zyntraLogoImgPromise;
-}
-
-// Draws the small corner logo watermark onto a canvas — shared by every
-// place that bakes the mark into a downloaded file (Gemini-style: visible
-// on screen via CSS, and burned into the actual saved image on download).
-async function drawZyntraWatermark(ctx, w, h){
-    let logo;
-    try{
-        logo = await loadZyntraLogoImg();
-    }catch(err){
-        return; // no logo available — download still succeeds, just unmarked
-    }
-    const size = Math.max(28, Math.round(w * 0.09));
-    const pad = Math.round(w * 0.025);
-    const x = w - pad - size;
-    const y = h - pad - size;
-
-    ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.55)";
-    ctx.shadowBlur = size * 0.25;
-    ctx.globalAlpha = 0.92;
-    ctx.drawImage(logo, x, y, size, size);
-    ctx.restore();
-}
-
-// Fetches the image as a blob first (so it's same-origin local data by the
-// time it hits the canvas — sidesteps any CORS/tainted-canvas issues with
-// the pollinations.ai host), stamps the watermark, then downloads the
-// result. Falls back to opening the plain image if anything goes wrong.
+// Downloads the generated image exactly as it is — no logo or watermark
+// is added. The image is fetched as a blob first so the browser saves a
+// real file (the image host is a different origin, where the plain
+// download attribute is ignored). Falls back to opening the image.
+// (Name kept so every existing "download" button keeps working.)
 function downloadWatermarkedImage(url, filename){
     return fetch(url)
-        .then(res => res.blob())
-        .then(blob => new Promise((resolve, reject) => {
-            const objectUrl = URL.createObjectURL(blob);
-            const img = new Image();
-            img.onload = () => { resolve({ img, objectUrl }); };
-            img.onerror = reject;
-            img.src = objectUrl;
-        }))
-        .then(async ({ img, objectUrl }) => {
-            const canvas = document.createElement("canvas");
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(img, 0, 0);
-            await drawZyntraWatermark(ctx, canvas.width, canvas.height);
-            URL.revokeObjectURL(objectUrl);
-
-            return new Promise((resolve) => {
-                canvas.toBlob((watermarkedBlob) => {
-                    const dlUrl = URL.createObjectURL(watermarkedBlob);
-                    const a = document.createElement("a");
-                    a.href = dlUrl;
-                    a.download = filename;
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    URL.revokeObjectURL(dlUrl);
-                    resolve();
-                }, "image/png");
-            });
+        .then(res => { if(!res.ok) throw new Error("fetch failed"); return res.blob(); })
+        .then(blob => {
+            const dlUrl = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = dlUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(dlUrl), 4000);
         })
         .catch(() => {
             window.open(url, "_blank");
         });
 }
 
-// Full-screen "click to expand" viewer for Image Generator results,
-// same beat as ChatGPT's image lightbox. Scoped only to that tool's
-// output (not chat's inline generated images) per how it was asked for.
+// ==========================================================
+// Full-screen image viewer + editor
+// Opens when someone clicks a generated image. Zoom / pan, Markup,
+// Comment pins, Remove BG, Erase, Resize, Share, Download, Undo, and a
+// "Describe edits" bar that asks the AI to change the picture.
+// ==========================================================
 function openImageViewer(src, alt){
-    const viewerImg = document.getElementById("imageViewerImg");
-    if(viewerImg){
-        viewerImg.src = src;
-        viewerImg.alt = alt || "Generated image";
-    }
-    const downloadBtn = document.getElementById("imageViewerDownload");
-    if(downloadBtn){
-        downloadBtn.onclick = () => {
-            downloadBtn.textContent = "";
-            downloadBtn.style.opacity = "0.6";
-            downloadWatermarkedImage(src, "zyntra-ai-image.png").then(() => {
-                downloadBtn.textContent = "⬇";
-                downloadBtn.style.opacity = "1";
-            });
-        };
-    }
-    openModal("imageViewerModal");
+    if(window.ZyntraImageViewer) window.ZyntraImageViewer.open(src, alt);
 }
 document.getElementById("imageViewerClose")?.addEventListener("click", () => closeModal("imageViewerModal"));
+
+window.ZyntraImageViewer = (function(){
+    const $ = id => document.getElementById(id);
+    const modal = $("imageViewerModal");
+    if(!modal) return { open(){} };
+
+    const stage = $("ivStage"), wrap = $("ivWrap");
+    const cvs = $("ivCanvas"), ov = $("ivOverlay"), mk = $("ivMask");
+    const ctx = cvs.getContext("2d", { willReadFrequently: true });
+    const octx = ov.getContext("2d");
+    const mctx = mk.getContext("2d", { willReadFrequently: true });
+    const subbar = $("ivSubbar"), pinsEl = $("ivPins");
+
+    let srcUrl = "", altText = "", remoteUrl = null;
+    let scale = 1, tx = 0, ty = 0, fitScale = 1;
+    let tool = null, history = [], dirty = false, busy = false, editable = true;
+    let strokes = [], strokeColor = "#ff3b6b", strokeSize = 6, brushSize = 40;
+    let pins = [], loadToken = 0, spaceDown = false;
+
+    // ---------- small helpers ----------
+    function toast(msg){
+        const t = $("ivToast");
+        t.textContent = msg;
+        t.classList.add("show");
+        clearTimeout(t._h);
+        t._h = setTimeout(() => t.classList.remove("show"), 2800);
+    }
+    function setBusy(on, text){
+        busy = on;
+        $("ivBusy").classList.toggle("show", !!on);
+        if(text) $("ivBusyText").textContent = text;
+    }
+    function el(tag, cls, html){
+        const e = document.createElement(tag);
+        if(cls) e.className = cls;
+        if(html !== undefined) e.innerHTML = html;
+        return e;
+    }
+
+    // ---------- canvas size + zoom/pan ----------
+    function setCanvasSize(w, h){
+        [cvs, ov, mk].forEach(c => { c.width = w; c.height = h; });
+        wrap.style.width = w + "px";
+        wrap.style.height = h + "px";
+    }
+    function applyTransform(){
+        wrap.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+        $("ivZoomLabel").textContent = Math.round(scale * 100) + "%";
+    }
+    function fit(){
+        const sw = stage.clientWidth, sh = stage.clientHeight;
+        if(!cvs.width || !sw) return;
+        // leave room for the edit bar at the bottom
+        const availH = sh - 104;
+        fitScale = Math.min(sw * 0.96 / cvs.width, availH / cvs.height, 1.5);
+        scale = fitScale;
+        tx = (sw - cvs.width * scale) / 2;
+        ty = Math.max(8, (availH - cvs.height * scale) / 2 + 6);
+        applyTransform();
+    }
+    function zoomTo(newScale, cx, cy){
+        newScale = Math.min(8, Math.max(0.05, newScale));
+        if(cx === undefined){ cx = stage.clientWidth / 2; cy = stage.clientHeight / 2; }
+        tx = cx - (cx - tx) * (newScale / scale);
+        ty = cy - (cy - ty) * (newScale / scale);
+        scale = newScale;
+        applyTransform();
+    }
+
+    // screen point -> image pixel
+    function toImg(e){
+        const r = cvs.getBoundingClientRect();
+        return { x: (e.clientX - r.left) * (cvs.width / r.width), y: (e.clientY - r.top) * (cvs.height / r.height) };
+    }
+
+    // ---------- history ----------
+    function snapshot(){
+        const c = document.createElement("canvas");
+        c.width = cvs.width; c.height = cvs.height;
+        c.getContext("2d").drawImage(cvs, 0, 0);
+        return c;
+    }
+    function pushHistory(){
+        history.push({ canvas: snapshot(), remoteUrl, dirty });
+        if(history.length > 12) history.shift();
+        $("ivUndo").disabled = false;
+    }
+    function undo(){
+        if(busy) return;
+        if(tool === "markup" && strokes.length){ strokes.pop(); redrawStrokes(); return; }
+        const h = history.pop();
+        if(!h){ $("ivUndo").disabled = true; return; }
+        setCanvasSize(h.canvas.width, h.canvas.height);
+        ctx.clearRect(0, 0, cvs.width, cvs.height);
+        ctx.drawImage(h.canvas, 0, 0);
+        strokes = []; octx.clearRect(0, 0, ov.width, ov.height);
+        mctx.clearRect(0, 0, mk.width, mk.height);
+        remoteUrl = h.remoteUrl; dirty = h.dirty;
+        $("ivUndo").disabled = history.length === 0;
+        fit();
+    }
+    // Bake any markup strokes into the picture itself.
+    function flatten(){
+        if(!strokes.length) return;
+        dirty = true;
+        ctx.drawImage(ov, 0, 0);
+        strokes = [];
+        octx.clearRect(0, 0, ov.width, ov.height);
+    }
+    function exportBlob(){
+        return new Promise((resolve, reject) => {
+            const c = document.createElement("canvas");
+            c.width = cvs.width; c.height = cvs.height;
+            const cx = c.getContext("2d");
+            cx.drawImage(cvs, 0, 0);
+            cx.drawImage(ov, 0, 0);
+            try{ c.toBlob(b => b ? resolve(b) : reject(new Error("export failed")), "image/png"); }
+            catch(err){ reject(err); }
+        });
+    }
+
+    // ---------- loading ----------
+    function imgFromBlob(blob){
+        return new Promise((resolve, reject) => {
+            const u = URL.createObjectURL(blob);
+            const im = new Image();
+            im.onload = () => { URL.revokeObjectURL(u); resolve(im); };
+            im.onerror = () => { URL.revokeObjectURL(u); reject(new Error("decode failed")); };
+            im.src = u;
+        });
+    }
+    async function drawFromBlob(blob){
+        const im = await imgFromBlob(blob);
+        setCanvasSize(im.naturalWidth, im.naturalHeight);
+        ctx.clearRect(0, 0, cvs.width, cvs.height);
+        ctx.drawImage(im, 0, 0);
+        strokes = []; octx.clearRect(0, 0, ov.width, ov.height);
+        mctx.clearRect(0, 0, mk.width, mk.height);
+    }
+    async function loadFromUrl(url){
+        const token = ++loadToken;
+        const res = await fetch(url);
+        if(!res.ok) throw new Error("load failed");
+        const blob = await res.blob();
+        if(token !== loadToken) return false;
+        await drawFromBlob(blob);
+        return true;
+    }
+
+    // ---------- tools ----------
+    const TOOL_HINTS = {
+        markup: "", comment: "Click anywhere on the image to add a comment",
+        erase: "Paint over what you want to remove, then press Erase", resize: ""
+    };
+
+    function setTool(name){
+        if(name && !editable){ toast("This image can't be edited here (its host blocks editing). You can still view and open it."); return; }
+        if(name === tool) name = null;
+        // leaving erase with unfinished paint just clears it
+        if(tool === "erase") mctx.clearRect(0, 0, mk.width, mk.height);
+        tool = name;
+        modal.querySelectorAll(".iv-tool").forEach(b => b.classList.toggle("active", b.dataset.tool === tool));
+        stage.dataset.tool = tool || "";
+        renderSubbar();
+        renderPins();
+        if(tool === "removebg"){ tool = null; modal.querySelectorAll(".iv-tool").forEach(b => b.classList.remove("active")); stage.dataset.tool = ""; renderSubbar(); removeBackground(); }
+    }
+
+    function renderSubbar(){
+        subbar.innerHTML = "";
+        subbar.classList.toggle("show", !!tool);
+        if(!tool) return;
+
+        if(tool === "markup"){
+            ["#ff3b6b", "#ffd60a", "#34d399", "#38bdf8", "#a78bfa", "#ffffff", "#111111"].forEach(c => {
+                const dot = el("button", "iv-color" + (c === strokeColor ? " active" : ""));
+                dot.type = "button"; dot.style.background = c; dot.title = c;
+                dot.onclick = () => { strokeColor = c; renderSubbar(); };
+                subbar.appendChild(dot);
+            });
+            const size = el("input"); size.type = "range"; size.min = 2; size.max = 40; size.value = strokeSize; size.className = "iv-range"; size.title = "Brush size";
+            size.oninput = () => { strokeSize = +size.value; };
+            subbar.appendChild(size);
+            subbar.appendChild(btn("Undo stroke", () => { strokes.pop(); redrawStrokes(); }));
+            subbar.appendChild(btn("Clear", () => { strokes = []; redrawStrokes(); }));
+            subbar.appendChild(btn("Done", () => setTool(null), true));
+        } else if(tool === "comment"){
+            subbar.appendChild(el("span", "iv-hint", TOOL_HINTS.comment));
+            subbar.appendChild(btn("Clear all", () => { pins = []; renderPins(); }));
+            subbar.appendChild(btn("Done", () => setTool(null), true));
+        } else if(tool === "erase"){
+            subbar.appendChild(el("span", "iv-hint", "Brush"));
+            const size = el("input"); size.type = "range"; size.min = 8; size.max = 140; size.value = brushSize; size.className = "iv-range";
+            size.oninput = () => { brushSize = +size.value; };
+            subbar.appendChild(size);
+            subbar.appendChild(btn("Clear paint", () => mctx.clearRect(0, 0, mk.width, mk.height)));
+            subbar.appendChild(btn("Erase", applyErase, true));
+            subbar.appendChild(el("span", "iv-hint iv-hint-small", "Works best on small objects"));
+        } else if(tool === "resize"){
+            const ratio = cvs.width / cvs.height;
+            let locked = true;
+            const w = el("input", "iv-num"); w.type = "number"; w.min = 16; w.max = 8192; w.value = cvs.width;
+            const h = el("input", "iv-num"); h.type = "number"; h.min = 16; h.max = 8192; h.value = cvs.height;
+            const lock = el("button", "iv-lock active", "🔗"); lock.type = "button"; lock.title = "Keep proportions";
+            lock.onclick = () => { locked = !locked; lock.classList.toggle("active", locked); };
+            w.oninput = () => { if(locked && w.value) h.value = Math.round(w.value / ratio); };
+            h.oninput = () => { if(locked && h.value) w.value = Math.round(h.value * ratio); };
+            const presets = el("select", "iv-select");
+            [["", "Presets"], ["0.75", "75%"], ["0.5", "50%"], ["0.25", "25%"], ["1024x1024", "1024 × 1024"], ["1080x1080", "1080 × 1080 (post)"],
+             ["1080x1920", "1080 × 1920 (story)"], ["1920x1080", "1920 × 1080 (wide)"]].forEach(([v, t]) => {
+                const o = el("option"); o.value = v; o.textContent = t; presets.appendChild(o);
+            });
+            presets.onchange = () => {
+                const v = presets.value; if(!v) return;
+                if(v.includes("x")){ const [pw, ph] = v.split("x"); w.value = pw; h.value = ph; lock.classList.remove("active"); locked = false; }
+                else { w.value = Math.round(cvs.width * +v); h.value = Math.round(cvs.height * +v); }
+            };
+            subbar.appendChild(el("span", "iv-hint", "Size"));
+            subbar.appendChild(w); subbar.appendChild(el("span", "iv-hint", "×")); subbar.appendChild(h);
+            subbar.appendChild(lock); subbar.appendChild(presets);
+            subbar.appendChild(btn("Apply", () => applyResize(+w.value, +h.value), true));
+        }
+    }
+    function btn(label, fn, primary){
+        const b = el("button", "iv-sub-btn" + (primary ? " primary" : ""), label);
+        b.type = "button"; b.onclick = fn;
+        return b;
+    }
+
+    // ----- Markup -----
+    function redrawStrokes(){
+        octx.clearRect(0, 0, ov.width, ov.height);
+        octx.lineCap = "round"; octx.lineJoin = "round";
+        strokes.forEach(st => {
+            octx.strokeStyle = st.color; octx.lineWidth = st.size;
+            octx.beginPath();
+            st.pts.forEach((p, i) => i ? octx.lineTo(p.x, p.y) : octx.moveTo(p.x, p.y));
+            if(st.pts.length === 1) octx.lineTo(st.pts[0].x + 0.1, st.pts[0].y + 0.1);
+            octx.stroke();
+        });
+    }
+
+    // ----- Comment pins -----
+    function regionWords(p){
+        const v = p.y < 0.34 ? "top" : p.y > 0.66 ? "bottom" : "middle";
+        const hz = p.x < 0.34 ? "left" : p.x > 0.66 ? "right" : "center";
+        return v === "middle" && hz === "center" ? "the center" : `the ${v === "middle" ? "" : v + " "}${hz}`.replace("  ", " ");
+    }
+    function renderPins(){
+        pinsEl.innerHTML = "";
+        pins.forEach((p, i) => {
+            const pin = el("button", "iv-pin", String(i + 1));
+            pin.type = "button";
+            pin.style.left = (p.x * 100) + "%"; pin.style.top = (p.y * 100) + "%";
+            pin.style.transform = `translate(-50%, -50%) scale(${1 / scale})`;
+            pin.title = p.text;
+            pin.onclick = ev => { ev.stopPropagation(); openPinEditor(i); };
+            pinsEl.appendChild(pin);
+        });
+        pinsEl.style.pointerEvents = tool === "comment" ? "auto" : "none";
+        pinsEl.querySelectorAll(".iv-pin").forEach(p => p.style.pointerEvents = "auto");
+    }
+    function openPinEditor(i){
+        document.querySelector(".iv-pin-editor")?.remove();
+        const p = pins[i];
+        const box = el("div", "iv-pin-editor");
+        const r = stage.getBoundingClientRect();
+        const cr = cvs.getBoundingClientRect();
+        box.style.left = Math.min(r.width - 260, Math.max(8, cr.left - r.left + p.x * cr.width - 120)) + "px";
+        box.style.top = Math.min(r.height - 150, cr.top - r.top + p.y * cr.height + 18) + "px";
+        const ta = el("textarea"); ta.placeholder = "What should change here?"; ta.value = p.text || ""; ta.maxLength = 200;
+        const row = el("div", "iv-pin-row");
+        const save = btn("Save", () => { p.text = ta.value.trim(); if(!p.text){ pins.splice(i, 1); } renderPins(); box.remove(); }, true);
+        const del = btn("Delete", () => { pins.splice(i, 1); renderPins(); box.remove(); });
+        row.appendChild(del); row.appendChild(save);
+        box.appendChild(ta); box.appendChild(row);
+        stage.appendChild(box);
+        setTimeout(() => ta.focus(), 20);
+        ta.addEventListener("keydown", ev => { if(ev.key === "Enter" && !ev.shiftKey){ ev.preventDefault(); save.click(); } ev.stopPropagation(); });
+    }
+
+    // ----- Erase (fills the painted area from its surroundings) -----
+    function applyErase(){
+        const w = cvs.width, h = cvs.height;
+        const m = mctx.getImageData(0, 0, w, h).data;
+        let minX = w, minY = h, maxX = -1, maxY = -1;
+        for(let y = 0; y < h; y++) for(let x = 0; x < w; x++){
+            if(m[(y * w + x) * 4 + 3] > 20){ if(x < minX) minX = x; if(x > maxX) maxX = x; if(y < minY) minY = y; if(y > maxY) maxY = y; }
+        }
+        if(maxX < 0){ toast("Paint over the part you want to remove first."); return; }
+        pushHistory(); flatten();
+        const pad = 10;
+        const bx = Math.max(0, minX - pad), by = Math.max(0, minY - pad);
+        const bw = Math.min(w, maxX + pad + 1) - bx, bh = Math.min(h, maxY + pad + 1) - by;
+        const img = ctx.getImageData(bx, by, bw, bh), d = img.data;
+        const unknown = new Uint8Array(bw * bh);
+        for(let y = 0; y < bh; y++) for(let x = 0; x < bw; x++){
+            if(m[((by + y) * w + (bx + x)) * 4 + 3] > 20) unknown[y * bw + x] = 1;
+        }
+        // grow the mask by 2px so soft brush edges are covered too
+        for(let pass = 0; pass < 2; pass++){
+            const copy = unknown.slice();
+            for(let y = 1; y < bh - 1; y++) for(let x = 1; x < bw - 1; x++){
+                if(!copy[y * bw + x] && (copy[y * bw + x - 1] || copy[y * bw + x + 1] || copy[(y - 1) * bw + x] || copy[(y + 1) * bw + x])) unknown[y * bw + x] = 1;
+            }
+        }
+        // peel the hole from the outside in, averaging known neighbours
+        let remaining = [];
+        for(let i = 0; i < unknown.length; i++) if(unknown[i]) remaining.push(i);
+        const filled = [];
+        let guard = 0;
+        while(remaining.length && guard++ < 600){
+            const next = [], done = [];
+            for(const i of remaining){
+                const x = i % bw, y = (i / bw) | 0;
+                let r = 0, g = 0, b = 0, a = 0, n = 0;
+                for(let dy = -1; dy <= 1; dy++) for(let dx = -1; dx <= 1; dx++){
+                    if(!dx && !dy) continue;
+                    const nx = x + dx, ny = y + dy;
+                    if(nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
+                    const j = ny * bw + nx;
+                    if(unknown[j]) continue;
+                    r += d[j * 4]; g += d[j * 4 + 1]; b += d[j * 4 + 2]; a += d[j * 4 + 3]; n++;
+                }
+                if(n){ d[i * 4] = r / n; d[i * 4 + 1] = g / n; d[i * 4 + 2] = b / n; d[i * 4 + 3] = a / n; done.push(i); }
+                else next.push(i);
+            }
+            done.forEach(i => { unknown[i] = 0; filled.push(i); });
+            remaining = next;
+        }
+        // a few smoothing passes over the filled pixels so it blends in
+        for(let it = 0; it < 24; it++){
+            for(const i of filled){
+                const x = i % bw, y = (i / bw) | 0;
+                if(x < 1 || y < 1 || x >= bw - 1 || y >= bh - 1) continue;
+                for(let c = 0; c < 4; c++){
+                    d[i * 4 + c] = (d[(i - 1) * 4 + c] + d[(i + 1) * 4 + c] + d[(i - bw) * 4 + c] + d[(i + bw) * 4 + c]) / 4;
+                }
+            }
+        }
+        ctx.putImageData(img, bx, by);
+        mctx.clearRect(0, 0, w, h);
+        dirty = true;
+        toast("Erased");
+    }
+
+    // ----- Resize -----
+    function applyResize(nw, nh){
+        nw = Math.round(nw); nh = Math.round(nh);
+        if(!(nw >= 16 && nh >= 16) || nw > 8192 || nh > 8192){ toast("Pick a size between 16 and 8192 pixels."); return; }
+        if(nw === cvs.width && nh === cvs.height){ toast("That's already the current size."); return; }
+        pushHistory(); flatten();
+        const src = snapshot();
+        setCanvasSize(nw, nh);
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+        ctx.clearRect(0, 0, nw, nh);
+        ctx.drawImage(src, 0, 0, nw, nh);
+        dirty = true;
+        fit();
+        toast(`Resized to ${nw} × ${nh}`);
+        setTool(null);
+    }
+
+    // ----- Remove background -----
+    function withTimeout(promise, ms){
+        return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+    }
+    // Plain-background fallback: floods in from the edges over pixels that
+    // look like the corner colour, and makes them transparent.
+    function floodRemoveBackground(){
+        const w = cvs.width, h = cvs.height;
+        const img = ctx.getImageData(0, 0, w, h), d = img.data;
+        const corners = [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]].map(([x, y]) => { const i = (y * w + x) * 4; return [d[i], d[i + 1], d[i + 2]]; });
+        const bg = [0, 1, 2].map(c => corners.reduce((s, p) => s + p[c], 0) / 4);
+        const tol = 46;
+        const near = i => { const dr = d[i] - bg[0], dg = d[i + 1] - bg[1], db = d[i + 2] - bg[2]; return Math.sqrt(dr * dr + dg * dg + db * db) < tol; };
+        const seen = new Uint8Array(w * h);
+        const stack = [];
+        const push = (x, y) => { const p = y * w + x; if(!seen[p] && near(p * 4)){ seen[p] = 1; stack.push(p); } };
+        for(let x = 0; x < w; x++){ push(x, 0); push(x, h - 1); }
+        for(let y = 0; y < h; y++){ push(0, y); push(w - 1, y); }
+        while(stack.length){
+            const p = stack.pop(), x = p % w, y = (p / w) | 0;
+            if(x > 0) push(x - 1, y); if(x < w - 1) push(x + 1, y);
+            if(y > 0) push(x, y - 1); if(y < h - 1) push(x, y + 1);
+        }
+        let cleared = 0;
+        for(let p = 0; p < seen.length; p++) if(seen[p]){ d[p * 4 + 3] = 0; cleared++; }
+        // soften the cut-out edge by one pixel
+        for(let y = 1; y < h - 1; y++) for(let x = 1; x < w - 1; x++){
+            const p = y * w + x;
+            if(!seen[p] && (seen[p - 1] || seen[p + 1] || seen[p - w] || seen[p + w])) d[p * 4 + 3] = 150;
+        }
+        ctx.putImageData(img, 0, 0);
+        return cleared / (w * h);
+    }
+    async function removeBackground(){
+        if(busy) return;
+        pushHistory(); flatten();
+        setBusy(true, "Removing background… the first time can take a little while");
+        let usedAI = false;
+        try{
+            const blob = await exportBlobFromWork();
+            const mod = await withTimeout(import("https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.5/+esm"), 25000);
+            const out = await withTimeout(mod.removeBackground(blob, { output: { format: "image/png" } }), 120000);
+            await drawFromBlob(out);
+            usedAI = true;
+        }catch(err){
+            // AI model unavailable — try the simple plain-background method
+            try{
+                const share = floodRemoveBackground();
+                if(share < 0.04){
+                    history.pop(); $("ivUndo").disabled = history.length === 0;
+                    toast("Couldn't find a clear background to remove on this image.");
+                    setBusy(false);
+                    return;
+                }
+            }catch(e2){
+                history.pop(); toast("Couldn't remove the background."); setBusy(false); return;
+            }
+        }
+        dirty = true;
+        setBusy(false);
+        toast(usedAI ? "Background removed" : "Background removed (works best on plain backgrounds)");
+    }
+    function exportBlobFromWork(){
+        return new Promise((resolve, reject) => cvs.toBlob(b => b ? resolve(b) : reject(new Error("blob")), "image/png"));
+    }
+
+    // ---------- Describe edits (AI) ----------
+    async function aiEdit(text){
+        if(busy) return;
+        if(!remoteUrl){ toast("AI edits work on images that were just generated."); return; }
+        if(dirty || strokes.length){ toast("Undo or download your Markup / Erase / Resize changes first — AI edits start from the original image."); return; }
+        let prompt = text.trim();
+        if(!prompt && !pins.length){ return; }
+        if(pins.length){
+            prompt += (prompt ? ". " : "") + pins.map(p => `In ${regionWords(p)}: ${p.text}`).join(". ");
+        }
+        pushHistory();
+        setBusy(true, "Editing your image…");
+        const seed = Math.floor(Math.random() * 1000000);
+        const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt) +
+            "?model=kontext&nologo=true&seed=" + seed + "&image=" + encodeURIComponent(remoteUrl);
+        try{
+            await withTimeout(loadFromUrl(url), 90000);
+            remoteUrl = url; dirty = false; pins = []; renderPins();
+            $("ivEditInput").value = "";
+            fit();
+            toast("Edit applied");
+        }catch(err){
+            console.warn("[Zyntra] image edit failed:", err);
+            history.pop(); $("ivUndo").disabled = history.length === 0;
+            toast("Couldn't apply that edit right now. Please try again.");
+        }
+        setBusy(false);
+    }
+
+    // ---------- share / download ----------
+    async function download(){
+        try{
+            const blob = await exportBlob();
+            const u = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = u; a.download = "zyntra-ai-image.png";
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(u), 4000);
+        }catch(err){
+            if(/^https?:/.test(srcUrl)) window.open(srcUrl, "_blank");
+        }
+    }
+    async function share(){
+        let blob = null;
+        try{ blob = await exportBlob(); }catch(err){}
+        try{
+            if(blob){
+                const file = new File([blob], "zyntra-ai-image.png", { type: "image/png" });
+                if(navigator.canShare && navigator.canShare({ files: [file] })){
+                    await navigator.share({ files: [file], title: "Made with Zyntra AI" });
+                    return;
+                }
+            }
+        }catch(err){ if(err && err.name === "AbortError") return; }
+        try{
+            if(blob && window.ClipboardItem && navigator.clipboard && navigator.clipboard.write){
+                await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+                toast("Image copied — paste it anywhere");
+                return;
+            }
+        }catch(err){}
+        const link = remoteUrl || (/^https?:/.test(srcUrl) ? srcUrl : "");
+        if(link){
+            try{ await navigator.clipboard.writeText(link); toast("Image link copied"); return; }catch(err){ fallbackCopyText(link); toast("Image link copied"); return; }
+        }
+        toast("Couldn't share this image.");
+    }
+
+    // ---------- pointer interaction ----------
+    let drag = null;
+    stage.addEventListener("pointerdown", e => {
+        if(e.target.closest(".iv-pin-editor, .iv-edit-bar, .iv-pin")) return;
+        if(e.button === 2) return;
+        const panning = !tool || e.button === 1 || spaceDown;
+        if(panning){
+            drag = { type: "pan", x: e.clientX, y: e.clientY, tx, ty };
+            stage.setPointerCapture(e.pointerId);
+            stage.classList.add("panning");
+            return;
+        }
+        if(busy) return;
+        const p = toImg(e);
+        if(tool === "markup"){
+            const st = { color: strokeColor, size: strokeSize * (cvs.width / 1024 > 1 ? cvs.width / 1024 : 1), pts: [p] };
+            strokes.push(st);
+            drag = { type: "markup", st };
+            stage.setPointerCapture(e.pointerId);
+            redrawStrokes();
+        } else if(tool === "erase"){
+            drag = { type: "erase", last: p, size: brushSize * (cvs.width / 1024 > 1 ? cvs.width / 1024 : 1) };
+            stage.setPointerCapture(e.pointerId);
+            paintMask(p, p, drag.size);
+        } else if(tool === "comment"){
+            drag = { type: "comment", x: e.clientX, y: e.clientY, p };
+        }
+    });
+    function paintMask(a, b, size){
+        mctx.strokeStyle = "rgba(255,59,107,0.65)"; mctx.fillStyle = "rgba(255,59,107,0.65)";
+        mctx.lineWidth = size; mctx.lineCap = "round"; mctx.lineJoin = "round";
+        mctx.beginPath(); mctx.moveTo(a.x, a.y); mctx.lineTo(b.x + 0.01, b.y + 0.01); mctx.stroke();
+    }
+    stage.addEventListener("pointermove", e => {
+        if(!drag) return;
+        if(drag.type === "pan"){ tx = drag.tx + (e.clientX - drag.x); ty = drag.ty + (e.clientY - drag.y); applyTransform(); }
+        else if(drag.type === "markup"){ drag.st.pts.push(toImg(e)); redrawStrokes(); }
+        else if(drag.type === "erase"){ const p = toImg(e); paintMask(drag.last, p, drag.size); drag.last = p; }
+    });
+    function endDrag(e){
+        if(!drag) return;
+        if(drag.type === "comment" && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 6){
+            const p = drag.p;
+            if(p.x >= 0 && p.y >= 0 && p.x <= cvs.width && p.y <= cvs.height){
+                pins.push({ x: p.x / cvs.width, y: p.y / cvs.height, text: "" });
+                renderPins();
+                openPinEditor(pins.length - 1);
+            }
+        }
+        stage.classList.remove("panning");
+        drag = null;
+    }
+    stage.addEventListener("pointerup", endDrag);
+    stage.addEventListener("pointercancel", endDrag);
+    stage.addEventListener("wheel", e => {
+        e.preventDefault();
+        const r = stage.getBoundingClientRect();
+        zoomTo(scale * Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
+        renderPins();
+    }, { passive: false });
+    stage.addEventListener("dblclick", e => {
+        if(tool) return;
+        const r = stage.getBoundingClientRect();
+        if(Math.abs(scale - fitScale) < 0.02) zoomTo(Math.max(1, fitScale * 2), e.clientX - r.left, e.clientY - r.top);
+        else fit();
+        renderPins();
+    });
+
+    // ---------- wiring ----------
+    modal.querySelectorAll(".iv-tool").forEach(b => b.addEventListener("click", () => { if(!busy) setTool(b.dataset.tool); }));
+    $("ivUndo").addEventListener("click", undo);
+    $("ivShare").addEventListener("click", share);
+    $("imageViewerDownload").addEventListener("click", download);
+    $("ivEditForm").addEventListener("submit", e => { e.preventDefault(); aiEdit($("ivEditInput").value); });
+    $("ivEditInput").addEventListener("keydown", e => e.stopPropagation());
+
+    const zoomMenu = $("ivZoomMenu");
+    $("ivZoomBtn").addEventListener("click", e => { e.stopPropagation(); zoomMenu.classList.toggle("show"); });
+    zoomMenu.addEventListener("click", e => {
+        const b = e.target.closest("button"); if(!b) return;
+        const z = b.dataset.zoom;
+        if(z === "fit") fit();
+        else if(z === "in") zoomTo(scale * 1.25);
+        else if(z === "out") zoomTo(scale / 1.25);
+        else zoomTo(+z);
+        zoomMenu.classList.remove("show");
+        renderPins();
+    });
+    modal.addEventListener("click", e => { if(!e.target.closest(".iv-zoom")) zoomMenu.classList.remove("show"); });
+
+    document.addEventListener("keydown", e => {
+        if(!modal.classList.contains("show")) return;
+        if(e.code === "Space" && !/input|textarea/i.test(e.target.tagName)){ spaceDown = true; e.preventDefault(); }
+        if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !/input|textarea/i.test(e.target.tagName)){ e.preventDefault(); undo(); }
+        else if(!/input|textarea/i.test(e.target.tagName)){
+            if(e.key === "+" || e.key === "=") { zoomTo(scale * 1.25); renderPins(); }
+            else if(e.key === "-") { zoomTo(scale / 1.25); renderPins(); }
+            else if(e.key === "0") { fit(); renderPins(); }
+        }
+    });
+    document.addEventListener("keyup", e => { if(e.code === "Space") spaceDown = false; });
+    window.addEventListener("resize", () => { if(modal.classList.contains("show")) { fit(); renderPins(); } });
+
+    // ---------- open ----------
+    async function open(src, alt){
+        srcUrl = src; altText = alt || "Generated image";
+        remoteUrl = /^https?:/.test(src) ? src : null;
+        history = []; strokes = []; pins = []; dirty = false; editable = true; tool = null;
+        $("ivUndo").disabled = true;
+        $("ivTitle").textContent = altText.length > 70 ? altText.slice(0, 67) + "…" : altText;
+        $("ivEditInput").value = "";
+        $("ivEditInput").placeholder = remoteUrl ? "Describe edits" : "Describe edits (available for newly generated images)";
+        stage.dataset.tool = ""; subbar.classList.remove("show"); subbar.innerHTML = "";
+        modal.querySelectorAll(".iv-tool").forEach(b => b.classList.remove("active"));
+        document.querySelector(".iv-pin-editor")?.remove();
+        pinsEl.innerHTML = "";
+        openModal("imageViewerModal");
+        setBusy(true, "Loading…");
+        try{
+            await loadFromUrl(src);
+        }catch(err){
+            // Host doesn't allow reading the pixels — still show the picture.
+            try{
+                const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+                setCanvasSize(im.naturalWidth, im.naturalHeight);
+                ctx.drawImage(im, 0, 0);
+                editable = false;
+            }catch(e2){
+                setBusy(false); toast("Couldn't load this image."); return;
+            }
+        }
+        setBusy(false);
+        requestAnimationFrame(() => { fit(); renderPins(); });
+    }
+
+    return { open };
+})();
+
+
+// Clicking a generated image anywhere in chat opens the full-screen editor.
+document.addEventListener("click", (e) => {
+    const img = e.target.closest(".ai-image-block .generated-img");
+    if(img) openImageViewer(img.src, img.alt);
+});
 
 document.addEventListener("click", (e) => {
     const downloadBtn = e.target.closest(".ai-image-download");
@@ -5668,7 +6238,7 @@ function runImageGeneration(msg, loadingDiv, aiContent){
             }
         };
         const seed = Math.floor(Math.random() * 1000000);
-        img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(msg) + "?model=flux&enhance=true&seed=" + seed;
+        img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(msg) + "?model=flux&enhance=true&nologo=true&seed=" + seed;
     }
 
     const waitMs = 2000;
@@ -6964,11 +7534,6 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
             const wrap = document.createElement("div");
             wrap.className = "generated-img-wrap";
             wrap.appendChild(img);
-            const mark = document.createElement("img");
-            mark.className = "zyntra-watermark";
-            mark.src = "/favicon.png";
-            mark.alt = "Zyntra AI";
-            wrap.appendChild(mark);
             result.appendChild(wrap);
             img.addEventListener("click", () => openImageViewer(img.src, finalPrompt));
 
@@ -7007,7 +7572,7 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
             }
         };
         const seed = Math.floor(Math.random() * 1000000);
-        img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(finalPrompt) + "?model=flux&enhance=true&seed=" + seed;
+        img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(finalPrompt) + "?model=flux&enhance=true&nologo=true&seed=" + seed;
     }
 
     const waitMs = 2000;
