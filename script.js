@@ -2175,6 +2175,90 @@ function openProfileViewModal(){
     openModal("profileViewModal");
 }
 
+// Plan look + what each plan includes (mirrors the pricing cards).
+const PROFILE_PLAN_INFO = {
+    guest:   { emoji: "👤", limit: 10,   perks: [] },
+    free:    { emoji: "🆓", limit: 50,   perks: ["50 AI messages/month", "Basic AI Chat", "Basic web search"] },
+    starter: { emoji: "🟢", limit: 150,  perks: ["150 AI messages/month", "Web Search", "Memory", "Google tools"] },
+    pro:     { emoji: "🟣", limit: 500,  perks: ["500 AI messages/month", "Advanced Research", "Memory", "Google tools", "Priority AI"] },
+    ultra:   { emoji: "🔥", limit: 1500, perks: ["1,500 AI messages/month", "Advanced Research", "Memory", "Google tools", "Highest priority", "Premium features"] }
+};
+
+// The server tells us how many messages are left with every reply, so we
+// keep the latest figure around for the profile meter (there is no
+// separate "usage" endpoint to ask).
+function rememberUsage(usage){
+    if(!usage || typeof usage.remaining !== "number" || typeof usage.limit !== "number") return;
+    try{
+        localStorage.setItem("zyntra-last-usage", JSON.stringify({
+            plan: usage.plan, limit: usage.limit, remaining: usage.remaining,
+            month: new Date().toISOString().slice(0, 7)
+        }));
+    }catch(e){}
+}
+function readRememberedUsage(plan){
+    try{
+        const u = JSON.parse(localStorage.getItem("zyntra-last-usage") || "null");
+        if(!u || u.plan !== plan) return null;
+        if(u.month !== new Date().toISOString().slice(0, 7)) return null; // a new month = a fresh quota
+        return u;
+    }catch(e){ return null; }
+}
+
+function paintProfilePlan(plan, signedIn){
+    const key = signedIn ? (PROFILE_PLAN_INFO[plan] ? plan : "free") : "guest";
+    const info = PROFILE_PLAN_INFO[key];
+    const label = signedIn ? planDisplayName(key) : "Guest";
+
+    document.getElementById("profileViewBox")?.setAttribute("data-plan", key);
+    const badge = document.getElementById("profileViewPlanBadge");
+    if(badge) badge.textContent = `${info.emoji} ${label}`;
+
+    // Upgrade button: hidden for guests and for the top plan.
+    const up = document.getElementById("profileViewUpgradeBtn");
+    if(up) up.style.display = (signedIn && key !== "ultra") ? "" : "none";
+
+    // Perks
+    const perksEl = document.getElementById("profileViewPerks");
+    if(perksEl){
+        perksEl.innerHTML = "";
+        info.perks.forEach(p => {
+            const chip = document.createElement("span");
+            chip.className = "profile-view-perk";
+            chip.textContent = p;
+            perksEl.appendChild(chip);
+        });
+        perksEl.parentElement.style.display = info.perks.length ? "" : "none";
+    }
+
+    // Usage meter
+    const usageBox = document.getElementById("profileViewUsage");
+    if(!signedIn){ if(usageBox) usageBox.style.display = "none"; return; }
+    usageBox.style.display = "";
+    const known = readRememberedUsage(key);
+    const limit = known ? known.limit : info.limit;
+    const fill = document.getElementById("profileViewMeterFill");
+    const count = document.getElementById("profileViewUsageCount");
+    const note = document.getElementById("profileViewUsageNote");
+    const reset = formatLimitResetDate();
+    if(known){
+        const used = Math.min(limit, Math.max(0, limit - known.remaining));
+        const pct = Math.min(100, Math.round((used / limit) * 100));
+        count.textContent = `${used.toLocaleString()} / ${limit.toLocaleString()} used`;
+        fill.style.width = Math.max(pct, used > 0 ? 3 : 0) + "%";
+        fill.classList.toggle("is-warn", pct >= 80 && pct < 100);
+        fill.classList.toggle("is-full", pct >= 100);
+        note.textContent = known.remaining > 0
+            ? `${known.remaining.toLocaleString()} left · resets ${reset}`
+            : `You've used them all · resets ${reset}`;
+    } else {
+        count.textContent = `${limit.toLocaleString()} / month`;
+        fill.style.width = "0%";
+        fill.classList.remove("is-warn", "is-full");
+        note.textContent = `Resets ${reset} · your count updates after your next message`;
+    }
+}
+
 function renderProfileViewModal(){
     const email = localStorage.getItem("zyntra-user");
     const profile = getProfile();
@@ -2184,13 +2268,14 @@ function renderProfileViewModal(){
 
     document.getElementById("profileViewAvatar").textContent = letter;
     document.getElementById("profileViewName").textContent = displayName;
-    const handleEl = document.getElementById("profileViewHandle");
-    handleEl.textContent = `${handle} · ${email ? planDisplayName(getCachedPlan()) : "Guest"}`;
+    document.getElementById("profileViewHandle").textContent = handle;
+
+    paintProfilePlan(getCachedPlan(), !!email);
     // The cached plan can be stale right after an upgrade — re-read the
-    // real one from the server and correct the label if it differs.
+    // real one from the server and repaint if it differs.
     if(email && typeof refreshUserPlan === "function"){
         refreshUserPlan().then(plan => {
-            if(plan) handleEl.textContent = `${handle} · ${planDisplayName(plan)}`;
+            if(plan) paintProfilePlan(plan, true);
         }).catch(() => {});
     }
 
@@ -2207,9 +2292,10 @@ function renderProfileViewModal(){
     const plugins = getPlugins();
     const enabled = PLUGIN_DEFS.filter(p => plugins[p.key]);
     const pluginsEl = document.getElementById("profileViewPlugins");
+    document.getElementById("profileViewPluginCount").textContent = enabled.length ? `· ${enabled.length}` : "";
     pluginsEl.innerHTML = "";
     if(enabled.length === 0){
-        pluginsEl.innerHTML = '<p class="profile-view-plugins-empty">No plugins enabled.</p>';
+        pluginsEl.innerHTML = '<p class="profile-view-plugins-empty">No plugins enabled yet.</p>';
     } else {
         enabled.forEach(p => {
             const chip = document.createElement("div");
@@ -2226,6 +2312,15 @@ document.getElementById("profileViewEditBtn")?.addEventListener("click", () => {
     openModal("profileModal");
     renderProfileModal();
     switchSettingsSection("account");
+});
+
+document.getElementById("profileViewUpgradeBtn")?.addEventListener("click", () => {
+    closeModal("profileViewModal");
+    openModal("pricingModal");
+    if(typeof resetPricingModalView === "function") resetPricingModalView();
+    if(typeof setPricingStatus === "function") setPricingStatus("");
+    if(typeof applyPlanToUI === "function") applyPlanToUI(getCachedPlan());
+    navigateToRoute("plans");
 });
 
 document.getElementById("topbarSettingsBtn")?.addEventListener("click", handleProfileEntry);
@@ -5733,6 +5828,7 @@ async function streamAssistantReply(){
             chatAutoScroll();
         }, { research: researchModeEnabled, website: activeChatTool === "codex", agent: activeChatTool === "agent", signal: controller.signal }, onAgentStep);
 
+        rememberUsage(usage);
         maybeWarnLowMessageBalance(usage);
 
         if(!accumulated){
