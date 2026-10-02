@@ -667,33 +667,59 @@
 
 <!-- ================= PROFILE VIEW MODAL ================= -->
 <div class="modal-overlay" id="profileViewModal">
-    <div class="modal-box profile-view-box">
+    <div class="modal-box profile-view-box" id="profileViewBox" data-plan="free">
         <button class="modal-close" id="profileViewClose">✕</button>
 
+        <div class="profile-view-cover" aria-hidden="true"></div>
+
         <div class="profile-view-header">
-            <div class="profile-view-avatar" id="profileViewAvatar">?</div>
+            <div class="profile-view-avatar-ring">
+                <div class="profile-view-avatar" id="profileViewAvatar">?</div>
+            </div>
             <h2 class="profile-view-name" id="profileViewName">Guest</h2>
-            <p class="profile-view-handle" id="profileViewHandle">@guest · Free</p>
-            <button class="profile-view-edit-btn" id="profileViewEditBtn">✎ Edit profile</button>
+            <p class="profile-view-handle" id="profileViewHandle">@guest</p>
+            <span class="profile-view-plan-badge" id="profileViewPlanBadge">Guest</span>
+
+            <div class="profile-view-actions">
+                <button class="profile-view-edit-btn" id="profileViewEditBtn">✎ Edit profile</button>
+                <button class="profile-view-upgrade-btn" id="profileViewUpgradeBtn">✦ Upgrade</button>
+            </div>
+        </div>
+
+        <div class="profile-view-usage" id="profileViewUsage">
+            <div class="profile-view-usage-top">
+                <span class="profile-view-usage-title">Messages this month</span>
+                <span class="profile-view-usage-count" id="profileViewUsageCount">—</span>
+            </div>
+            <div class="profile-view-meter"><div class="profile-view-meter-fill" id="profileViewMeterFill"></div></div>
+            <p class="profile-view-usage-note" id="profileViewUsageNote"></p>
         </div>
 
         <div class="profile-view-stats">
             <div class="profile-view-stat">
+                <span class="profile-view-stat-icon">💬</span>
                 <p class="profile-view-stat-value" id="profileViewTotalChats">0</p>
                 <p class="profile-view-stat-label">Total chats</p>
             </div>
             <div class="profile-view-stat">
+                <span class="profile-view-stat-icon">📁</span>
                 <p class="profile-view-stat-value" id="profileViewTotalProjects">0</p>
                 <p class="profile-view-stat-label">Projects</p>
             </div>
             <div class="profile-view-stat">
+                <span class="profile-view-stat-icon">📅</span>
                 <p class="profile-view-stat-value" id="profileViewMemberSince">—</p>
                 <p class="profile-view-stat-label">Member since</p>
             </div>
         </div>
 
         <div class="profile-view-section">
-            <h3>Enabled plugins</h3>
+            <h3>Your plan includes</h3>
+            <div class="profile-view-perks" id="profileViewPerks"></div>
+        </div>
+
+        <div class="profile-view-section">
+            <h3>Enabled plugins <span class="profile-view-count" id="profileViewPluginCount"></span></h3>
             <div class="profile-view-plugins" id="profileViewPlugins"></div>
         </div>
     </div>
