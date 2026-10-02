@@ -5813,33 +5813,144 @@ function maybeWarnLowMessageBalance(usage){
 
 function renderLimitReachedCard(container, err){
     container.innerHTML = "";
+    const isGuest = err.code === "guest_limit_reached";
+    const plan = isGuest ? "guest" : (err.plan || getCachedPlan());
+    const offer = isGuest ? null : getUpgradeOffer(plan);
+
     const card = document.createElement("div");
     card.className = "limit-reached-card";
-    card.innerHTML = `
-        <p class="limit-reached-text">${escapeForDisplay(err.message || "You've reached your monthly message limit.")}</p>
-    `;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "limit-reached-upgrade-btn";
-    if(err.code === "guest_limit_reached"){
+    const resetLabel = formatLimitResetDate(err.resetsAt);
+    let text = err.message || "You've reached your monthly message limit.";
+    if(!isGuest && !offer){
+        // Top plan: nothing to upgrade to — it's a wait.
+        text = `You've used all ${err.limit ? err.limit.toLocaleString() : "your"} messages on your ${planDisplayName(plan)} plan this month. Your messages reset on ${resetLabel}.`;
+    }
+    card.innerHTML = `<p class="limit-reached-text">${escapeForDisplay(text)}</p>`;
+
+    if(isGuest){
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "limit-reached-upgrade-btn";
         btn.textContent = "Sign in — it's free";
         btn.addEventListener("click", () => {
             if(typeof resetSigninModalUI === "function") resetSigninModalUI();
             openModal("signinModal");
             navigateToRoute("login");
         });
-    } else {
-        btn.textContent = "Upgrade plan";
-        btn.addEventListener("click", () => {
-            openModal("pricingModal");
-            if(typeof resetPricingModalView === "function") resetPricingModalView();
-            if(typeof setPricingStatus === "function") setPricingStatus("");
-            if(typeof applyPlanToUI === "function") applyPlanToUI(getCachedPlan());
-            navigateToRoute("plans");
-        });
+        card.appendChild(btn);
+    } else if(offer){
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "limit-reached-upgrade-btn";
+        btn.textContent = "Upgrade to " + planDisplayName(offer.target);
+        btn.addEventListener("click", () => showLimitReachedModal(err));
+        card.appendChild(btn);
     }
-    card.appendChild(btn);
     container.appendChild(card);
+
+    // Signed-in users also get the full "Upgrade to keep chatting" popup.
+    if(!isGuest) showLimitReachedModal(err);
+}
+
+// ---------- "Upgrade to keep chatting" popup ----------
+// Free & Starter are offered Pro, Pro is offered Ultra, Ultra can only wait.
+const UPGRADE_OFFERS = {
+    free:    { target: "pro",   base: "Free",    perks: ["500 AI messages/month", "Web Search", "Advanced Research", "Memory", "Google tools", "Priority AI"] },
+    starter: { target: "pro",   base: "Starter", perks: ["500 AI messages/month", "Advanced Research", "Priority AI"] },
+    pro:     { target: "ultra", base: "Pro",     perks: ["1,500 AI messages/month", "Highest priority", "Premium features"] }
+};
+const UPGRADE_TARGET_INFO = {
+    pro:   { tagline: "Built for daily use",   price: "₹199" },
+    ultra: { tagline: "Maximum headroom",      price: "₹499" }
+};
+
+function getUpgradeOffer(plan){
+    const o = UPGRADE_OFFERS[plan];
+    return o ? { ...o, ...UPGRADE_TARGET_INFO[o.target] } : null;
+}
+
+function formatLimitResetDate(iso){
+    let d = iso ? new Date(iso) : null;
+    if(!d || isNaN(d.getTime())){
+        const now = new Date();
+        d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+    }
+    return d.toLocaleDateString(undefined, { month: "long", day: "numeric" });
+}
+
+function closeLimitReachedModal(){
+    document.querySelector(".limit-modal-overlay")?.remove();
+    document.removeEventListener("keydown", limitModalEscHandler);
+}
+function limitModalEscHandler(e){ if(e.key === "Escape") closeLimitReachedModal(); }
+
+function showLimitReachedModal(err){
+    if(err.code === "guest_limit_reached") return;
+    closeLimitReachedModal();
+
+    const plan = err.plan || getCachedPlan();
+    const offer = getUpgradeOffer(plan);
+    const planName = planDisplayName(plan);
+    const used = err.limit ? err.limit.toLocaleString() : "all your";
+    const resetLabel = formatLimitResetDate(err.resetsAt);
+    const check = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    const overlay = document.createElement("div");
+    overlay.className = "limit-modal-overlay";
+
+    let body;
+    if(offer){
+        const targetName = planDisplayName(offer.target);
+        body = `
+            <h2 class="limit-modal-title">Upgrade to keep chatting</h2>
+            <p class="limit-modal-text">You've used ${used} messages on your ${planName} plan this month. It resets on ${resetLabel}, or you can upgrade for a higher limit.</p>
+            <div class="limit-plan-card">
+                <div class="limit-plan-head">
+                    <div class="limit-plan-name">${targetName}</div>
+                    <div class="limit-plan-tagline">${offer.tagline}</div>
+                    <div class="limit-plan-price"><span class="limit-plan-amount">${offer.price}</span><span class="limit-plan-per">INR / month</span></div>
+                </div>
+                <div class="limit-plan-perks">
+                    <div class="limit-plan-perks-title">Everything in ${offer.base} and:</div>
+                    ${offer.perks.map(p => `<div class="limit-plan-perk">${check}<span>${p}</span></div>`).join("")}
+                </div>
+                <button type="button" class="limit-plan-cta">Upgrade to ${targetName}</button>
+                <button type="button" class="limit-plan-link">See all plans</button>
+            </div>
+            <button type="button" class="limit-modal-later">Not now</button>`;
+    } else {
+        body = `
+            <h2 class="limit-modal-title">You've reached your limit</h2>
+            <p class="limit-modal-text">You've used ${used} messages on your ${planName} plan this month. Your messages reset on <strong>${resetLabel}</strong>, so you can keep chatting then.</p>
+            <button type="button" class="limit-modal-later limit-modal-ok">Got it</button>`;
+    }
+
+    overlay.innerHTML = `
+        <div class="limit-modal-box" role="dialog" aria-modal="true">
+            <button type="button" class="limit-modal-x" title="Close">✕</button>
+            ${body}
+        </div>`;
+    document.body.appendChild(overlay);
+    document.addEventListener("keydown", limitModalEscHandler);
+
+    overlay.addEventListener("mousedown", ev => { if(ev.target === overlay) closeLimitReachedModal(); });
+    overlay.querySelector(".limit-modal-x").addEventListener("click", closeLimitReachedModal);
+    overlay.querySelector(".limit-modal-later")?.addEventListener("click", closeLimitReachedModal);
+
+    const openPlans = () => {
+        closeLimitReachedModal();
+        openModal("pricingModal");
+        if(typeof resetPricingModalView === "function") resetPricingModalView();
+        if(typeof setPricingStatus === "function") setPricingStatus("");
+        if(typeof applyPlanToUI === "function") applyPlanToUI(getCachedPlan());
+        navigateToRoute("plans");
+    };
+    overlay.querySelector(".limit-plan-link")?.addEventListener("click", openPlans);
+    overlay.querySelector(".limit-plan-cta")?.addEventListener("click", () => {
+        const target = offer.target;
+        openPlans();
+        startPlanUpgrade(target);
+    });
 }
 
 // Truncates chatHistory + the DOM back to right after the user message
