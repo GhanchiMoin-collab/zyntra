@@ -1300,9 +1300,57 @@
 
 <!-- ================= IMAGE VIEWER (full screen) ================= -->
 <div class="modal-overlay image-viewer-overlay" id="imageViewerModal">
-    <button type="button" class="image-viewer-btn image-viewer-download" id="imageViewerDownload" title="Download">⬇</button>
-    <button type="button" class="image-viewer-btn image-viewer-close" id="imageViewerClose" title="Close">✕</button>
-    <img id="imageViewerImg" class="image-viewer-img" src="" alt="Generated image">
+    <div class="iv-top">
+        <button type="button" class="iv-icon-btn" id="imageViewerClose" title="Close">✕</button>
+        <div class="iv-title" id="ivTitle">Generated image</div>
+        <div class="iv-top-actions">
+            <button type="button" class="iv-icon-btn" id="ivUndo" title="Undo (Ctrl+Z)" disabled><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg></button>
+            <button type="button" class="iv-pill" id="ivShare"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg> <span>Share</span></button>
+            <button type="button" class="iv-icon-btn" id="imageViewerDownload" title="Download"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+        </div>
+    </div>
+
+    <div class="iv-toolbar-row">
+        <div class="iv-toolbar" id="ivToolbar">
+            <button type="button" class="iv-tool" data-tool="markup"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg> <span>Markup</span></button>
+            <button type="button" class="iv-tool" data-tool="comment"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="10" y1="10" x2="14" y2="10"/></svg> <span>Comment</span></button>
+            <button type="button" class="iv-tool" data-tool="removebg"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg> <span>Remove BG</span></button>
+            <button type="button" class="iv-tool" data-tool="erase"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg> <span>Erase</span></button>
+            <button type="button" class="iv-tool" data-tool="resize"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg> <span>Resize</span></button>
+        </div>
+        <div class="iv-zoom">
+            <button type="button" class="iv-zoom-btn" id="ivZoomBtn"><span id="ivZoomLabel">100%</span> ▾</button>
+            <div class="iv-zoom-menu" id="ivZoomMenu">
+                <button type="button" data-zoom="in">Zoom in</button>
+                <button type="button" data-zoom="out">Zoom out</button>
+                <button type="button" data-zoom="0.25">25%</button>
+                <button type="button" data-zoom="0.5">50%</button>
+                <button type="button" data-zoom="1">100%</button>
+                <button type="button" data-zoom="2">200%</button>
+                <button type="button" data-zoom="fit">Fit to screen</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="iv-subbar" id="ivSubbar"></div>
+
+    <div class="iv-stage" id="ivStage">
+        <div class="iv-wrap" id="ivWrap">
+            <canvas id="ivCanvas"></canvas>
+            <canvas id="ivOverlay" class="iv-layer"></canvas>
+            <canvas id="ivMask" class="iv-layer iv-mask"></canvas>
+            <div class="iv-pins" id="ivPins"></div>
+        </div>
+        <div class="iv-busy" id="ivBusy"><span class="iv-spinner"></span><span id="ivBusyText">Working…</span></div>
+    </div>
+
+    <form class="iv-edit-bar" id="ivEditForm" autocomplete="off">
+        <span class="iv-edit-plus">+</span>
+        <input type="text" id="ivEditInput" placeholder="Describe edits" maxlength="400">
+        <button type="submit" class="iv-edit-send" id="ivEditSend" title="Apply edit"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg></button>
+    </form>
+
+    <div class="iv-toast" id="ivToast"></div>
 </div>
 
 <!-- ================= REFERRAL / INVITE MODAL ================= -->
