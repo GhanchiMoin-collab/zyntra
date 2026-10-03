@@ -172,6 +172,11 @@ function openCodePreview(code){
                 body: JSON.stringify({ html: code, title: titleGuess, name: siteName })
             });
             const data = await res.json();
+            if(res.status === 403 && data.code === "feature_locked"){
+                publishResult.style.display = "none";
+                showFeatureLockedModal("publish");
+                return;
+            }
             if(!res.ok) throw new Error(data.error || "Publish failed.");
 
             publishResult.innerHTML = `
@@ -195,11 +200,12 @@ function openCodePreview(code){
     }
 
     const publishBtn = modal.querySelector(".code-preview-publish");
-    publishBtn.onclick = () => {
+    publishBtn.onclick = async () => {
         if(!activeAuth().currentUser){
             alert("Sign in to publish a live link.");
             return;
         }
+        if(!(await requirePlan("ultra", "publish"))) return;
         const titleMatch = code.match(/<title>([^<]*)<\/title>/i);
         const titleGuess = titleMatch ? titleMatch[1] : "Zyntra site";
         const nameGuess = titleGuess.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "my-site";
@@ -300,10 +306,31 @@ function escapeAttr(str){
     return escapeForDisplay(str).replace(/"/g, "&quot;");
 }
 
+// ---------- Generated image URLs ----------
+// The free image host stamps its own small logo in the bottom-right corner.
+// Images are requested a little taller (1024×1088) and the bottom strip is
+// cropped off for display, download, share and editing, so the finished
+// picture is a clean 1024×1024. "zc=1" marks URLs made this way.
+const IMG_GEN_W = 1024, IMG_GEN_H = 1088, IMG_FINAL_H = 1024;
+function buildImageUrl(prompt, seed){
+    return "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt) +
+        "?model=flux&enhance=true&nologo=true&width=" + IMG_GEN_W + "&height=" + IMG_GEN_H + "&zc=1&seed=" + seed;
+}
+function isCroppedImageUrl(url){ return /[?&]zc=1(&|$)/.test(url || ""); }
+function cropLogoStrip(blob){
+    return createImageBitmap(blob).then(bmp => {
+        const keep = Math.round(bmp.height * (IMG_FINAL_H / IMG_GEN_H));
+        const c = document.createElement("canvas");
+        c.width = bmp.width; c.height = keep;
+        c.getContext("2d").drawImage(bmp, 0, 0, bmp.width, keep, 0, 0, bmp.width, keep);
+        return new Promise((resolve, reject) => c.toBlob(b => b ? resolve(b) : reject(new Error("crop failed")), "image/png"));
+    });
+}
+
 function buildImageBlockHTML(image){
     return `
         <div class="ai-image-block">
-            <div class="generated-img-wrap">
+            <div class="generated-img-wrap${isCroppedImageUrl(image.url) ? ' zc' : ''}">
                 <img class="generated-img" src="${image.url}" alt="${escapeAttr(image.alt)}">
             </div>
             <div class="ai-image-actions">
@@ -321,6 +348,7 @@ function buildImageBlockHTML(image){
 function downloadWatermarkedImage(url, filename){
     return fetch(url)
         .then(res => { if(!res.ok) throw new Error("fetch failed"); return res.blob(); })
+        .then(blob => isCroppedImageUrl(url) ? cropLogoStrip(blob) : blob)
         .then(blob => {
             const dlUrl = URL.createObjectURL(blob);
             const a = document.createElement("a");
@@ -363,7 +391,7 @@ window.ZyntraImageViewer = (function(){
     let scale = 1, tx = 0, ty = 0, fitScale = 1;
     let tool = null, history = [], dirty = false, busy = false, editable = true;
     let strokes = [], strokeColor = "#ff3b6b", strokeSize = 6, brushSize = 40;
-    let pins = [], loadToken = 0, spaceDown = false;
+    let pins = [], loadToken = 0, spaceDown = false, currentPrompt = "";
 
     // ---------- small helpers ----------
     function toast(msg){
@@ -489,7 +517,8 @@ window.ZyntraImageViewer = (function(){
         const token = ++loadToken;
         const res = await fetch(url);
         if(!res.ok) throw new Error("load failed");
-        const blob = await res.blob();
+        let blob = await res.blob();
+        if(isCroppedImageUrl(url)) blob = await cropLogoStrip(blob);
         if(token !== loadToken) return false;
         await drawFromBlob(blob);
         return true;
@@ -504,6 +533,7 @@ window.ZyntraImageViewer = (function(){
     function setTool(name){
         if(name && !editable){ toast("This image can't be edited here (its host blocks editing). You can still view and open it."); return; }
         if(name === tool) name = null;
+        if(tool === "addimage" && name !== "addimage") removeLayer();
         // leaving erase with unfinished paint just clears it
         if(tool === "erase") mctx.clearRect(0, 0, mk.width, mk.height);
         tool = name;
@@ -532,6 +562,10 @@ window.ZyntraImageViewer = (function(){
             subbar.appendChild(btn("Undo stroke", () => { strokes.pop(); redrawStrokes(); }));
             subbar.appendChild(btn("Clear", () => { strokes = []; redrawStrokes(); }));
             subbar.appendChild(btn("Done", () => setTool(null), true));
+        } else if(tool === "addimage"){
+            subbar.appendChild(el("span", "iv-hint", "Drag to move · drag the corner dot to resize"));
+            subbar.appendChild(btn("Cancel", cancelLayer));
+            subbar.appendChild(btn("Add to image", applyLayer, true));
         } else if(tool === "comment"){
             subbar.appendChild(el("span", "iv-hint", TOOL_HINTS.comment));
             subbar.appendChild(btn("Clear all", () => { pins = []; renderPins(); }));
@@ -776,26 +810,30 @@ window.ZyntraImageViewer = (function(){
     }
 
     // ---------- Describe edits (AI) ----------
+    // The image host's edit model is unreliable, so an edit redraws the
+    // picture from its original prompt plus your change, keeping the same
+    // seed so the composition stays as close as possible.
+    function seedFromUrl(u){ const m = /[?&]seed=(\d+)/.exec(u || ""); return m ? m[1] : String(Math.floor(Math.random() * 1000000)); }
     async function aiEdit(text){
         if(busy) return;
         if(!remoteUrl){ toast("AI edits work on images that were just generated."); return; }
-        if(dirty || strokes.length){ toast("Undo or download your Markup / Erase / Resize changes first — AI edits start from the original image."); return; }
-        let prompt = text.trim();
-        if(!prompt && !pins.length){ return; }
+        if(dirty || strokes.length){ toast("Undo or download your Markup / Erase / Resize / Add-image changes first — AI edits redraw the original image."); return; }
+        let change = text.trim();
+        if(!change && !pins.length) return;
         if(pins.length){
-            prompt += (prompt ? ". " : "") + pins.map(p => `In ${regionWords(p)}: ${p.text}`).join(". ");
+            change += (change ? ". " : "") + pins.map(p => `In ${regionWords(p)}: ${p.text}`).join(". ");
         }
+        const basePrompt = currentPrompt || altText || "";
+        const newPrompt = (basePrompt ? basePrompt.replace(/[.\s]+$/, "") + ". " : "") + "Change: " + change;
         pushHistory();
         setBusy(true, "Editing your image…");
-        const seed = Math.floor(Math.random() * 1000000);
-        const url = "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt) +
-            "?model=kontext&nologo=true&seed=" + seed + "&image=" + encodeURIComponent(remoteUrl);
+        const url = buildImageUrl(newPrompt, seedFromUrl(remoteUrl));
         try{
             await withTimeout(loadFromUrl(url), 90000);
-            remoteUrl = url; dirty = false; pins = []; renderPins();
+            remoteUrl = url; currentPrompt = newPrompt; dirty = false; pins = []; renderPins();
             $("ivEditInput").value = "";
             fit();
-            toast("Edit applied");
+            toast("Edit applied — redrawn with your change");
         }catch(err){
             console.warn("[Zyntra] image edit failed:", err);
             history.pop(); $("ivUndo").disabled = history.length === 0;
@@ -803,6 +841,57 @@ window.ZyntraImageViewer = (function(){
         }
         setBusy(false);
     }
+
+    // ---------- "+" : add your own picture on top ----------
+    let layer = null; // { el, x, y, w, h, ratio }
+    function removeLayer(){ if(layer){ layer.el.remove(); layer = null; } }
+    function addImageLayer(file){
+        if(!file) return;
+        if(!/^image\//.test(file.type)){ toast("Only pictures can be added here (PNG, JPG, WebP…)."); return; }
+        if(!editable){ toast("This image can't be edited here."); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+            const im = new Image();
+            im.onload = () => {
+                removeLayer();
+                if(tool !== "addimage"){ tool = "addimage"; modal.querySelectorAll(".iv-tool").forEach(b => b.classList.remove("active")); stage.dataset.tool = "layer"; }
+                const ratio = im.naturalWidth / im.naturalHeight;
+                let w = cvs.width * 0.4, h = w / ratio;
+                if(h > cvs.height * 0.8){ h = cvs.height * 0.8; w = h * ratio; }
+                const el2 = el("div", "iv-layer-box");
+                const pic = new Image(); pic.src = reader.result; pic.draggable = false;
+                const handle = el("div", "iv-layer-handle");
+                el2.appendChild(pic); el2.appendChild(handle);
+                layer = { el: el2, img: im, x: (cvs.width - w) / 2, y: (cvs.height - h) / 2, w, h, ratio };
+                placeLayer();
+                wrap.appendChild(el2);
+                el2.addEventListener("pointerdown", e => {
+                    e.stopPropagation(); e.preventDefault();
+                    const isResize = e.target === handle;
+                    drag = { type: isResize ? "layer-resize" : "layer-move", x: e.clientX, y: e.clientY, lx: layer.x, ly: layer.y, lw: layer.w };
+                    stage.setPointerCapture(e.pointerId);
+                });
+                renderSubbar();
+            };
+            im.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    }
+    function placeLayer(){
+        if(!layer) return;
+        const s2 = layer.el.style;
+        s2.left = layer.x + "px"; s2.top = layer.y + "px"; s2.width = layer.w + "px"; s2.height = layer.h + "px";
+    }
+    function applyLayer(){
+        if(!layer) return;
+        pushHistory(); flatten();
+        ctx.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+        dirty = true;
+        removeLayer();
+        toast("Picture added");
+        setTool(null);
+    }
+    function cancelLayer(){ removeLayer(); setTool(null); }
 
     // ---------- share / download ----------
     async function download(){
@@ -848,14 +937,14 @@ window.ZyntraImageViewer = (function(){
     stage.addEventListener("pointerdown", e => {
         if(e.target.closest(".iv-pin-editor, .iv-edit-bar, .iv-pin")) return;
         if(e.button === 2) return;
-        const panning = !tool || e.button === 1 || spaceDown;
+        const panning = !tool || e.button === 1 || spaceDown || (tool === "addimage" && !e.target.closest(".iv-layer-box"));
         if(panning){
             drag = { type: "pan", x: e.clientX, y: e.clientY, tx, ty };
             stage.setPointerCapture(e.pointerId);
             stage.classList.add("panning");
             return;
         }
-        if(busy) return;
+        if(busy || tool === "addimage") return;
         const p = toImg(e);
         if(tool === "markup"){
             const st = { color: strokeColor, size: strokeSize * (cvs.width / 1024 > 1 ? cvs.width / 1024 : 1), pts: [p] };
@@ -879,6 +968,8 @@ window.ZyntraImageViewer = (function(){
     stage.addEventListener("pointermove", e => {
         if(!drag) return;
         if(drag.type === "pan"){ tx = drag.tx + (e.clientX - drag.x); ty = drag.ty + (e.clientY - drag.y); applyTransform(); }
+        else if(drag.type === "layer-move" && layer){ layer.x = drag.lx + (e.clientX - drag.x) / scale; layer.y = drag.ly + (e.clientY - drag.y) / scale; placeLayer(); }
+        else if(drag.type === "layer-resize" && layer){ layer.w = Math.max(24, drag.lw + (e.clientX - drag.x) / scale); layer.h = layer.w / layer.ratio; placeLayer(); }
         else if(drag.type === "markup"){ drag.st.pts.push(toImg(e)); redrawStrokes(); }
         else if(drag.type === "erase"){ const p = toImg(e); paintMask(drag.last, p, drag.size); drag.last = p; }
     });
@@ -917,6 +1008,8 @@ window.ZyntraImageViewer = (function(){
     $("ivShare").addEventListener("click", share);
     $("imageViewerDownload").addEventListener("click", download);
     $("ivEditForm").addEventListener("submit", e => { e.preventDefault(); aiEdit($("ivEditInput").value); });
+    $("ivAddBtn").addEventListener("click", () => { if(!busy) $("ivFileInput").click(); });
+    $("ivFileInput").addEventListener("change", e => { addImageLayer(e.target.files[0]); e.target.value = ""; });
     $("ivEditInput").addEventListener("keydown", e => e.stopPropagation());
 
     const zoomMenu = $("ivZoomMenu");
@@ -950,6 +1043,8 @@ window.ZyntraImageViewer = (function(){
     async function open(src, alt){
         srcUrl = src; altText = alt || "Generated image";
         remoteUrl = /^https?:/.test(src) ? src : null;
+        removeLayer();
+        currentPrompt = altText;
         history = []; strokes = []; pins = []; dirty = false; editable = true; tool = null;
         $("ivUndo").disabled = true;
         $("ivTitle").textContent = altText.length > 70 ? altText.slice(0, 67) + "…" : altText;
@@ -1962,6 +2057,8 @@ async function callChatAPI(messages, options){
         if(data.plan) err.plan = data.plan;
         if(data.limit) err.limit = data.limit;
         if(data.resetsAt) err.resetsAt = data.resetsAt;
+        if(data.feature) err.feature = data.feature;
+        if(data.requiredPlan) err.requiredPlan = data.requiredPlan;
         throw err;
     }
     return {
@@ -2012,6 +2109,8 @@ async function streamChatAPI(messages, onDelta, options, onStep){
         if(data.plan) err.plan = data.plan;
         if(data.limit) err.limit = data.limit;
         if(data.resetsAt) err.resetsAt = data.resetsAt;
+        if(data.feature) err.feature = data.feature;
+        if(data.requiredPlan) err.requiredPlan = data.requiredPlan;
         throw err;
     }
 
@@ -3298,6 +3397,7 @@ function saveMemories(memories){
 function addMemories(facts){
     if(!Array.isArray(facts) || facts.length === 0) return;
     if(!getPlugins().memory) return;
+    if(!planAtLeast("starter")) return;
     if(temporaryChatActive) return;
     const memories = getMemories();
     facts.forEach(fact => {
@@ -6238,7 +6338,7 @@ function runImageGeneration(msg, loadingDiv, aiContent){
             }
         };
         const seed = Math.floor(Math.random() * 1000000);
-        img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(msg) + "?model=flux&enhance=true&nologo=true&seed=" + seed;
+        img.src = buildImageUrl(msg, seed);
     }
 
     const waitMs = 2000;
@@ -6434,7 +6534,7 @@ async function sendChatMessage(prefill){
             if(profile.nickname) note += ` Call the user "${profile.nickname}".`;
             if(profile.instructions) note += ` User's custom instructions: ${profile.instructions}`;
             const memories = getMemories();
-            if(memories.length && getPlugins().memory){
+            if(memories.length && getPlugins().memory && planAtLeast("starter")){
                 note += ` Here are things you already know about this user from past conversations — weave them in naturally where relevant, don't just list them back at the user: ${memories.map(m => m.fact).join("; ")}.`;
             }
             if(currentProjectId){
@@ -6548,6 +6648,7 @@ async function streamAssistantReply(){
         }, { research: researchModeEnabled, website: activeChatTool === "codex", agent: activeChatTool === "agent", signal: controller.signal }, onAgentStep);
 
         rememberUsage(usage);
+        notifyGatedFeatures(usage);
         maybeWarnLowMessageBalance(usage);
 
         if(!accumulated){
@@ -6576,6 +6677,9 @@ async function streamAssistantReply(){
             }
         } else if(err.code === "limit_reached" || err.code === "guest_limit_reached"){
             renderLimitReachedCard(aiContent, err);
+        } else if(err.code === "feature_locked"){
+            aiContent.textContent = err.message;
+            showFeatureLockedModal(err.feature || "agent");
         } else {
             aiContent.textContent = friendlyErrorMessage(err);
         }
@@ -6675,9 +6779,95 @@ const UPGRADE_OFFERS = {
     pro:     { target: "ultra", base: "Pro",     perks: ["1,500 AI messages/month", "Highest priority", "Premium features"] }
 };
 const UPGRADE_TARGET_INFO = {
-    pro:   { tagline: "Built for daily use",   price: "₹199" },
-    ultra: { tagline: "Maximum headroom",      price: "₹499" }
+    starter: { tagline: "More room to work",   price: "₹99" },
+    pro:     { tagline: "Built for daily use", price: "₹199" },
+    ultra:   { tagline: "Maximum headroom",    price: "₹499" }
 };
+
+// ---------- What each plan includes (mirrors the server's PLAN_FEATURES) ----------
+const PLAN_RANK = { guest: 0, free: 1, starter: 2, pro: 3, ultra: 4 };
+function currentPlanKey(){ return isLoggedIn() ? (getCachedPlan() || "free") : "guest"; }
+function planAtLeast(min){ return (PLAN_RANK[currentPlanKey()] || 0) >= PLAN_RANK[min]; }
+const FEATURE_INFO = {
+    research: { name: "Advanced Research", plan: "pro" },
+    agent:    { name: "Agent Mode",        plan: "ultra" },
+    publish:  { name: "Publishing a live link", plan: "ultra" },
+    memory:   { name: "Memory",            plan: "starter" },
+    google:   { name: "Google tools",      plan: "starter" },
+    webSearch:{ name: "Web Search",        plan: "starter" }
+};
+const FEATURE_PLAN_CARD = {
+    starter: { base: "Free",    perks: ["150 AI messages/month", "Web Search", "Memory", "Google tools"] },
+    pro:     { base: "Starter", perks: ["500 AI messages/month", "Advanced Research", "Priority AI"] },
+    ultra:   { base: "Pro",     perks: ["1,500 AI messages/month", "Highest priority", "Premium features (Agent Mode, live publishing)"] }
+};
+
+// Re-reads the real plan from the server first, so someone who just
+// upgraded isn't told "locked" because of a stale cached plan.
+async function requirePlan(min, feature){
+    if(planAtLeast(min)) return true;
+    try{ if(isLoggedIn() && typeof refreshUserPlan === "function") await refreshUserPlan(); }catch(e){}
+    if(planAtLeast(min)) return true;
+    showFeatureLockedModal(feature);
+    return false;
+}
+
+function showFeatureLockedModal(feature){
+    const info = FEATURE_INFO[feature] || { name: "This feature", plan: "pro" };
+    const target = info.plan;
+    const card = FEATURE_PLAN_CARD[target];
+    const t = UPGRADE_TARGET_INFO[target];
+    const targetName = planDisplayName(target);
+    const check = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    closeLimitReachedModal();
+    const overlay = document.createElement("div");
+    overlay.className = "limit-modal-overlay";
+    overlay.innerHTML = `
+        <div class="limit-modal-box" role="dialog" aria-modal="true">
+            <button type="button" class="limit-modal-x" title="Close">✕</button>
+            <h2 class="limit-modal-title">${info.name} is on the ${targetName} plan</h2>
+            <p class="limit-modal-text">Upgrade to ${targetName} to unlock ${info.name}${isLoggedIn() ? "" : " — you'll sign in first"}.</p>
+            <div class="limit-plan-card">
+                <div class="limit-plan-head">
+                    <div class="limit-plan-name">${targetName}</div>
+                    <div class="limit-plan-tagline">${t.tagline}</div>
+                    <div class="limit-plan-price"><span class="limit-plan-amount">${t.price}</span><span class="limit-plan-per">INR / month</span></div>
+                </div>
+                <div class="limit-plan-perks">
+                    <div class="limit-plan-perks-title">Everything in ${card.base} and:</div>
+                    ${card.perks.map(p => `<div class="limit-plan-perk">${check}<span>${p}</span></div>`).join("")}
+                </div>
+                <button type="button" class="limit-plan-cta">Upgrade to ${targetName}</button>
+                <button type="button" class="limit-plan-link">See all plans</button>
+            </div>
+            <button type="button" class="limit-modal-later">Not now</button>
+        </div>`;
+    document.body.appendChild(overlay);
+    document.addEventListener("keydown", limitModalEscHandler);
+    overlay.addEventListener("mousedown", ev => { if(ev.target === overlay) closeLimitReachedModal(); });
+    overlay.querySelector(".limit-modal-x").addEventListener("click", closeLimitReachedModal);
+    overlay.querySelector(".limit-modal-later").addEventListener("click", closeLimitReachedModal);
+    const openPlans = () => {
+        closeLimitReachedModal();
+        openModal("pricingModal");
+        if(typeof resetPricingModalView === "function") resetPricingModalView();
+        if(typeof setPricingStatus === "function") setPricingStatus("");
+        if(typeof applyPlanToUI === "function") applyPlanToUI(getCachedPlan());
+        navigateToRoute("plans");
+    };
+    overlay.querySelector(".limit-plan-link").addEventListener("click", openPlans);
+    overlay.querySelector(".limit-plan-cta").addEventListener("click", () => { openPlans(); startPlanUpgrade(target); });
+}
+
+// A reply came back with features that this plan doesn't include.
+function notifyGatedFeatures(usage){
+    if(!usage || !Array.isArray(usage.gated) || !usage.gated.length) return;
+    const f = usage.gated[0];
+    const info = FEATURE_INFO[f];
+    if(!info) return;
+    showToast(`🔒 ${info.name} needs the ${planDisplayName(info.plan)} plan — this reply was answered without it.`);
+}
 
 function getUpgradeOffer(plan){
     const o = UPGRADE_OFFERS[plan];
@@ -6822,7 +7012,8 @@ function setResearchButtonState(){
         : "Research mode — click for deeper, multi-source answers";
 }
 
-document.getElementById("researchBtn")?.addEventListener("click", () => {
+document.getElementById("researchBtn")?.addEventListener("click", async () => {
+    if(!researchModeEnabled && !(await requirePlan("pro", "research"))) return;
     researchModeEnabled = !researchModeEnabled;
     setResearchButtonState();
     showToast(researchModeEnabled ? "🔎 Research mode turned on" : "🔎 Research mode turned off");
@@ -6910,7 +7101,18 @@ const DATA_ANALYSIS_INSTRUCTIONS = `You are Zyntra's Data Analysis assistant. A 
 const CODEX_SYSTEM_NOTE = `
 You are in Codex mode — Zyntra's unified coding and building assistant. Every message calls for ONE of these two response styles; figure out which and respond accordingly:
 
-1. BUILDING a full website, web app, game, or any other browser-based tool (e.g. "a portfolio site for a photographer", "make the header bigger", "change it to dark mode", "build me a simple calculator app"): reply with a single, complete, working HTML file — inline <style> and <script> in the same file, no external files or build steps — wrapped in one \`\`\`html code block. After the code block, talk to the user like a real developer/designer handing off work: a couple of natural sentences on what you built and why you made the choices you did — not a cold one-liner, not a wall of text. When the user asks for a change to something you already built, regenerate the ENTIRE file again with the change applied — never send a diff or partial snippet, since the preview needs one complete file every time.
+1. BUILDING a full website, web app, game, or any other browser-based tool (e.g. "a portfolio site for a photographer", "make the header bigger", "change it to dark mode", "build me a simple calculator app", "make a snake game"): reply with a single, complete, working HTML file — inline <style> and <script> in the same file, no external files or build steps — wrapped in one \`\`\`html code block. After the code block, talk to the user like a real developer/designer handing off work: a couple of natural sentences on what you built, how to play/use it, and why you made the choices you did — not a cold one-liner, not a wall of text. When the user asks for a change to something you already built, regenerate the ENTIRE file again with the change applied — never send a diff or partial snippet, since the preview needs one complete file every time. The file must be COMPLETE: never stop mid-file, never leave TODOs, placeholders, "add logic here" comments or stub functions — every button, control and rule you show must actually work.
+
+   GAMES — a game is not a picture of a game. Build real, playable, addictive games:
+   - Real rules and a real game loop (requestAnimationFrame for action games, or clear turn logic for board/puzzle/card games) with scoring, a win condition and a lose condition, and difficulty that ramps up over time or across levels. Think through the rules before you write them: collisions, movement, turn order, edge cases, and what happens at game over must all be correct.
+   - Puzzle games must always be solvable: generate levels from a known solution or validate them, and give several levels with growing difficulty — never a random board that might be impossible. Check the win condition actually triggers.
+   - A title/start screen with a one-line goal and the controls, a pause option, a game-over screen with the final score, and a Play Again button. Save the high score and (for level games) the best level in localStorage and show it.
+   - Controls that work everywhere: keyboard (arrows/WASD/space) AND touch/mouse (on-screen buttons or swipe/tap). Prevent the page from scrolling while playing.
+   - Make it feel good: smooth animation, instant visual feedback on every action (particles, flashes, small shakes, score pop-ups), optional short sound effects with the Web Audio API behind a mute button, and a polished, cohesive look (one strong color palette, a nice font from Google Fonts, rounded shapes, soft shadows/glow).
+   - Fit the screen: the whole game, including its buttons and score, must be visible at once with NO page scrolling — size the board/canvas from the available space (use 100dvh/100vh, min(), vmin, and a resize handler) so it also works inside a small preview window and on phones.
+   - Keep the code organized (a state object, small functions) so it's reliable, and mentally play through a few rounds before you answer to catch bugs.
+
+   APPS & TOOLS (todo lists, trackers, calculators, quizzes, dashboards, planners, etc.) — build something people would actually keep using: a clear data model, full create/edit/delete flows, data saved in localStorage so it survives a refresh, helpful empty states, input validation, keyboard support, and small delightful touches (smooth transitions, instant feedback, a satisfying first-run experience with a little sample content clearly marked as sample). Every button must do something real.
 
    Design like a thoughtful human designer, not a template generator: pick a typeface pairing and color palette that actually fits the subject (a masjid site, a photography portfolio, and a SaaS landing page should NOT look like the same template with different text) — load fonts from Google Fonts via a <link> tag. Vary layout structure between projects rather than defaulting to centered-hero-plus-three-cards every time. Use generous whitespace and a restrained palette (2-3 colors plus neutrals) over busy gradients everywhere. Make it responsive with plain CSS (flexbox/grid, media queries) — a CDN-hosted framework like Tailwind's play CDN is fine if it helps, but nothing that needs a build step. Add tasteful, restrained motion rather than heavy animation. Use real semantic HTML (header, nav, main, section, footer) and reasonable alt text/aria labels. If the user hasn't given specific facts (real prices, hours, addresses, phone numbers, testimonials, team names), do NOT invent specific-sounding fake details presented as real — use clearly generic placeholders or ask for the missing specifics instead.
 
@@ -7316,6 +7518,13 @@ let activeChatTool = "chat";
 let temporaryChatActive = false;
 
 function openTool(tool, prefix){
+    // Agent Mode is a Premium (Ultra) feature.
+    if(tool === "agent" && !openTool._allow && !planAtLeast("ultra")){
+        requirePlan("ultra", "agent").then(ok => {
+            if(ok){ openTool._allow = true; try{ openTool(tool, prefix); } finally { openTool._allow = false; } }
+        });
+        return;
+    }
     showPageView("chat");
     if(TOOL_PLACEHOLDERS[tool]){
         // Switching to a different chat mode starts a clean chat.
@@ -7532,7 +7741,7 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
             result.innerHTML = "";
 
             const wrap = document.createElement("div");
-            wrap.className = "generated-img-wrap";
+            wrap.className = "generated-img-wrap" + (isCroppedImageUrl(img.src) ? " zc" : "");
             wrap.appendChild(img);
             result.appendChild(wrap);
             img.addEventListener("click", () => openImageViewer(img.src, finalPrompt));
@@ -7572,7 +7781,7 @@ document.getElementById("imageGenBtn").addEventListener("click", async () => {
             }
         };
         const seed = Math.floor(Math.random() * 1000000);
-        img.src = "https://image.pollinations.ai/prompt/" + encodeURIComponent(finalPrompt) + "?model=flux&enhance=true&nologo=true&seed=" + seed;
+        img.src = buildImageUrl(finalPrompt, seed);
     }
 
     const waitMs = 2000;
