@@ -172,11 +172,6 @@ function openCodePreview(code){
                 body: JSON.stringify({ html: code, title: titleGuess, name: siteName })
             });
             const data = await res.json();
-            if(res.status === 403 && data.code === "feature_locked"){
-                publishResult.style.display = "none";
-                showFeatureLockedModal("publish");
-                return;
-            }
             if(!res.ok) throw new Error(data.error || "Publish failed.");
 
             publishResult.innerHTML = `
@@ -205,7 +200,6 @@ function openCodePreview(code){
             alert("Sign in to publish a live link.");
             return;
         }
-        if(!(await requirePlan("ultra", "publish"))) return;
         const titleMatch = code.match(/<title>([^<]*)<\/title>/i);
         const titleGuess = titleMatch ? titleMatch[1] : "Zyntra site";
         const nameGuess = titleGuess.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "my-site";
@@ -2996,10 +2990,10 @@ function openProfileViewModal(){
 // Plan look + what each plan includes (mirrors the pricing cards).
 const PROFILE_PLAN_INFO = {
     guest:   { emoji: "👤", limit: 10,   perks: [] },
-    free:    { emoji: "🆓", limit: 50,   perks: ["50 AI messages/month", "Basic AI Chat", "Basic web search"] },
-    starter: { emoji: "🟢", limit: 150,  perks: ["150 AI messages/month", "Web Search", "Memory", "Google tools"] },
-    pro:     { emoji: "🟣", limit: 500,  perks: ["500 AI messages/month", "Advanced Research", "Memory", "Google tools", "Priority AI"] },
-    ultra:   { emoji: "🔥", limit: 1500, perks: ["1,500 AI messages/month", "Advanced Research", "Memory", "Google tools", "Highest priority", "Premium features"] }
+    free:    { emoji: "🆓", limit: 50,   perks: ["50 AI messages/month", "Basic AI Chat", "Basic web search", "Basic memory", "Publish live links"] },
+    starter: { emoji: "🟢", limit: 150,  perks: ["150 AI messages/month", "Web Search", "Memory", "Google tools", "Agent Mode", "Publish live links"] },
+    pro:     { emoji: "🟣", limit: 500,  perks: ["500 AI messages/month", "Advanced Research", "Memory", "Google tools", "Agent Mode", "Priority AI", "Publish live links"] },
+    ultra:   { emoji: "🔥", limit: 1500, perks: ["1,500 AI messages/month", "Advanced Research", "Memory", "Google tools", "Agent Mode", "Highest priority", "Premium features", "Publish live links"] }
 };
 
 // The server tells us how many messages are left with every reply, so we
@@ -3394,22 +3388,30 @@ function saveMemories(memories){
 // Called after every AI reply with whatever facts it chose to remember
 // (zyntra_memory_writes from /api/chat). Skips near-duplicates and caps
 // the list so it can't grow without bound.
+let memoryFullWarned = false;
 function addMemories(facts){
     if(!Array.isArray(facts) || facts.length === 0) return;
     if(!getPlugins().memory) return;
-    if(!planAtLeast("starter")) return;
     if(temporaryChatActive) return;
     const memories = getMemories();
+    const plan = currentPlanKey();
+    const cap = MEMORY_LIMITS[plan] || MEMORY_LIMITS.free;
+    let skippedForRoom = false;
     facts.forEach(fact => {
         const normalized = (fact || "").trim();
         if(!normalized) return;
         const alreadyKnown = memories.some(m => m.fact.toLowerCase() === normalized.toLowerCase());
         if(alreadyKnown) return;
+        // Each plan keeps a limited amount of memory. Full = no new ones
+        // (nothing is deleted behind your back) until you free some up.
+        if(memories.length >= cap){ skippedForRoom = true; return; }
         memories.push({ fact: normalized, ts: Date.now() });
     });
-    // Keep the most recent 60 — plenty for a system-prompt note, and
-    // bounded so it never bloats the request payload over time.
-    saveMemories(memories.slice(-60));
+    saveMemories(memories);
+    if(skippedForRoom && !memoryFullWarned){
+        memoryFullWarned = true;
+        showToast(`🧠 Memory is full (${cap} on the ${planDisplayName(plan)} plan). Delete some in Settings → Memory${plan === "ultra" ? "" : ", or upgrade for more room"}.`);
+    }
 }
 
 // ---- Projects ----
@@ -6534,7 +6536,7 @@ async function sendChatMessage(prefill){
             if(profile.nickname) note += ` Call the user "${profile.nickname}".`;
             if(profile.instructions) note += ` User's custom instructions: ${profile.instructions}`;
             const memories = getMemories();
-            if(memories.length && getPlugins().memory && planAtLeast("starter")){
+            if(memories.length && getPlugins().memory){
                 note += ` Here are things you already know about this user from past conversations — weave them in naturally where relevant, don't just list them back at the user: ${memories.map(m => m.fact).join("; ")}.`;
             }
             if(currentProjectId){
@@ -6774,7 +6776,7 @@ function renderLimitReachedCard(container, err){
 // ---------- "Upgrade to keep chatting" popup ----------
 // Free & Starter are offered Pro, Pro is offered Ultra, Ultra can only wait.
 const UPGRADE_OFFERS = {
-    free:    { target: "pro",   base: "Free",    perks: ["500 AI messages/month", "Web Search", "Advanced Research", "Memory", "Google tools", "Priority AI"] },
+    free:    { target: "pro",   base: "Free",    perks: ["500 AI messages/month", "More Web Search", "Bigger Memory", "Google tools", "Agent Mode", "Advanced Research", "Priority AI"] },
     starter: { target: "pro",   base: "Starter", perks: ["500 AI messages/month", "Advanced Research", "Priority AI"] },
     pro:     { target: "ultra", base: "Pro",     perks: ["1,500 AI messages/month", "Highest priority", "Premium features"] }
 };
@@ -6790,17 +6792,18 @@ function currentPlanKey(){ return isLoggedIn() ? (getCachedPlan() || "free") : "
 function planAtLeast(min){ return (PLAN_RANK[currentPlanKey()] || 0) >= PLAN_RANK[min]; }
 const FEATURE_INFO = {
     research: { name: "Advanced Research", plan: "pro" },
-    agent:    { name: "Agent Mode",        plan: "ultra" },
-    publish:  { name: "Publishing a live link", plan: "ultra" },
-    memory:   { name: "Memory",            plan: "starter" },
+    agent:    { name: "Agent Mode",        plan: "starter" },
     google:   { name: "Google tools",      plan: "starter" },
-    webSearch:{ name: "Web Search",        plan: "starter" }
+    webSearch:{ name: "More web searches", plan: "starter" },
+    memory:   { name: "More memory",       plan: "starter" }
 };
 const FEATURE_PLAN_CARD = {
-    starter: { base: "Free",    perks: ["150 AI messages/month", "Web Search", "Memory", "Google tools"] },
+    starter: { base: "Free",    perks: ["150 AI messages/month", "More Web Search", "Bigger Memory", "Google tools", "Agent Mode"] },
     pro:     { base: "Starter", perks: ["500 AI messages/month", "Advanced Research", "Priority AI"] },
-    ultra:   { base: "Pro",     perks: ["1,500 AI messages/month", "Highest priority", "Premium features (Agent Mode, live publishing)"] }
+    ultra:   { base: "Pro",     perks: ["1,500 AI messages/month", "Highest priority", "Premium features (largest app/game builds, biggest memory)"] }
 };
+// How many memories each plan keeps (matches the server's PLAN_FEATURES).
+const MEMORY_LIMITS = { guest: 5, free: 10, starter: 50, pro: 200, ultra: 1000 };
 
 // Re-reads the real plan from the server first, so someone who just
 // upgraded isn't told "locked" because of a stale cached plan.
@@ -7518,9 +7521,9 @@ let activeChatTool = "chat";
 let temporaryChatActive = false;
 
 function openTool(tool, prefix){
-    // Agent Mode is a Premium (Ultra) feature.
-    if(tool === "agent" && !openTool._allow && !planAtLeast("ultra")){
-        requirePlan("ultra", "agent").then(ok => {
+    // Agent Mode needs the Starter plan or above.
+    if(tool === "agent" && !openTool._allow && !planAtLeast("starter")){
+        requirePlan("starter", "agent").then(ok => {
             if(ok){ openTool._allow = true; try{ openTool(tool, prefix); } finally { openTool._allow = false; } }
         });
         return;
