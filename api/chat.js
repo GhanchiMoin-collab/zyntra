@@ -29,6 +29,21 @@ export const config = {
 const PLAN_LIMITS = { guest: 10, free: 50, starter: 150, pro: 500, ultra: 1500 };
 const PLAN_LABELS = { guest: "Guest", free: "Free", starter: "Starter", pro: "Pro", ultra: "Ultra" };
 
+// What each plan actually includes (mirrors the pricing cards). This is the
+// single place to change if a plan's benefits change.
+//   memory / googleTools / webSearchToggle : Starter and up
+//   research (Advanced Research)           : Pro and up
+//   priority  (Priority AI = stronger model first; 2 = Highest priority,
+//              which also gets the longest app/game builds)
+//   premium   (Premium features = Agent Mode + Publish live link): Ultra
+const PLAN_FEATURES = {
+  guest:   { memory: false, googleTools: false, webSearchToggle: false, research: false, priority: 0, premium: false, buildTokens: 6000 },
+  free:    { memory: false, googleTools: false, webSearchToggle: false, research: false, priority: 0, premium: false, buildTokens: 8000 },
+  starter: { memory: true,  googleTools: true,  webSearchToggle: true,  research: false, priority: 0, premium: false, buildTokens: 10000 },
+  pro:     { memory: true,  googleTools: true,  webSearchToggle: true,  research: true,  priority: 1, premium: false, buildTokens: 14000 },
+  ultra:   { memory: true,  googleTools: true,  webSearchToggle: true,  research: true,  priority: 2, premium: true,  buildTokens: 18000 }
+};
+
 function startOfNextMonthISO() {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
@@ -1534,7 +1549,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { messages: rawMessages, forceSearch, research, website, agent, lite } = req.body || {};
+    let { messages: rawMessages, forceSearch, research, website, agent, lite } = req.body || {};
 
     if (!Array.isArray(rawMessages)) {
       return res.status(400).json({ error: 'Missing messages array' });
@@ -1643,6 +1658,28 @@ export default async function handler(req, res) {
         remaining: Math.max(0, guestCheck.limit - guestCheck.used - 1)
       };
     }
+
+    // ---- Plan features ----
+    // Apply what this plan includes. Anything the plan doesn't include is
+    // switched off for this request (and reported back as `gated` so the
+    // app can show an upgrade prompt); Agent Mode is refused outright.
+    const planKey = (planUsageInfo && planUsageInfo.plan) || "guest";
+    const features = PLAN_FEATURES[planKey] || PLAN_FEATURES.free;
+    const gated = [];
+    if (agent && !features.premium) {
+      return res.status(403).json({
+        error: "Agent Mode is a Premium feature on the Ultra plan.",
+        code: "feature_locked",
+        feature: "agent",
+        requiredPlan: "ultra",
+        plan: planKey
+      });
+    }
+    if (research && !features.research) { research = false; gated.push("research"); }
+    if (forceSearch && !features.webSearchToggle) { forceSearch = false; gated.push("webSearch"); }
+    if (!features.googleTools && googleClient) { googleClient = null; }
+    if (planUsageInfo) planUsageInfo.gated = gated;
+    const buildTokenBudget = features.buildTokens;
 
     // ---- Usage tracking ----
     // Accumulates real Groq usage across every round of the agent loop
@@ -2050,11 +2087,11 @@ Rules:
         const roundStart = Date.now();
         const body = {
           temperature: 0.7,
-          max_tokens: website ? 4096 : ((research || agent) ? 3072 : 2048), // a full single-file website needs far more room than a normal reply
+          max_tokens: website ? buildTokenBudget : ((research || agent) ? 3072 : 2048), // a full single-file game/app needs far more room than a normal reply (reasoning tokens count against this too)
           messages: conversation
         };
         if (includeTools) {
-          const availableTools = TOOLS.filter(t => (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken) && (!t.requiresSlack || !!slackToken) && (!t.requiresDiscord || !!discordConnection) && (!t.requiresNotion || !!notionToken) && (!t.requiresTrello || !!trelloToken) && (!t.requiresOutlook || !!outlookToken));
+          const availableTools = TOOLS.filter(t => (t.function.name !== "remember_fact" || features.memory) && (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken) && (!t.requiresSlack || !!slackToken) && (!t.requiresDiscord || !!discordConnection) && (!t.requiresNotion || !!notionToken) && (!t.requiresTrello || !!trelloToken) && (!t.requiresOutlook || !!outlookToken));
           body.tools = availableTools.map(({ function: fn }) => ({ type: "function", function: fn }));
           body.tool_choice = (round === 0 && (forceSearch || research) && !hasImage) ? { type: "function", function: { name: "web_search" } } : "auto";
         }
@@ -2133,9 +2170,13 @@ Rules:
       }
     }
 
+    // Priority AI (Pro) and Highest priority (Ultra): the larger, stronger
+    // model answers first; everyone else tries the faster one first.
     const primaryModelChain = hasImage
       ? ['qwen/qwen3.6-27b']
-      : ['openai/gpt-oss-20b', 'openai/gpt-oss-120b', 'qwen/qwen3.8-27b'];
+      : (features.priority >= 1
+          ? ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b']
+          : ['openai/gpt-oss-20b', 'openai/gpt-oss-120b', 'qwen/qwen3.8-27b']);
     // Images stream too now — the frontend always sends stream:true and
     // only knows how to read an SSE response, so silently falling back to
     // plain JSON here for image messages left it waiting for chunks that
@@ -2173,7 +2214,7 @@ Rules:
         console.error('Streaming agent loop failed, retrying without tools:', streamResult.status, streamResult.data?.error?.message);
         streamResult = await callGroqWithFallback(primaryModelChain, {
           temperature: 0.7,
-          max_tokens: website ? 4096 : (research ? 3072 : 2048),
+          max_tokens: website ? buildTokenBudget : (research ? 3072 : 2048),
           messages: fullMessages
         }, 15000, true, onDelta);
       }
@@ -2187,7 +2228,7 @@ Rules:
         console.error('Retrying with a conservative token budget after a likely length-related rejection.');
         streamResult = await callGroqWithFallback(primaryModelChain, {
           temperature: 0.7,
-          max_tokens: 1536,
+          max_tokens: website ? 6000 : 1536,
           messages: fullMessages
         }, 15000, true, onDelta);
       }
