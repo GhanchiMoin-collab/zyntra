@@ -31,17 +31,20 @@ const PLAN_LABELS = { guest: "Guest", free: "Free", starter: "Starter", pro: "Pr
 
 // What each plan actually includes (mirrors the pricing cards). This is the
 // single place to change if a plan's benefits change.
-//   memory / googleTools / webSearchToggle : Starter and up
-//   research (Advanced Research)           : Pro and up
-//   priority  (Priority AI = stronger model first; 2 = Highest priority,
-//              which also gets the longest app/game builds)
-//   premium   (Premium features = Agent Mode + Publish live link): Ultra
+//   memory : everyone gets some; memoryLimit is how many facts it keeps
+//            (enforced where memories are stored — in the app)
+//   webSearchesPerMonth : web searches the AI may run for you each month
+//            (null = no cap). Free gets a little, paid plans get more.
+//   googleTools : Starter and up        agent : Starter and up
+//   research (Advanced Research) : Pro and up
+//   priority : 1 = Priority AI (stronger model first), 2 = Highest priority
+//   premium  : Ultra — the largest app/game builds and the biggest memory
 const PLAN_FEATURES = {
-  guest:   { memory: false, googleTools: false, webSearchToggle: false, research: false, priority: 0, premium: false, buildTokens: 6000 },
-  free:    { memory: false, googleTools: false, webSearchToggle: false, research: false, priority: 0, premium: false, buildTokens: 8000 },
-  starter: { memory: true,  googleTools: true,  webSearchToggle: true,  research: false, priority: 0, premium: false, buildTokens: 10000 },
-  pro:     { memory: true,  googleTools: true,  webSearchToggle: true,  research: true,  priority: 1, premium: false, buildTokens: 14000 },
-  ultra:   { memory: true,  googleTools: true,  webSearchToggle: true,  research: true,  priority: 2, premium: true,  buildTokens: 18000 }
+  guest:   { memory: true, memoryLimit: 5,    webSearchesPerMonth: null, googleTools: false, agent: false, research: false, priority: 0, premium: false, buildTokens: 6000 },
+  free:    { memory: true, memoryLimit: 10,   webSearchesPerMonth: 10,   googleTools: false, agent: false, research: false, priority: 0, premium: false, buildTokens: 8000 },
+  starter: { memory: true, memoryLimit: 50,   webSearchesPerMonth: 100,  googleTools: true,  agent: true,  research: false, priority: 0, premium: false, buildTokens: 10000 },
+  pro:     { memory: true, memoryLimit: 200,  webSearchesPerMonth: 500,  googleTools: true,  agent: true,  research: true,  priority: 1, premium: false, buildTokens: 14000 },
+  ultra:   { memory: true, memoryLimit: 1000, webSearchesPerMonth: null, googleTools: true,  agent: true,  research: true,  priority: 2, premium: true,  buildTokens: 18000 }
 };
 
 function startOfNextMonthISO() {
@@ -100,7 +103,7 @@ async function checkPlanLimit(uid) {
         message: `You've used all ${limit} messages on your ${PLAN_LABELS[plan] || "Free"} plan this month. Upgrade for a higher limit, or wait until it resets on ${resetLabel}.`
       };
     }
-    return { allowed: true, plan, limit, used };
+    return { allowed: true, plan, limit, used, webSearchesUsed: usageSnap.exists ? (usageSnap.data().webSearches || 0) : 0 };
   } catch (err) {
     // Never let our own tracking failure block someone from chatting —
     // fail open, same philosophy as logUsage()'s error handling below.
@@ -1638,7 +1641,8 @@ export default async function handler(req, res) {
       planUsageInfo = {
         plan: limitCheck.plan,
         limit: limitCheck.limit,
-        remaining: Math.max(0, limitCheck.limit - limitCheck.used - 1)
+        remaining: Math.max(0, limitCheck.limit - limitCheck.used - 1),
+        webSearchesUsed: limitCheck.webSearchesUsed || 0
       };
     } else {
       guestIp = getClientIp(req);
@@ -1666,19 +1670,36 @@ export default async function handler(req, res) {
     const planKey = (planUsageInfo && planUsageInfo.plan) || "guest";
     const features = PLAN_FEATURES[planKey] || PLAN_FEATURES.free;
     const gated = [];
-    if (agent && !features.premium) {
+    if (agent && !features.agent) {
       return res.status(403).json({
-        error: "Agent Mode is a Premium feature on the Ultra plan.",
+        error: "Agent Mode is available on the Starter plan and above.",
         code: "feature_locked",
         feature: "agent",
-        requiredPlan: "ultra",
+        requiredPlan: "starter",
         plan: planKey
       });
     }
     if (research && !features.research) { research = false; gated.push("research"); }
-    if (forceSearch && !features.webSearchToggle) { forceSearch = false; gated.push("webSearch"); }
     if (!features.googleTools && googleClient) { googleClient = null; }
-    if (planUsageInfo) planUsageInfo.gated = gated;
+
+    // Web searches left this month (Infinity = no cap). Signed-in plans
+    // are counted in the usage doc; guests aren't capped here.
+    let searchesLeft = Infinity;
+    if (uid && features.webSearchesPerMonth != null) {
+      searchesLeft = Math.max(0, features.webSearchesPerMonth - (planUsageInfo?.webSearchesUsed || 0));
+    }
+    if (searchesLeft <= 0 && (forceSearch || research)) {
+      if (forceSearch) forceSearch = false;
+      if (research) research = false;
+      gated.push("webSearch");
+    }
+    if (planUsageInfo) {
+      planUsageInfo.gated = gated;
+      if (uid && features.webSearchesPerMonth != null) {
+        planUsageInfo.webSearches = { limit: features.webSearchesPerMonth, left: searchesLeft };
+      }
+      delete planUsageInfo.webSearchesUsed;
+    }
     const buildTokenBudget = features.buildTokens;
 
     // ---- Usage tracking ----
@@ -1715,6 +1736,7 @@ export default async function handler(req, res) {
             lastUpdated: new Date().toISOString()
           };
           if (research) update.researchRequests = increment(1);
+          if (usageStats.webSearches) update.webSearches = increment(usageStats.webSearches);
           for (const [model, count] of Object.entries(usageStats.modelCounts)) {
             update[`modelCounts.${model}`] = increment(count);
           }
@@ -1855,6 +1877,12 @@ Rules:
       });
     }
 
+    if (searchesLeft <= 0) {
+      systemMessages.push({
+        role: "system",
+        content: "The user's plan has used up its web searches for this month, so you cannot search the web right now. Answer from what you already know; if they need live or very recent information, say so briefly and mention that upgrading gives more searches."
+      });
+    }
     const fullMessages = [...systemMessages, ...messages];
 
     // callGroq NEVER throws — every failure path (network error, timeout,
@@ -2091,7 +2119,7 @@ Rules:
           messages: conversation
         };
         if (includeTools) {
-          const availableTools = TOOLS.filter(t => (t.function.name !== "remember_fact" || features.memory) && (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken) && (!t.requiresSlack || !!slackToken) && (!t.requiresDiscord || !!discordConnection) && (!t.requiresNotion || !!notionToken) && (!t.requiresTrello || !!trelloToken) && (!t.requiresOutlook || !!outlookToken));
+          const availableTools = TOOLS.filter(t => (t.function.name !== "remember_fact" || features.memory) && (t.function.name !== "web_search" || searchesLeft > 0) && (!t.requiresGoogle || !!googleClient) && (!t.requiresGithub || !!githubToken) && (!t.requiresSlack || !!slackToken) && (!t.requiresDiscord || !!discordConnection) && (!t.requiresNotion || !!notionToken) && (!t.requiresTrello || !!trelloToken) && (!t.requiresOutlook || !!outlookToken));
           body.tools = availableTools.map(({ function: fn }) => ({ type: "function", function: fn }));
           body.tool_choice = (round === 0 && (forceSearch || research) && !hasImage) ? { type: "function", function: { name: "web_search" } } : "auto";
         }
@@ -2120,6 +2148,7 @@ Rules:
           let parsedArgs = {};
           try { parsedArgs = JSON.parse(call.function.arguments || "{}"); } catch {}
           if (onStep) onStep({ phase: "start", name: call.function.name, args: parsedArgs });
+          if (call.function.name === "web_search") { searchesLeft = Math.max(0, searchesLeft - 1); usageStats.webSearches = (usageStats.webSearches || 0) + 1; }
           const toolResult = await executeTool(call.function.name, call.function.arguments, { googleClient, githubToken, slackToken, discordConnection, notionToken, trelloToken, outlookToken });
           if (onStep) onStep({ phase: "done", name: call.function.name, ok: !toolResult?.error });
           conversation.push({
