@@ -46,6 +46,27 @@ export default async function handler(req, res) {
     const decoded = await getAdminAuth().verifyIdToken(idToken);
     const uid = decoded.uid;
 
+    // Publishing a live public link is one of the Ultra plan's Premium
+    // features. The plan is read from the server-side billing record
+    // (written only by a verified payment) — never trusted from the client.
+    try {
+      const billingSnap = await getAdminDb().collection("billing").doc(uid).get();
+      const plan = billingSnap.exists ? (billingSnap.data().plan || "free") : "free";
+      if (plan !== "ultra") {
+        return res.status(403).json({
+          error: "Publishing a live link is a Premium feature on the Ultra plan.",
+          code: "feature_locked",
+          feature: "publish",
+          requiredPlan: "ultra",
+          plan
+        });
+      }
+    } catch (planErr) {
+      // If the plan lookup itself fails, don't block people from publishing
+      // because of our own error — same fail-open approach as chat limits.
+      console.error("Plan lookup failed for publish — allowing:", planErr.message);
+    }
+
     const { html, title, name } = req.body || {};
     if (!html || typeof html !== "string" || !html.trim()) {
       return res.status(400).json({ error: "Nothing to publish." });
