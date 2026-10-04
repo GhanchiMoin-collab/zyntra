@@ -43,6 +43,10 @@ function extractCodeBlocks(text){
     return { withPlaceholders, blocks };
 }
 
+function escapeHtmlText(t){
+    return String(t == null ? "" : t).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 function escapeForDisplay(code){
     return code
         .replace(/&/g, "&amp;")
@@ -102,7 +106,7 @@ function ensureCodePreviewModal(){
             <div class="code-preview-frame-wrap">
                 <div class="code-preview-glow-border">
                     <div class="code-preview-frame-inner">
-                        <iframe class="code-preview-iframe" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"></iframe>
+                        <iframe class="code-preview-iframe" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-pointer-lock" allow="fullscreen; gamepad; autoplay"></iframe>
                         <div class="code-preview-loading" id="codePreviewLoading">
                             <div class="code-preview-loading-dots">
                                 <span></span><span></span><span></span>
@@ -137,7 +141,9 @@ function openCodePreview(code){
         loading.classList.remove("show");
         glowBorder.classList.remove("loading");
     };
-    iframe.srcdoc = code;
+    // The preview behaves exactly like a published game: sandboxed (it
+    // can't touch Zyntra's own data) with working saves + the Zyntra player kit.
+    iframe.srcdoc = window.ZyntraCreations ? ZyntraCreations.previewDoc(code, iframe) : code;
 
     const fullscreenBtn = modal.querySelector(".code-preview-fullscreen");
     fullscreenBtn.onclick = () => {
@@ -148,75 +154,18 @@ function openCodePreview(code){
 
     const newTabBtn = modal.querySelector(".code-preview-newtab");
     newTabBtn.onclick = () => {
-        const blob = new Blob([code], { type: "text/html" });
-        const url = URL.createObjectURL(blob);
-        window.open(url, "_blank");
-        // Not revoked immediately — the new tab needs the blob to stay
-        // valid while it's open. Cleaned up after a while instead.
-        setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
+        if(window.ZyntraCreations) ZyntraCreations.openInNewTab(code);
     };
 
     const publishResult = modal.querySelector("#codePreviewPublishResult");
     publishResult.style.display = "none";
     publishResult.innerHTML = "";
 
-    async function doPublish(siteName, titleGuess){
-        const originalLabel = publishBtn.textContent;
-        publishBtn.disabled = true;
-        publishBtn.textContent = "Publishing...";
-        try{
-            const idToken = await activeAuth().currentUser.getIdToken();
-            const res = await fetch("/api/publish", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
-                body: JSON.stringify({ html: code, title: titleGuess, name: siteName })
-            });
-            const data = await res.json();
-            if(!res.ok) throw new Error(data.error || "Publish failed.");
-
-            publishResult.innerHTML = `
-                <span class="code-preview-publish-url">${data.url}</span>
-                <button type="button" class="code-preview-publish-copy">📋 Copy</button>
-                <a class="code-preview-publish-open" href="${data.url}" target="_blank" rel="noopener">Open ↗</a>
-            `;
-            publishResult.querySelector(".code-preview-publish-copy").addEventListener("click", () => {
-                navigator.clipboard.writeText(data.url);
-                const copyBtn = publishResult.querySelector(".code-preview-publish-copy");
-                copyBtn.textContent = "✅ Copied";
-                setTimeout(() => { copyBtn.textContent = "📋 Copy"; }, 1500);
-            });
-        }catch(err){
-            alert(err.message || "Could not publish. Please try again.");
-            publishResult.style.display = "none";
-        }finally{
-            publishBtn.disabled = false;
-            publishBtn.textContent = originalLabel;
-        }
-    }
-
+    // Publish → choose "app or game" (goes to Discover) or "this chat".
+    // Once a creation is live, this button becomes "Update".
     const publishBtn = modal.querySelector(".code-preview-publish");
-    publishBtn.onclick = async () => {
-        if(!activeAuth().currentUser){
-            alert("Sign in to publish a live link.");
-            return;
-        }
-        const titleMatch = code.match(/<title>([^<]*)<\/title>/i);
-        const titleGuess = titleMatch ? titleMatch[1] : "Zyntra site";
-        const nameGuess = titleGuess.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30) || "my-site";
-
-        publishResult.style.display = "flex";
-        publishResult.innerHTML = `
-            <input type="text" class="code-preview-publish-name" value="${nameGuess}" maxlength="40" spellcheck="false">
-            <span class="code-preview-publish-suffix">-zyntraai-app</span>
-            <button type="button" class="code-preview-publish-confirm">Publish ✓</button>
-        `;
-        const nameInput = publishResult.querySelector(".code-preview-publish-name");
-        nameInput.focus();
-        nameInput.select();
-        const confirmPublish = () => doPublish(nameInput.value.trim(), titleGuess);
-        publishResult.querySelector(".code-preview-publish-confirm").addEventListener("click", confirmPublish);
-        nameInput.addEventListener("keydown", e => { if(e.key === "Enter") confirmPublish(); });
-    };
+    publishBtn.onclick = () => { if(window.ZyntraCreations) ZyntraCreations.startPublish(code); };
+    if(window.ZyntraCreations) ZyntraCreations.refreshPublishButton(publishBtn);
 
     openModal("codePreviewModal");
 }
@@ -2242,8 +2191,8 @@ async function loadDiscoverList(){
             card.href = `/share/${item.id}`;
             card.className = "discover-card";
             card.innerHTML = `
-                <p class="discover-card-title">${item.title}</p>
-                <p class="discover-card-preview">${item.preview || ""}</p>
+                <p class="discover-card-title">${escapeHtmlText(item.title)}</p>
+                <p class="discover-card-preview">${escapeHtmlText(item.preview || "")}</p>
             `;
             list.appendChild(card);
         });
@@ -2291,7 +2240,7 @@ async function loadMyShares(){
             row.className = "my-share-row";
             row.innerHTML = `
                 <div class="my-share-info">
-                    <p class="my-share-title">${item.title}</p>
+                    <p class="my-share-title">${escapeHtmlText(item.title)}</p>
                     <p class="my-share-meta">${item.public ? "🌐 Public (on Discover)" : "🔒 Private link only"}</p>
                 </div>
                 <button type="button" class="my-share-copy" title="Copy link">📋</button>
@@ -6547,7 +6496,7 @@ async function sendChatMessage(prefill){
             }
         }
         if(activeChatTool === "codex"){
-            note += " " + CODEX_SYSTEM_NOTE;
+            note += " " + CODEX_SYSTEM_NOTE + (window.ZyntraCreations ? ZyntraCreations.codexContextNote() : "");
         }
         if(activeChatTool === "agent"){
             note += " " + AGENT_MODE_SYSTEM_NOTE;
@@ -6795,6 +6744,7 @@ const FEATURE_INFO = {
     agent:    { name: "Agent Mode",        plan: "starter" },
     google:   { name: "Google tools",      plan: "starter" },
     webSearch:{ name: "More web searches", plan: "starter" },
+    projectPublish: { name: "Publishing under a project", plan: "starter" },
     memory:   { name: "More memory",       plan: "starter" }
 };
 const FEATURE_PLAN_CARD = {
@@ -9192,6 +9142,8 @@ function renderAccountSwitcher(){
 // ==========================================================
 
 const ROUTE_META = {
+    "play": { title: "Play — Zyntra AI", description: "Play an app or game made with Zyntra AI." },
+    "dashboard": { title: "Creator dashboard — Zyntra AI", description: "Your published apps and games, plays and ratings." },
     "": { title: "Zyntra AI — AI Chat, Image Generator & Jarvis Voice Assistant", description: "Zyntra AI is your all-in-one AI assistant — chat with AI, generate AI images, talk to Zyntra Jarvis (voice assistant), get coding help with Codex, and grow your business, all in one place." },
     "chat": { title: "Zyntra AI — AI Chat, Image Generator & Jarvis Voice Assistant", description: "Zyntra AI is your all-in-one AI assistant — chat with AI, generate AI images, talk to Zyntra Jarvis (voice assistant), get coding help with Codex, and grow your business, all in one place." },
     "image-generator": { title: "AI Image Generator — Zyntra AI", description: "Generate AI images for free with Zyntra AI's Image Generator. Turn any text description into a realistic photo, illustration, or poster in seconds." },
@@ -9269,6 +9221,9 @@ function applyRouteFromPath(){
     const parts = window.location.pathname.replace(/^\/+|\/+$/g, "").split("/");
     const slug = parts[0] || "";
     const subId = parts[1] || null;
+
+    // Apps & games pages (/play/<name>) and the creator dashboard (/dashboard)
+    if(window.ZyntraCreations && window.ZyntraCreations.route(slug, subId)) return;
 
     // Close any routed modal that isn't the one this path calls for, and
     // drop temporary-chat mode if we've navigated away from /incognito —
