@@ -44,8 +44,29 @@ export default async function handler(req, res) {
     }
 
     const data = snap.data();
+
+    // Apps & games published to Discover live on their own Zyntra page
+    // (with ratings, saved progress and the creator's details).
+    if (data.kind === "game" || data.kind === "app") {
+      res.setHeader('Location', `/play/${encodeURIComponent(slug)}`);
+      return res.status(302).end();
+    }
+
+    // Newer creations keep their HTML in a separate document.
+    let storedHtml = data.html || "";
+    if (!storedHtml) {
+      const h = await db.collection("siteHtml").doc(slug).get();
+      storedHtml = h.exists ? (h.data().html || "") : "";
+    }
+    // This page runs in a sandbox with no storage of its own, and code that
+    // touches localStorage would crash. A tiny in-memory stand-in (it
+    // forgets when the page is closed) keeps such pages working.
+    const storageShim = '<script>(function(){function mk(){var d={};return{getItem:function(k){return Object.prototype.hasOwnProperty.call(d,k)?d[k]:null},setItem:function(k,v){d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}},key:function(i){return Object.keys(d)[i]||null},get length(){return Object.keys(d).length}}}try{window.localStorage.getItem("x")}catch(e){try{Object.defineProperty(window,"localStorage",{value:mk()});Object.defineProperty(window,"sessionStorage",{value:mk()})}catch(e2){}}})();<\/script>';
+    const withShim = /<head[^>]*>/i.test(storedHtml)
+      ? storedHtml.replace(/<head[^>]*>/i, m => m + storageShim)
+      : storageShim + storedHtml;
     const title = escapeHtmlAttr(data.title || "Zyntra site");
-    const srcdocAttr = escapeHtmlAttr(data.html || "");
+    const srcdocAttr = escapeHtmlAttr(withShim);
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=300');
