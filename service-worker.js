@@ -1,9 +1,10 @@
-const CACHE_NAME = "zyntra-ai-v3";
+const CACHE_NAME = "zyntra-ai-v4";
 const APP_SHELL = [
     "/",
     "/index.html",
     "/style.css",
     "/script.js",
+    "/creations.js",
     "/favicon.png"
 ];
 
