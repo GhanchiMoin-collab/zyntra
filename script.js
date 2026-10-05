@@ -4529,6 +4529,18 @@ function renderSearchChatsList(query){
             }
         });
 
+        // Publish this chat — sits right beside delete, on every chat
+        const publishBtn = document.createElement("button");
+        publishBtn.type = "button";
+        publishBtn.className = "search-chats-row-action search-chats-row-publish";
+        publishBtn.textContent = "📤";
+        publishBtn.title = "Publish this chat";
+        publishBtn.setAttribute("aria-label", "Publish this chat");
+        publishBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            publishChatSession(session.id, publishBtn);
+        });
+
         const deleteBtn = document.createElement("button");
         deleteBtn.type = "button";
         deleteBtn.className = "search-chats-row-action";
@@ -4549,6 +4561,7 @@ function renderSearchChatsList(query){
         row.appendChild(icon);
         row.appendChild(textWrap);
         row.appendChild(pinBtn);
+        row.appendChild(publishBtn);
         row.appendChild(deleteBtn);
         row.addEventListener("click", () => {
             closeModal("searchChatsModal");
@@ -5565,7 +5578,7 @@ function ensureShareResultModal(){
     modal.className = "modal-overlay";
     modal.innerHTML = `
         <div class="modal-box" style="max-width:440px;">
-            <h3 style="margin:0 0 14px;">🔗 Chat shared!</h3>
+            <h3 style="margin:0 0 14px;">🎉 Chat published!</h3>
             <p style="margin:0 0 14px;color:var(--text-2);font-size:13.5px;">Anyone with this link can view this conversation — no sign-in needed.</p>
             <div class="share-result-row">
                 <span class="share-result-url" id="shareResultUrl"></span>
@@ -5596,14 +5609,15 @@ function ensureShareConfirmModal(){
     modal.className = "modal-overlay";
     modal.innerHTML = `
         <div class="modal-box" style="max-width:440px;">
-            <h3 style="margin:0 0 14px;">🔗 Share this chat</h3>
-            <p style="margin:0 0 14px;color:var(--text-2);font-size:13.5px;">Anyone with the link can view it — no sign-in needed.</p>
+            <h3 style="margin:0 0 6px;">📤 Publish this chat</h3>
+            <p id="shareConfirmChatName" style="margin:0 0 10px;color:var(--text-1);font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></p>
+            <p style="margin:0 0 14px;color:var(--text-2);font-size:13.5px;">Anyone with the link can read it — no sign-in needed.</p>
             <label class="share-public-checkbox">
                 <input type="checkbox" id="sharePublicCheckbox">
                 <span>🌐 Also feature this on the public Discover page</span>
             </label>
             <div style="display:flex;gap:8px;margin-top:16px;">
-                <button type="button" class="persona-form-save" id="shareConfirmGoBtn" style="flex:1;">Share</button>
+                <button type="button" class="persona-form-save" id="shareConfirmGoBtn" style="flex:1;">Publish</button>
                 <button type="button" class="persona-form-cancel" id="shareConfirmCancelBtn">Cancel</button>
             </div>
         </div>
@@ -5614,18 +5628,22 @@ function ensureShareConfirmModal(){
     return modal;
 }
 
-async function doShareChat(makePublic){
-    const btn = document.getElementById("shareChatBtn");
-    const original = btn.textContent;
-    btn.textContent = "…";
+async function doShareChat(makePublic, sessionId, btnEl){
+    // sessionId: which chat to publish (defaults to the one that's open)
+    const targetId = sessionId || currentSessionId;
+    const btn = btnEl || document.getElementById("shareChatBtn");
+    const original = btn ? btn.textContent : "";
+    if(btn) btn.textContent = "…";
     try{
-        const cleanMessages = chatHistory
-            .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim());
+        const session = getSessions().find(s => s.id === targetId);
+        const source = (targetId === currentSessionId && chatHistory.length) ? chatHistory : ((session && session.messages) || []);
+        const cleanMessages = source
+            .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
+            .map(m => ({ role: m.role, content: m.content }));
         if(cleanMessages.length === 0){
-            alert("Nothing in this chat to share yet.");
+            alert("Nothing in this chat to publish yet.");
             return;
         }
-        const session = getSessions().find(s => s.id === currentSessionId);
         const idToken = await activeAuth().currentUser.getIdToken();
         const res = await fetch("/api/share-chat", {
             method: "POST",
@@ -5633,7 +5651,7 @@ async function doShareChat(makePublic){
             body: JSON.stringify({ messages: cleanMessages, title: session?.title || "A Zyntra AI conversation", makePublic })
         });
         const data = await res.json();
-        if(!res.ok) throw new Error(data.error || "Could not share this chat.");
+        if(!res.ok) throw new Error(data.error || "Could not publish this chat.");
 
         const modal = ensureShareResultModal();
         modal.querySelector("#shareResultUrl").textContent = data.url;
@@ -5645,22 +5663,35 @@ async function doShareChat(makePublic){
         };
         openModal("shareResultModal");
     }catch(err){
-        alert(err.message || "Could not share this chat. Please try again.");
+        alert(err.message || "Could not publish this chat. Please try again.");
     }finally{
-        btn.textContent = original;
+        if(btn) btn.textContent = original;
     }
+}
+
+// Asks "also feature it on Discover?" then publishes the chosen chat.
+function publishChatSession(sessionId, btnEl){
+    if(!isLoggedIn()){
+        openModal("signinModal");
+        return;
+    }
+    if(!sessionId) return;
+    const modal = ensureShareConfirmModal();
+    modal.querySelector("#sharePublicCheckbox").checked = false;
+    const session = getSessions().find(s => s.id === sessionId);
+    const nameEl = modal.querySelector("#shareConfirmChatName");
+    if(nameEl) nameEl.textContent = session ? session.title : "";
+    modal.querySelector("#shareConfirmGoBtn").onclick = () => {
+        const makePublic = modal.querySelector("#sharePublicCheckbox").checked;
+        closeModal("shareConfirmModal");
+        doShareChat(makePublic, sessionId, btnEl);
+    };
+    openModal("shareConfirmModal");
 }
 
 document.getElementById("shareChatBtn")?.addEventListener("click", () => {
     if(!currentSessionId || !isLoggedIn()) return;
-    const modal = ensureShareConfirmModal();
-    modal.querySelector("#sharePublicCheckbox").checked = false;
-    modal.querySelector("#shareConfirmGoBtn").onclick = () => {
-        const makePublic = modal.querySelector("#sharePublicCheckbox").checked;
-        closeModal("shareConfirmModal");
-        doShareChat(makePublic);
-    };
-    openModal("shareConfirmModal");
+    publishChatSession(currentSessionId);
 });
 
 async function loadSharedChat(id){
@@ -6496,7 +6527,7 @@ async function sendChatMessage(prefill){
             }
         }
         if(activeChatTool === "codex"){
-            note += " " + CODEX_SYSTEM_NOTE + (window.ZyntraCreations ? ZyntraCreations.codexContextNote() : "");
+            note += " " + CODEX_SYSTEM_NOTE;
         }
         if(activeChatTool === "agent"){
             note += " " + AGENT_MODE_SYSTEM_NOTE;
@@ -6588,7 +6619,10 @@ async function streamAssistantReply(){
     }
 
     try{
-        const { sources, memoryWrites, usage } = await streamChatAPI(chatHistory, (chunk) => {
+        // Codex gets fresh platform / 3D / "this is an update" instructions on
+        // every request (kept out of the stored chat so they never go stale).
+        const outgoing = (activeChatTool === "codex" && window.ZyntraCreations) ? ZyntraCreations.withCodexRuntime(chatHistory) : chatHistory;
+        const { sources, memoryWrites, usage } = await streamChatAPI(outgoing, (chunk) => {
             if(!firstChunkReceived){
                 aiContent.textContent = "";
                 firstChunkReceived = true;
