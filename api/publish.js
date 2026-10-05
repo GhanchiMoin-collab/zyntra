@@ -101,6 +101,7 @@ function publicItem(slug, d, { detail = false } = {}) {
     tags: d.tags || [],
     creatorName: d.creatorName || "",
     creatorHandle: d.creatorHandle || "",
+    creatorPlan: d.creatorPlan || "",
     projectName: d.projectName || "",
     listed: d.listed !== false,
     hidden: !!d.hidden,
@@ -400,6 +401,9 @@ async function buildMetaUpdate(db, user, body, old) {
   const handle = handleFromUser(user);
   fields.creatorHandle = handle;
   fields.creatorName = clean(body.creatorName, 30) || clean(user.name, 30) || handle.slice(1);
+  // shown as a small badge next to the creator's name (Pro ⭐ / Ultra 👑)
+  const creatorPlan = await planOf(db, uid);
+  fields.creatorPlan = (creatorPlan === "pro" || creatorPlan === "ultra") ? creatorPlan : "";
 
   // images (optional) — only replaced when a new one is sent
   if (body.iconDataUrl) {
