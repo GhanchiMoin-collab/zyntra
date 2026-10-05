@@ -41,9 +41,9 @@ const PLAN_LABELS = { guest: "Guest", free: "Free", starter: "Starter", pro: "Pr
 //   premium  : Ultra — the largest app/game builds and the biggest memory
 const PLAN_FEATURES = {
   guest:   { memory: true, memoryLimit: 5,    webSearchesPerMonth: null, googleTools: false, agent: false, research: false, priority: 0, premium: false, buildTokens: 6000 },
-  free:    { memory: true, memoryLimit: 10,   webSearchesPerMonth: 10,   googleTools: false, agent: false, research: false, priority: 0, premium: false, buildTokens: 8000 },
-  starter: { memory: true, memoryLimit: 50,   webSearchesPerMonth: 100,  googleTools: true,  agent: true,  research: false, priority: 0, premium: false, buildTokens: 10000 },
-  pro:     { memory: true, memoryLimit: 200,  webSearchesPerMonth: 500,  googleTools: true,  agent: true,  research: true,  priority: 1, premium: false, buildTokens: 14000 },
+  free:    { memory: true, memoryLimit: 10,   webSearchesPerMonth: 10,   googleTools: false, agent: false, research: false, priority: 0, premium: false, buildTokens: 12000 },
+  starter: { memory: true, memoryLimit: 50,   webSearchesPerMonth: 100,  googleTools: true,  agent: true,  research: false, priority: 0, premium: false, buildTokens: 14000 },
+  pro:     { memory: true, memoryLimit: 200,  webSearchesPerMonth: 500,  googleTools: true,  agent: true,  research: true,  priority: 1, premium: false, buildTokens: 16000 },
   ultra:   { memory: true, memoryLimit: 1000, webSearchesPerMonth: null, googleTools: true,  agent: true,  research: true,  priority: 2, premium: true,  buildTokens: 18000 }
 };
 
