@@ -321,6 +321,7 @@ function ensureViews(){
     anchor.parentNode.insertBefore(creator, game.nextSibling);
 }
 
+let pushRecentLater = null;
 let gameCleanup = null;      // flushes saves + removes listeners when leaving a game page
 function leaveGamePage(){ if(gameCleanup){ try{ gameCleanup(); }catch(e){} gameCleanup = null; } }
 
@@ -342,13 +343,22 @@ let discoverTab = "creations";
 let discoverState = { sort: "popular", genre: "all", q: "" };
 let discoverItems = [];
 
+function tileBadges(it){
+    const now = Date.now(), created = Date.parse(it.createdAt) || 0, updated = Date.parse(it.updatedAt) || 0;
+    if(now - created < 7 * 864e5) return `<span class="cr-badge-pill cr-bp-new">NEW</span>`;
+    if(it.version > 1 && now - updated < 7 * 864e5) return `<span class="cr-badge-pill cr-bp-upd">UPDATED</span>`;
+    return "";
+}
+function crownFor(it){
+    return it.creatorPlan === "ultra" ? `<span class="cr-crown" title="Ultra creator">👑</span>` : it.creatorPlan === "pro" ? `<span class="cr-crown" title="Pro creator">⭐</span>` : "";
+}
 function tileHTML(it){
     const a = approval(it);
     return `<a class="cr-tile" href="/play/${esc(it.slug)}" data-slug="${esc(it.slug)}">
-        ${iconHTML(it, "cr-tile-icon")}
+        <div class="cr-tile-iconwrap">${iconHTML(it, "cr-tile-icon")}${tileBadges(it)}<span class="cr-tile-play">▶</span></div>
         <p class="cr-tile-title">${esc(it.title)}</p>
         <p class="cr-tile-stats"><span title="Approval">👍 ${a == null ? "—" : a + "%"}</span><span title="Plays">👥 ${fmtNum(it.plays)}</span></p>
-        <p class="cr-tile-by">${it.kind === "game" ? "🎮" : "📱"} ${esc(it.creatorName || it.creatorHandle)}</p>
+        <p class="cr-tile-by">${it.kind === "game" ? "🎮" : "📱"} ${esc(it.creatorName || it.creatorHandle)} ${crownFor(it)}</p>
     </a>`;
 }
 
@@ -408,7 +418,7 @@ function switchDiscoverTab(tab){
 async function loadCreations(){
     const rows = $("crRows");
     if(!rows) return;
-    rows.innerHTML = `<p class="cr-empty">Loading…</p>`;
+    rows.innerHTML = `<div class="cr-skel-hero"></div><div class="cr-row-scroll">${"<div class=\"cr-skel-tile\"><div></div><i></i><i></i></div>".repeat(7)}</div>`;
     try{
         const params = { action: "list", sort: discoverState.sort };
         if(discoverState.genre !== "all") params.genre = discoverState.genre;
@@ -429,14 +439,40 @@ async function loadCreations(){
         const popular = discoverItems.slice().sort((a, b) => b.plays - a.plays);
         const top = discoverItems.slice().sort((a, b) => score(b) - score(a));
         const fresh = discoverItems.slice().sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+        const hero = heroHTML(popular[0]);
+        const recents = getRecents().map(s => discoverItems.find(i => i.slug === s)).filter(Boolean);
+        const jump = recents.length ? `<section class="cr-row"><h3 class="cr-row-title">▶ Jump back in</h3><div class="cr-row-scroll">${recents.map(tileHTML).join("")}</div></section>` : "";
         const row = (title, list) => `<section class="cr-row"><h3 class="cr-row-title">${title}</h3><div class="cr-row-scroll">${list.slice(0, 20).map(tileHTML).join("")}</div></section>`;
         const order = discoverState.sort === "top" ? [["⭐ Top rated", top], ["🔥 Popular", popular], ["🆕 New & updated", fresh]]
             : discoverState.sort === "new" ? [["🆕 New & updated", fresh], ["🔥 Popular", popular], ["⭐ Top rated", top]]
             : [["🔥 Popular", popular], ["⭐ Top rated", top], ["🆕 New & updated", fresh]];
-        rows.innerHTML = order.map(([t, l]) => row(t, l)).join("");
+        rows.innerHTML = hero + jump + order.map(([t, l]) => row(t, l)).join("");
+        rows.querySelector("#crHeroPlay")?.addEventListener("click", e => { e.preventDefault(); openGamePage(e.currentTarget.dataset.slug, { autoplay: true }); });
     }catch(err){
         rows.innerHTML = `<p class="cr-empty">${esc(err.message)}</p>`;
     }
+}
+
+// ---------- recently played ("Jump back in") ----------
+function getRecents(){ try{ return JSON.parse(localStorage.getItem("zyntra-recent-plays") || "[]"); }catch(e){ return []; } }
+function pushRecent(slug){
+    try{ const r = getRecents().filter(s => s !== slug); r.unshift(slug); localStorage.setItem("zyntra-recent-plays", JSON.stringify(r.slice(0, 12))); }catch(e){}
+}
+function heroHTML(it){
+    if(!it) return "";
+    const a = approval(it), h = hashHue(it.title || "x");
+    return `<section class="cr-hero" style="--hue:${h}">
+        <div class="cr-hero-glow"></div>
+        <a class="cr-hero-icon" href="/play/${esc(it.slug)}" data-slug="${esc(it.slug)}">${iconHTML(it, "cr-hero-icon-inner")}</a>
+        <div class="cr-hero-info">
+            <span class="cr-hero-kicker">🔥 Trending now</span>
+            <h2>${esc(it.title)}</h2>
+            <p class="cr-hero-by">${it.kind === "game" ? "🎮 Game" : "📱 App"} · by ${esc(it.creatorName || it.creatorHandle)} ${crownFor(it)}</p>
+            <p class="cr-hero-desc">${esc((it.description || "").slice(0, 120)) || "Tap play and see what it's about."}</p>
+            <div class="cr-hero-stats"><span>👍 ${a == null ? "—" : a + "%"}</span><span>👥 ${fmtNum(it.plays)} plays</span><span>${GENRE_EMOJI[it.genre] || ""} ${esc(it.genre)}</span></div>
+            <button type="button" class="cr-play-btn cr-hero-btn" id="crHeroPlay" data-slug="${esc(it.slug)}">▶ Play now</button>
+        </div>
+    </section>`;
 }
 
 let origLoadChats = null;
@@ -465,7 +501,7 @@ async function openGamePage(slug, opts){
     go("play", slug);
     document.title = "Zyntra AI — Play";
     const view = $("gameView");
-    view.innerHTML = `<p class="cr-empty" style="padding:60px 0;">Loading…</p>`;
+    view.innerHTML = `<div class="cr-game"><div class="cr-skel-head"><div class="cr-skel-icon"></div><div class="cr-skel-lines"><i></i><i></i><i></i></div></div></div>`;
     let data;
     try{
         data = await apiGet({ action: "get", slug, html: "1" }, false);
@@ -474,16 +510,18 @@ async function openGamePage(slug, opts){
         $("crBackDiscover").onclick = () => openDiscover();
         return;
     }
-    renderGamePage(view, data, slug);
+    renderGamePage(view, data, slug, opts && opts.autoplay);
 }
 
-function renderGamePage(view, data, slug){
+function renderGamePage(view, data, slug, autoplay){
     const it = data.item;
     let myVote = data.myVote || 0, likes = it.likes, dislikes = it.dislikes;
     document.title = `${it.title} — Zyntra AI`;
+    pushRecentLater = slug;
     const by = it.projectName ? `${esc(it.creatorName)} <span class="cr-dim">· in</span> 📁 ${esc(it.projectName)}` : esc(it.creatorName || it.creatorHandle);
     view.innerHTML = `
-        <div class="cr-game">
+        <div class="cr-game cr-enter" style="--hue:${hashHue(it.title || "x")}">
+            <div class="cr-ambient"></div>
             <div class="cr-game-top">
                 <button type="button" class="cr-btn cr-btn-ghost" id="crBack">← Discover</button>
                 <span class="cr-tabs-spacer"></span>
@@ -495,7 +533,7 @@ function renderGamePage(view, data, slug){
                 ${iconHTML(it, "cr-game-icon")}
                 <div class="cr-game-info">
                     <h1 class="cr-game-title">${esc(it.title)}</h1>
-                    <p class="cr-game-by">${it.kind === "game" ? "🎮 Game" : "📱 App"} by <b>${by}</b> <span class="cr-dim">${esc(it.creatorHandle)}</span></p>
+                    <p class="cr-game-by">${it.kind === "game" ? "🎮 Game" : "📱 App"} by <b>${by}</b> ${crownFor(it)} <span class="cr-dim">${esc(it.creatorHandle)}</span></p>
                     <div class="cr-chips"><span class="cr-chip">${GENRE_EMOJI[it.genre] || ""} ${esc(it.genre)}</span>${(it.tags || []).map(t => `<span class="cr-chip cr-chip-soft">#${esc(t)}</span>`).join("")}</div>
                 </div>
             </div>
@@ -562,12 +600,13 @@ function renderGamePage(view, data, slug){
         try{
             const r = await apiPost({ action: "rate", slug, value: v }, true);
             likes = r.likes; dislikes = r.dislikes; myVote = r.myVote; paintRating();
+            b.classList.remove("cr-pop"); void b.offsetWidth; b.classList.add("cr-pop");
         }catch(err){ toast(err.message); }
     }));
 
     // ---- Play ----
     $("crPlay").onclick = () => startPlaying(view, slug, it, data.html || "");
-    if(new URLSearchParams(location.search).get("autoplay") === "1") $("crPlay").click();
+    if(autoplay || new URLSearchParams(location.search).get("autoplay") === "1") $("crPlay").click();
 }
 
 async function startPlaying(view, slug, it, html){
@@ -612,6 +651,7 @@ async function startPlaying(view, slug, it, html){
     iframe.srcdoc = doc;
     stage.scrollIntoView({ behavior: "smooth", block: "start" });
     playBtn.disabled = false; playBtn.textContent = "▶ Playing";
+    pushRecent(slug);
 
     // count the play once per day per device
     try{
@@ -948,7 +988,25 @@ async function openDetailsModal(opts){
     };
 }
 
+function confetti(host){
+    const colors = ["#7c5cff", "#ec4899", "#22d3ee", "#fdd835", "#43a047", "#fb8c00"];
+    const box = document.createElement("div");
+    box.className = "cr-confetti";
+    for(let i = 0; i < 46; i++){
+        const p = document.createElement("i");
+        p.style.left = Math.random() * 100 + "%";
+        p.style.background = colors[i % colors.length];
+        p.style.animationDelay = (Math.random() * 0.5) + "s";
+        p.style.animationDuration = (1.4 + Math.random() * 1.2) + "s";
+        p.style.transform = "rotate(" + Math.round(Math.random() * 360) + "deg)";
+        box.appendChild(p);
+    }
+    host.appendChild(box);
+    setTimeout(() => box.remove(), 3200);
+}
+
 function showPublished(ov, r, title){
+    confetti(ov);
     const url = `${location.origin}/play/${r.slug}`;
     ov.querySelector(".cr-modal").innerHTML = `
         <div class="cr-done">
@@ -1021,9 +1079,9 @@ async function loadMine(){
         const plays = items.reduce((n, i) => n + i.plays, 0), likes = items.reduce((n, i) => n + i.likes, 0), dis = items.reduce((n, i) => n + i.dislikes, 0);
         body.innerHTML = `
             <div class="cr-stats">
-                <div class="cr-stat-card"><b>${items.length}</b><span>creations</span></div>
-                <div class="cr-stat-card"><b>${fmtNum(plays)}</b><span>total plays</span></div>
-                <div class="cr-stat-card"><b>${fmtNum(likes)}</b><span>👍 likes</span></div>
+                <div class="cr-stat-card"><b data-count="${items.length}">${items.length}</b><span>creations</span></div>
+                <div class="cr-stat-card"><b data-count="${plays}">${fmtNum(plays)}</b><span>total plays</span></div>
+                <div class="cr-stat-card"><b data-count="${likes}">${fmtNum(likes)}</b><span>👍 likes</span></div>
                 <div class="cr-stat-card"><b>${likes + dis ? Math.round(likes / (likes + dis) * 100) + "%" : "—"}</b><span>approval</span></div>
             </div>
             <div class="cr-mine">${items.map(it => {
@@ -1031,6 +1089,7 @@ async function loadMine(){
                 const status = it.hidden ? `<span class="cr-badge cr-badge-bad">Under review</span>` : it.listed ? `<span class="cr-badge cr-badge-ok">Live in Discover</span>` : `<span class="cr-badge">Link only</span>`;
                 return `<div class="cr-mine-row" data-slug="${esc(it.slug)}">
                     ${iconHTML(it, "cr-mine-icon")}
+                    <div class="cr-ring" style="--p:${a == null ? 0 : a}" title="Approval"><span>${a == null ? "—" : a + "%"}</span></div>
                     <div class="cr-mine-info">
                         <p class="cr-mine-title">${esc(it.title)} <span class="cr-dim">· ${it.kind === "game" ? "Game" : "App"} · v${it.version}</span></p>
                         <p class="cr-mine-meta">${status} <span>👥 ${fmtNum(it.plays)}</span> <span>👍 ${a == null ? "—" : a + "%"}</span> <span class="cr-dim">updated ${esc(timeAgo(it.updatedAt))}</span>${it.projectName ? ` <span class="cr-dim">· 📁 ${esc(it.projectName)}</span>` : ""}</p>
@@ -1043,6 +1102,12 @@ async function loadMine(){
                         <button type="button" class="cr-btn cr-btn-danger" data-act="delete">Delete</button>
                     </div></div>`;
             }).join("")}</div>`;
+        body.querySelectorAll("b[data-count]").forEach(el => {
+            const end = +el.dataset.count; if(!end) return;
+            const t0 = performance.now();
+            const tick = now => { const k = Math.min(1, (now - t0) / 700); el.textContent = fmtNum(Math.round(end * (1 - Math.pow(1 - k, 3)))); if(k < 1) requestAnimationFrame(tick); };
+            requestAnimationFrame(tick);
+        });
         body.querySelector(".cr-mine").addEventListener("click", async e => {
             const b = e.target.closest("button[data-act]"); if(!b) return;
             const row = b.closest(".cr-mine-row"), slug = row.dataset.slug, it = items.find(i => i.slug === slug);
@@ -1146,21 +1211,55 @@ function openInNewTab(code){
     setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
 }
 
-// extra instructions for Codex: the platform + (if this chat's app is
-// already live) a note so it treats follow-ups as updates
+// ==========================================================
+// Instructions added to every Codex request (not stored in the chat), so
+// they are always current: the platform kit, the 3D-first rules, and — if
+// this chat's app is already live — the "this is an update" note.
+// ==========================================================
 const CODEX_PLATFORM_NOTE = `
 
 ZYNTRA PLATFORM — apps and games you build can be published to Zyntra Discover, where they run in a safe sandbox with a built-in player system. You can rely on:
 - localStorage works normally and is saved automatically for each player of a published game (progress, scores, settings) — use it for saves and keep the data small (under 100KB). Never build your own login or call outside servers just to save progress.
-- window.Zyntra may exist (always guard it: if(window.Zyntra){...}): Zyntra.player.name (display name, "Guest" when signed out); Zyntra.avatar (the player's blocky character settings); Zyntra.avatarSVG(size) returns an SVG string of the player's character you can place in innerHTML; Zyntra.avatarImage(size) returns a Promise of an Image you can draw on a canvas with ctx.drawImage. Zyntra.save(obj) / Zyntra.load() are optional helpers for one save object.
+- window.Zyntra may exist (always guard it: if(window.Zyntra){...}): Zyntra.player.name (display name, "Guest" when signed out); Zyntra.avatar (the player's blocky character settings: skin, hairColor, shirtColor, pantsColor, shoes, accessory…); Zyntra.avatarSVG(size) returns an SVG string of the player's character you can place in innerHTML; Zyntra.avatarImage(size) returns a Promise of an Image you can draw on a canvas. Zyntra.save(obj) / Zyntra.load() are optional helpers for one save object.
 - It's a place where kids play and learn: nothing scary, violent, hateful or adult, no ads, no pop-ups asking for personal information.
 
-CHARACTER GAMES (Roblox-style): when the user wants a game with a character, avatar, hero, pet or outfit, show a blocky character (use Zyntra.avatarSVG when available, otherwise draw a simple blocky figure with CSS, SVG or canvas). Put the outfit in ONE config object at the top of the script (for example const OUTFIT = { skin:'#f2c9a0', hair:'#3b2415', shirt:'#e53935', pants:'#1e88e5', shoes:'#212121', accessory:'cap' }) so that when the user later says "change his clothes to a green hoodie" you only change that config and regenerate the whole file. When it fits, add an in-game wardrobe panel with a few colour and outfit choices that saves to localStorage.
+CHARACTER GAMES (Roblox-style): when the user wants a game with a character, avatar, hero, pet or outfit, show a blocky character. Put the outfit in ONE config object at the top of the script so that when the user later says "change his clothes to a green hoodie" you only change that config and regenerate the whole file; when it fits, add an in-game wardrobe with a few colour/outfit choices saved to localStorage.
 
-LEARNING: if the user sounds like a beginner or a child, add two or three plain, friendly sentences after the code explaining how one part works (for example how the game loop or the score works) and suggest one fun thing they could ask you to change next — so they learn to make their own.`;
+LEARNING: if the user sounds like a beginner or a child, add two or three plain, friendly sentences after the code explaining how one part works and suggest one fun thing they could ask you to change next — so they learn to make their own.`;
 
-function codexContextNote(){
+const CODEX_3D_RULES = `
+
+3D FIRST — Zyntra games should feel like Roblox, so build GAMES IN 3D with Three.js by default. Use 3D for anything with a character or avatar, a world to move through, obstacle courses (obbies), parkour, adventure, exploring, racing, flying, driving, shooters, survival, tycoons, simulators, escapes, mazes and runners. Only stay 2D when the user asks for 2D, or the game is naturally flat: card/board/word/quiz/memory/puzzle games, classics like Snake, Tetris, Pong, 2048, tic-tac-toe, chess, and simple clickers. If the user's request was vague ("make me a game"), choose an exciting 3D obby or adventure.
+3D RULES (follow exactly, or the game will not run):
+- Load Three.js r128 with this exact classic script tag: <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script> — this gives a global THREE. Do NOT use ES modules, import maps, "import ... from", or any addons (no OrbitControls, GLTFLoader, FBXLoader, CapsuleGeometry — they don't exist in this build).
+- Build EVERYTHING in code from BoxGeometry, CylinderGeometry, SphereGeometry, ConeGeometry, PlaneGeometry (no external models, textures or images). Use MeshLambertMaterial with bright, cheerful colours, a hemisphere light + one directional light, a sky-coloured background and fog.
+- Characters are blocky Roblox-style figures made of boxes (head, torso, two arms, two legs on pivot groups so they swing when walking). Use the player's outfit from window.Zyntra.avatar when it exists.
+- Third-person camera that follows the player; drag to look; WASD/arrows + Space on desktop AND an on-screen joystick + jump button on touch devices; pixel ratio capped at 2; handle window resize; a start screen with a Play button, a HUD (score/coins/time), a win or game-over screen with Play Again, and the best score saved in localStorage.
+- Real physics: gravity, jumping, and collisions with platforms and walls (resolve one axis at a time against boxes), falling off the world respawns at the last checkpoint. Keep it fun: coins to collect, checkpoints, moving platforms or enemies, levels that get harder.
+- Keep the scene light (a few hundred meshes at most; reuse geometries) so it runs on phones. All code in ONE html file.`;
+
+const THREE_TEMPLATE = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no\">\n<title>Sky Obby</title>\n<link href=\"https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap\" rel=\"stylesheet\">\n<style>\nhtml,body{margin:0;height:100%;overflow:hidden;background:#8fd3ff;font-family:'Fredoka',system-ui,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none}\ncanvas{display:block}\n#hud{position:fixed;top:10px;left:10px;right:10px;display:flex;gap:8px;pointer-events:none;color:#fff;font-weight:700;text-shadow:0 2px 0 rgba(0,0,0,.35)}\n.pill:empty{display:none}\n.pill{background:rgba(20,30,60,.55);padding:6px 14px;border-radius:99px;font-size:16px}\n#joy{position:fixed;left:22px;bottom:26px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.4);display:none}\n#knob{position:absolute;left:35px;top:35px;width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.7)}\n#jump{position:fixed;right:26px;bottom:34px;width:86px;height:86px;border-radius:50%;border:3px solid #fff;background:rgba(255,80,120,.8);color:#fff;font:700 16px 'Fredoka',sans-serif;display:none}\n#menu{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(20,40,90,.55);color:#fff;text-align:center;padding:20px}\n#menu h1{margin:0;font-size:44px;text-shadow:0 4px 0 rgba(0,0,0,.3)}\n#menu p{margin:0;max-width:420px;font-size:16px;opacity:.95}\n#menu button{padding:14px 44px;border:0;border-radius:16px;background:#2ecc71;color:#06220f;font:700 22px 'Fredoka',sans-serif;cursor:pointer;box-shadow:0 6px 0 #1f9d55}\n</style>\n</head>\n<body>\n<div id=\"hud\"><span class=\"pill\" id=\"coins\">\ud83e\ude99 0 / 0</span><span class=\"pill\" id=\"time\">\u23f1 0.0s</span><span class=\"pill\" id=\"best\"></span></div>\n<div id=\"joy\"><div id=\"knob\"></div></div>\n<button id=\"jump\">JUMP</button>\n<div id=\"menu\"><h1>Sky Obby</h1><p>Hop across the floating blocks, grab the coins and reach the golden flag!</p><p id=\"help\">WASD / arrows to move \u00b7 Space to jump \u00b7 drag to look around</p><button id=\"play\">\u25b6 Play</button></div>\n\n<script src=\"https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js\"></script>\n<script>\n(function(){\n'use strict';\n// ---------- setup ----------\nvar renderer = new THREE.WebGLRenderer({ antialias: true });\nrenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));\nrenderer.setSize(innerWidth, innerHeight);\nrenderer.shadowMap.enabled = true;\ndocument.body.appendChild(renderer.domElement);\nvar scene = new THREE.Scene();\nscene.background = new THREE.Color(0x8fd3ff);\nscene.fog = new THREE.Fog(0x8fd3ff, 60, 220);\nvar camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 400);\nscene.add(new THREE.HemisphereLight(0xffffff, 0x6a8caf, 0.85));\nvar sun = new THREE.DirectionalLight(0xffffff, 0.8);\nsun.position.set(30, 60, 20);\nsun.castShadow = true;\nsun.shadow.mapSize.set(1024, 1024);\nvar sc = sun.shadow.camera; sc.left = -50; sc.right = 50; sc.top = 50; sc.bottom = -50; sc.far = 200;\nscene.add(sun); scene.add(sun.target);\n\n// ---------- world: every solid thing is a box in `solids` ----------\nvar solids = [];\nfunction addBlock(x, y, z, w, h, d, color, opts){\n  var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: color }));\n  m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;\n  scene.add(m);\n  var s = { mesh: m, x: x, y: y, z: z, w: w, h: h, d: d, moving: opts && opts.move, base: new THREE.Vector3(x, y, z), phase: Math.random() * 6 };\n  solids.push(s); return s;\n}\naddBlock(0, -1, 0, 24, 2, 24, 0x6cd16c);                       // start island (top surface at y = 0)\nvar colors = [0xff6b6b, 0xffd93d, 0x6bcBff, 0xc77dff, 0xff9f43];\nvar px = 0, py = 0, pz = -10;\nfor(var i = 0; i < 16; i++){                                   // a winding path of platforms\n  px += Math.sin(i * 0.9) * 6; pz -= 7 + (i % 3); py += (i % 4 === 3) ? 1.2 : 0.2;\n  addBlock(px, py - 0.5, pz, 5, 1, 5, colors[i % colors.length], i % 5 === 4 ? { move: 'x' } : null);\n  if(i === 7) var checkpoint = { x: px, y: py + 1, z: pz };\n}\naddBlock(px, py - 0.5, pz - 9, 12, 1, 12, 0xffd54a);            // goal island\nvar goal = { x: px, y: py, z: pz - 9 };\nvar flag = new THREE.Mesh(new THREE.BoxGeometry(0.3, 5, 0.3), new THREE.MeshLambertMaterial({ color: 0xffffff }));\nflag.position.set(goal.x, goal.y + 2.5, goal.z); scene.add(flag);\nvar cloth = new THREE.Mesh(new THREE.BoxGeometry(2, 1.2, 0.1), new THREE.MeshLambertMaterial({ color: 0xff3366 }));\ncloth.position.set(goal.x + 1.1, goal.y + 4.3, goal.z); scene.add(cloth);\n\n// coins\nvar coins = [];\nsolids.forEach(function(s, i){\n  if(i > 0 && i % 2 === 0){\n    var c = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.15, 20), new THREE.MeshLambertMaterial({ color: 0xffd23f, emissive: 0x665500 }));\n    c.rotation.x = Math.PI / 2; c.position.set(s.x, s.y + s.h / 2 + 1.3, s.z); scene.add(c); coins.push(c);\n  }\n});\n\n// ---------- the player: a blocky Roblox-style character ----------\nfunction makeCharacter(av){\n  av = av || {};\n  var skin = av.skin || '#f2c9a0', shirt = av.shirtColor || '#1e88e5', pants = av.pantsColor || '#37474f', shoes = av.shoes || '#212121', hair = av.hairColor || '#3b2415';\n  function box(w, h, d, col, x, y, z){ var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: col })); m.position.set(x, y, z); m.castShadow = true; return m; }\n  var g = new THREE.Group();\n  g.add(box(1, 1, 1, skin, 0, 3.0, 0));                         // head\n  var hairTop = box(1.06, 0.3, 1.06, hair, 0, 3.58, 0); g.add(hairTop);\n  g.add(box(0.14, 0.14, 0.05, 0x111111, -0.22, 3.1, 0.52)); g.add(box(0.14, 0.14, 0.05, 0x111111, 0.22, 3.1, 0.52));\n  g.add(box(1.5, 1.6, 0.8, shirt, 0, 1.7, 0));                  // torso\n  var armL = new THREE.Group(), armR = new THREE.Group(), legL = new THREE.Group(), legR = new THREE.Group();\n  armL.position.set(-1.0, 2.4, 0); armR.position.set(1.0, 2.4, 0); legL.position.set(-0.38, 0.95, 0); legR.position.set(0.38, 0.95, 0);\n  armL.add(box(0.5, 1.5, 0.5, skin, 0, -0.65, 0)); armR.add(box(0.5, 1.5, 0.5, skin, 0, -0.65, 0));\n  legL.add(box(0.7, 1.0, 0.7, pants, 0, -0.5, 0)); legR.add(box(0.7, 1.0, 0.7, pants, 0, -0.5, 0));\n  legL.add(box(0.74, 0.3, 0.8, shoes, 0, -0.9, 0.05)); legR.add(box(0.74, 0.3, 0.8, shoes, 0, -0.9, 0.05));\n  g.add(armL, armR, legL, legR);\n  g.userData = { armL: armL, armR: armR, legL: legL, legR: legR };\n  g.scale.setScalar(0.62);\n  return g;\n}\nvar avatar = (window.Zyntra && Zyntra.avatar) ? Zyntra.avatar : null;   // the player's own outfit, when published on Zyntra\nvar hero = makeCharacter(avatar); scene.add(hero);\n\n// ---------- state ----------\nvar HALF = 0.4, HEIGHT = 1.9;                                   // player's collision box\nvar p = { x: 0, y: 1, z: 0, vx: 0, vy: 0, vz: 0, grounded: false, face: 0 };\nvar spawn = { x: 0, y: 1, z: 0 };\nvar camYaw = 0, camPitch = 0.38, camDist = 11;\nvar playing = false, t0 = 0, got = 0, won = false, walk = 0;\nvar best = +(localStorage.getItem('skyobby-best') || 0);\nfunction hud(){\n  document.getElementById('coins').textContent = '\ud83e\ude99 ' + got + ' / ' + coins.length;\n  document.getElementById('time').textContent = '\u23f1 ' + (playing ? ((performance.now() - t0) / 1000).toFixed(1) : '0.0') + 's';\n  document.getElementById('best').textContent = best ? '\ud83c\udfc6 ' + best.toFixed(1) + 's' : '';\n}\n\n// ---------- input: keyboard, touch joystick, drag to look ----------\nvar keys = {}, joy = { x: 0, y: 0 }, jumpQueued = false;\naddEventListener('keydown', function(e){ keys[e.code] = true; if(e.code === 'Space'){ jumpQueued = true; e.preventDefault(); } });\naddEventListener('keyup', function(e){ keys[e.code] = false; });\nvar isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;\nif(isTouch){\n  document.getElementById('joy').style.display = 'block'; document.getElementById('jump').style.display = 'block';\n  document.getElementById('help').textContent = 'Left stick to move \u00b7 JUMP button \u00b7 drag the right side to look';\n}\nvar joyEl = document.getElementById('joy'), knob = document.getElementById('knob'), joyId = null;\nfunction joyMove(t){\n  var r = joyEl.getBoundingClientRect(), dx = t.clientX - (r.left + 60), dy = t.clientY - (r.top + 60), len = Math.min(50, Math.hypot(dx, dy)), a = Math.atan2(dy, dx);\n  joy.x = Math.cos(a) * len / 50; joy.y = Math.sin(a) * len / 50;\n  knob.style.left = (35 + Math.cos(a) * len) + 'px'; knob.style.top = (35 + Math.sin(a) * len) + 'px';\n}\njoyEl.addEventListener('touchstart', function(e){ joyId = e.changedTouches[0].identifier; joyMove(e.changedTouches[0]); e.preventDefault(); }, { passive: false });\njoyEl.addEventListener('touchmove', function(e){ for(var i = 0; i < e.changedTouches.length; i++) if(e.changedTouches[i].identifier === joyId) joyMove(e.changedTouches[i]); e.preventDefault(); }, { passive: false });\nfunction joyEnd(e){ for(var i = 0; i < e.changedTouches.length; i++) if(e.changedTouches[i].identifier === joyId){ joyId = null; joy.x = joy.y = 0; knob.style.left = '35px'; knob.style.top = '35px'; } }\njoyEl.addEventListener('touchend', joyEnd); joyEl.addEventListener('touchcancel', joyEnd);\ndocument.getElementById('jump').addEventListener('touchstart', function(e){ jumpQueued = true; e.preventDefault(); }, { passive: false });\ndocument.getElementById('jump').addEventListener('mousedown', function(){ jumpQueued = true; });\nvar look = null;\nrenderer.domElement.addEventListener('pointerdown', function(e){ look = { x: e.clientX, y: e.clientY }; });\naddEventListener('pointerup', function(){ look = null; });\naddEventListener('pointermove', function(e){\n  if(!look) return;\n  camYaw -= (e.clientX - look.x) * 0.006; camPitch = Math.max(0.05, Math.min(1.3, camPitch + (e.clientY - look.y) * 0.004));\n  look = { x: e.clientX, y: e.clientY };\n});\nrenderer.domElement.addEventListener('wheel', function(e){ camDist = Math.max(5, Math.min(22, camDist + e.deltaY * 0.01)); }, { passive: true });\n\n// ---------- physics: move one axis at a time and push out of boxes ----------\nfunction overlaps(s){\n  return Math.abs(p.x - s.x) < HALF + s.w / 2 && Math.abs(p.z - s.z) < HALF + s.d / 2 && p.y < s.y + s.h / 2 && p.y + HEIGHT > s.y - s.h / 2;\n}\nfunction respawn(){ p.x = spawn.x; p.y = spawn.y + 1; p.z = spawn.z; p.vx = p.vy = p.vz = 0; }\nfunction step(dt){\n  // movement relative to the camera\n  var ix = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + joy.x;\n  var iz = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0) + joy.y;\n  var len = Math.hypot(ix, iz); if(len > 1){ ix /= len; iz /= len; }\n  var sin = Math.sin(camYaw), cos = Math.cos(camYaw), speed = 11;\n  var wx = (ix * cos + iz * sin) * speed, wz = (-ix * sin + iz * cos) * speed;\n  p.vx += (wx - p.vx) * Math.min(1, dt * 12); p.vz += (wz - p.vz) * Math.min(1, dt * 12);\n  if(Math.hypot(wx, wz) > 0.5) p.face = Math.atan2(wx, wz);\n  if(jumpQueued && p.grounded){ p.vy = 15; p.grounded = false; }\n  jumpQueued = false;\n  p.vy -= 38 * dt;\n  // platforms that slide carry the player\n  solids.forEach(function(s){\n    if(s.moving){ var nx = s.base.x + Math.sin(performance.now() / 1000 + s.phase) * 6, dx = nx - s.x; if(p.grounded && p.ride === s) p.x += dx; s.x = nx; s.mesh.position.x = nx; }\n  });\n  p.x += p.vx * dt; solids.forEach(function(s){ if(overlaps(s)){ p.x = p.vx > 0 ? s.x - s.w / 2 - HALF : s.x + s.w / 2 + HALF; p.vx = 0; } });\n  p.z += p.vz * dt; solids.forEach(function(s){ if(overlaps(s)){ p.z = p.vz > 0 ? s.z - s.d / 2 - HALF : s.z + s.d / 2 + HALF; p.vz = 0; } });\n  p.y += p.vy * dt; p.grounded = false; p.ride = null;\n  solids.forEach(function(s){\n    if(overlaps(s)){\n      if(p.vy <= 0){ p.y = s.y + s.h / 2; p.grounded = true; p.ride = s; } else { p.y = s.y - s.h / 2 - HEIGHT; }\n      p.vy = 0;\n    }\n  });\n  if(p.y < -25) respawn();\n  // checkpoint + coins + goal\n  if(checkpoint && Math.hypot(p.x - checkpoint.x, p.z - checkpoint.z) < 3 && Math.abs(p.y - checkpoint.y) < 3) spawn = checkpoint;\n  coins.forEach(function(c){\n    if(c.visible){ c.rotation.z += dt * 3; if(Math.hypot(p.x - c.position.x, p.z - c.position.z) < 1.1 && Math.abs(p.y + 1 - c.position.y) < 1.8){ c.visible = false; got++; } }\n  });\n  if(!won && Math.hypot(p.x - goal.x, p.z - goal.z) < 2.5 && Math.abs(p.y - goal.y) < 3) win();\n}\nfunction win(){\n  won = true; playing = false;\n  var t = (performance.now() - t0) / 1000;\n  if(!best || t < best){ best = t; localStorage.setItem('skyobby-best', String(t)); }\n  var m = document.getElementById('menu');\n  m.querySelector('h1').textContent = '\ud83c\udf89 You made it!';\n  m.querySelectorAll('p')[0].textContent = 'Time: ' + t.toFixed(1) + 's \u00b7 Coins: ' + got + ' / ' + coins.length;\n  m.querySelectorAll('p')[1].textContent = best === t ? 'New best time!' : 'Best: ' + best.toFixed(1) + 's';\n  document.getElementById('play').textContent = '\u21bb Play again';\n  m.style.display = 'flex';\n}\nfunction reset(){\n  coins.forEach(function(c){ c.visible = true; }); got = 0; won = false; spawn = { x: 0, y: 1, z: 0 }; respawn();\n  t0 = performance.now(); playing = true;\n}\ndocument.getElementById('play').addEventListener('click', function(){ document.getElementById('menu').style.display = 'none'; reset(); });\n\n// ---------- loop ----------\nvar last = performance.now();\nfunction frame(now){\n  requestAnimationFrame(frame);\n  var dt = Math.min(0.05, (now - last) / 1000); last = now;\n  if(playing) step(dt);\n  hero.position.set(p.x, p.y, p.z);\n  hero.rotation.y += (((p.face - hero.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * Math.min(1, dt * 14);\n  var moving = Math.hypot(p.vx, p.vz) > 1 && p.grounded;\n  walk += dt * (moving ? 11 : 0);\n  var u = hero.userData, sw = moving ? Math.sin(walk) * 0.9 : 0;\n  u.legL.rotation.x = sw; u.legR.rotation.x = -sw; u.armL.rotation.x = -sw; u.armR.rotation.x = sw;\n  if(!p.grounded){ u.armL.rotation.x = u.armR.rotation.x = -2.4; }\n  var cx = p.x + Math.sin(camYaw) * Math.cos(camPitch) * camDist, cy = p.y + 2 + Math.sin(camPitch) * camDist, cz = p.z + Math.cos(camYaw) * Math.cos(camPitch) * camDist;\n  camera.position.x += (cx - camera.position.x) * Math.min(1, dt * 8); camera.position.y += (cy - camera.position.y) * Math.min(1, dt * 8); camera.position.z += (cz - camera.position.z) * Math.min(1, dt * 8);\n  camera.lookAt(p.x, p.y + 1.6, p.z);\n  sun.position.set(p.x + 30, p.y + 60, p.z + 20); sun.target.position.set(p.x, p.y, p.z);\n  cloth.rotation.y = Math.sin(now / 300) * 0.3;\n  hud();\n  renderer.render(scene, camera);\n}\naddEventListener('resize', function(){ renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });\ncamera.position.set(0, 8, 12);\nrequestAnimationFrame(frame);\n})();\n</script>\n</body>\n</html>\n";
+
+const CODEX_3D_TEMPLATE_NOTE = `
+
+START FROM THIS WORKING 3D TEMPLATE (a complete obby that already runs correctly: Three.js scene, blocky character with walking animation, third-person camera, keyboard + touch controls, gravity, jumping, box collisions, moving platforms, coins, checkpoint, goal, HUD, win screen, best time). Keep its physics, camera, controls and character code, and change the world, theme, title, colours, rules, enemies, levels and mechanics to fit what the user asked for — make it clearly THEIR game, not a copy of this one. Add more features on top (more levels, hazards, power-ups, a wardrobe for the character…). Return the complete edited HTML file.
+` + "```html\n" + THREE_TEMPLATE + "\n```";
+
+// does this request call for a 3D game? (3D by default for real "worlds"; 2D for flat classics)
+function wants3D(text){
+    const t = (text || "").toLowerCase();
+    if(/\b2\s?-?d\b|top-?down|side-?scroll|pixel art|\bflat\b/.test(t)) return false;
+    if(/\b3\s?-?d\b|three\.?js|roblox|minecraft|voxel|first[- ]person|third[- ]person|open[- ]world|\bfps\b/.test(t)) return true;
+    const flat = /\b(snake|tetris|pong|2048|tic[- ]?tac[- ]?toe|chess|checkers|sudoku|wordle|hangman|quiz|trivia|flashcard|memory (match|game)|card game|solitaire|crossword|clicker|calculator|todo|to-do|landing page|portfolio|website|dashboard|tracker|planner)\b/.test(t);
+    if(flat) return false;
+    return /\b(game|obby|parkour|race|racing|adventure|shooter|runner|simulator|tycoon|survival|escape room|battle|fighting|explore|zombie|dragon|robot|space|city|island|jungle|castle|dungeon|kart|car|plane|fly|drive)\b/.test(t);
+}
+
+function codexRuntimeNote(lastUserText, hasThreeCode){
     let note = CODEX_PLATFORM_NOTE;
+    const three = hasThreeCode || wants3D(lastUserText);
+    if(three) note += CODEX_3D_RULES;
+    if(wants3D(lastUserText) && !hasThreeCode) note += CODEX_3D_TEMPLATE_NOTE;
     const pub = publishedForSession();
     if(pub){
         note += `
@@ -1170,6 +1269,19 @@ THIS CHAT'S ${pub.kind === "game" ? "GAME" : "APP"} IS ALREADY PUBLISHED: "${pub
     return note;
 }
 
+// Returns the messages to send: the stored chat plus a fresh runtime note
+// right after the leading system message(s). The stored chat isn't changed.
+function withCodexRuntime(history){
+    let lastUser = "";
+    for(let i = history.length - 1; i >= 0; i--){ if(history[i].role === "user"){ lastUser = String(history[i].content || ""); break; } }
+    const hasThree = history.some(m => m.role === "assistant" && /THREE\.WebGLRenderer|three\.min\.js/.test(String(m.content || "")));
+    const note = { role: "system", content: codexRuntimeNote(lastUser, hasThree) };
+    let i = 0;
+    while(i < history.length && history[i].role === "system") i++;
+    return history.slice(0, i).concat([note], history.slice(i));
+}
+function codexContextNote(){ return ""; }
+
 // ---------- router (called from script.js) ----------
 function route(slug, sub){
     if(slug === "play" && sub){ openGamePage(sub); return true; }
@@ -1177,7 +1289,7 @@ function route(slug, sub){
     return false;
 }
 
-Object.assign(Z, { startPublish, previewDoc, openInNewTab, codexContextNote, refreshPublishButton, route, openDashboard, openGamePage, openAvatarModal, publishedForSession, hookDiscover, openDiscover, startCreating, openDetailsModal });
+Object.assign(Z, { startPublish, previewDoc, openInNewTab, codexContextNote, withCodexRuntime, wants3D, codexRuntimeNote, refreshPublishButton, route, openDashboard, openGamePage, openAvatarModal, publishedForSession, hookDiscover, openDiscover, startCreating, openDetailsModal });
 
 // wire up once the page is ready
 hookDiscover();
