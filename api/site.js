@@ -87,4 +87,3 @@ export default async function handler(req, res) {
     return res.status(500).send('Something went wrong loading this page.');
   }
 }
-
