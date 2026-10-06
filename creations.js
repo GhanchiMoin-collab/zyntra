@@ -345,11 +345,16 @@ function run(cfg){
     ".zg-menu{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:radial-gradient(circle at 50% 40%,rgba(255,255,255,.12),rgba(10,20,60,.72));color:#fff;text-align:center;padding:20px}" +
     ".zg-menu h1{margin:0;font-size:clamp(34px,7vw,58px);text-shadow:0 5px 0 rgba(0,0,0,.3);letter-spacing:.02em}.zg-menu p{margin:0;max-width:440px;font-size:17px;line-height:1.4}" +
     ".zg-menu button{margin-top:6px;padding:14px 46px;border:0;border-radius:18px;background:linear-gradient(#4ade80,#22c55e);color:#052e16;font:700 24px system-ui;cursor:pointer;box-shadow:0 6px 0 #15803d}.zg-menu button:active{transform:translateY(3px);box-shadow:0 3px 0 #15803d}" +
-    ".zg-big{font-size:46px}";
+    ".zg-big{font-size:46px}" +
+    ".zg-arrow{position:fixed;left:50%;top:58px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;color:#fff;font-weight:700;font-size:13px;pointer-events:none;text-shadow:0 2px 0 rgba(0,0,0,.4);opacity:.95}" +
+    ".zg-arrow i{display:block;font-style:normal;font-size:30px;line-height:30px;transition:transform .08s linear;filter:drop-shadow(0 2px 0 rgba(0,0,0,.35))}" +
+    ".zg-lock{position:fixed;right:14px;top:58px;color:#fff;font-size:12px;font-weight:700;background:rgba(15,20,50,.6);padding:4px 10px;border-radius:99px;display:none}";
   document.head.appendChild(css);
   var hud = document.createElement('div'); hud.className = 'zg-hud';
-  hud.innerHTML = '<span class="zg-pill" id="zg-coins"></span><span class="zg-pill" id="zg-lives"></span><span class="zg-pill" id="zg-level"></span><span class="zg-pill" id="zg-time" style="display:none"></span><span class="zg-spacer"></span><button class="zg-pill zg-mute" id="zg-mute">🔊</button>';
+  hud.innerHTML = '<span class="zg-pill" id="zg-coins"></span><span class="zg-pill" id="zg-lives"></span><span class="zg-pill" id="zg-level"></span><span class="zg-pill" id="zg-time" style="display:none"></span><span class="zg-pill" id="zg-buffs" style="display:none"></span><span class="zg-spacer"></span><button class="zg-pill zg-mute" id="zg-mute">🔊</button>';
   document.body.appendChild(hud);
+  var arrowEl = document.createElement('div'); arrowEl.className = 'zg-arrow'; arrowEl.innerHTML = '<i>➤</i><span></span>'; arrowEl.style.display = 'none'; document.body.appendChild(arrowEl);
+  var lockEl = document.createElement('div'); lockEl.className = 'zg-lock'; lockEl.textContent = '🔒 Shift-lock on'; document.body.appendChild(lockEl);
   var toastEl = document.createElement('div'); toastEl.className = 'zg-toast'; document.body.appendChild(toastEl);
   var joyEl = document.createElement('div'); joyEl.className = 'zg-joy'; joyEl.innerHTML = '<div class="zg-knob"></div>'; document.body.appendChild(joyEl);
   var jumpEl = document.createElement('button'); jumpEl.className = 'zg-jump'; jumpEl.textContent = 'JUMP'; document.body.appendChild(jumpEl);
@@ -383,6 +388,7 @@ function run(cfg){
   scene.add(sun); scene.add(sun.target);
 
   var palette = theme.accents, palI = 0;
+  var camera0 = camera;
   function nextColor(){ return palette[(palI++) % palette.length]; }
 
   // ----- level state -----
@@ -391,12 +397,14 @@ function run(cfg){
   var playing = false, tStart = 0, levelTime = 0, timeLimit = cfg.time || 0, won = false;
   var hero, heroParts, p = { x: 0, y: 2, z: 0, vx: 0, vy: 0, vz: 0, grounded: false, face: 0, jumps: 0, invul: 0, ride: null };
   var HALF = 0.42, HEIGHT = 1.9, GRAV = 40, JUMP_V = 15.5, MAXJ = cfg.doubleJump ? 2 : 1, SPEED = cfg.speed || 11;
-  var particles = [];
+  var particles = [], spinners = [], signs = [], powerups = [], buff = { speed: 0, jump: 0, shield: false }, goalNeed = 0, lockToast = 0;
+  var autoCamera = cfg.autoCamera !== false, shiftLock = false, camShake = 0, squash = 0, dustT = 0;
 
   function newLevelGroup(){
     if(levelGroup) scene.remove(levelGroup);
     levelGroup = new THREE.Group(); scene.add(levelGroup);
     solids = []; coins = []; enemies = []; hazards = []; checkpoints = []; updaters = []; decor = []; goalObj = null; palI = 0;
+    spinners = []; signs = []; powerups = []; goalNeed = 0; buff.speed = 0; buff.jump = 0; buff.shield = false;
   }
 
   function mat(c){ return new THREE.MeshLambertMaterial({ color: c, flatShading: true }); }
@@ -411,7 +419,7 @@ function run(cfg){
     for(var i = 0; i < solids.length; i++){
       var s = solids[i];
       if(s.kind === 'wall' && false) continue;
-      if(Math.abs(x - s.x) <= s.w / 2 && Math.abs(z - s.z) <= s.d / 2){
+      if(!s.off && Math.abs(x - s.x) <= s.w / 2 && Math.abs(z - s.z) <= s.d / 2){
         var top = s.y + s.h / 2;
         if(maxY != null && top > maxY) continue;
         if(best === null || top > best) best = top;
@@ -429,8 +437,9 @@ function run(cfg){
       o = o || {}; var h = o.h || 1.2, col = toColor(o.color, nextColor());
       var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(col));
       m.position.set(x, top - h / 2, z); m.castShadow = true; m.receiveShadow = true; outline(m); levelGroup.add(m);
-      var s = { mesh: m, x: x, y: top - h / 2, z: z, w: w, h: h, d: d, base: { x: x, y: top - h / 2, z: z }, move: o.moving || null, phase: Math.random() * 6, ice: !!o.ice, bounce: !!o.bounce, kind: 'platform' };
+      var s = { mesh: m, x: x, y: top - h / 2, z: z, w: w, h: h, d: d, base: { x: x, y: top - h / 2, z: z }, move: o.moving || null, phase: Math.random() * 6, ice: !!o.ice, bounce: !!o.bounce, crumble: !!o.crumble, timer: 0, off: false, fallT: 0, kind: 'platform' };
       if(o.bounce){ m.material = mat(0xffe14d); }
+      if(o.crumble){ m.material = mat(0xd9a066); }
       solids.push(s); return s;
     },
     // ground(size, {color}) — a big floor with its top at height 0
@@ -487,6 +496,44 @@ function run(cfg){
       m.position.set(x, by, z); levelGroup.add(m);
       hazards.push({ x: x, y: by, z: z, w: w, d: d, h: 0.5, mesh: m, t: Math.random() * 6 });
     },
+    // water(x, z, w, d) — falling in costs a life
+    water: function(x, z, w, d){
+      var m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.6, d), new THREE.MeshLambertMaterial({ color: 0x29b6f6, transparent: true, opacity: 0.78, emissive: 0x0a4a7a }));
+      m.position.set(x, 0.1, z); levelGroup.add(m);
+      hazards.push({ x: x, y: 0.1, z: z, w: w, d: d, h: 0.6, mesh: m, t: Math.random() * 6, msg: 'You fell in the water!' });
+    },
+    // spinner(x, z, length, speed) — a spinning bar to jump over
+    spinner: function(x, z, len, speed, y){
+      len = len || 9; var by = (y != null ? y : surfaceY(x, z));
+      var grp = new THREE.Group();
+      var bar = new THREE.Mesh(new THREE.BoxGeometry(len, 0.7, 0.7), mat(0xff4d6d)); bar.position.y = 0.55; bar.castShadow = true; grp.add(bar);
+      var hub = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 1.1, 12), mat(0x37474f)); hub.position.y = 0.55; grp.add(hub);
+      grp.position.set(x, by, z); levelGroup.add(grp);
+      spinners.push({ grp: grp, x: x, y: by, z: z, len: len, speed: speed || 2, a: Math.random() * 6 });
+    },
+    // powerup(x, z, 'speed'|'jump'|'shield'|'life')
+    powerup: function(x, z, type){
+      type = type || 'speed'; var by = surfaceY(x, z) + 1.5;
+      var col = { speed: 0x22d3ee, jump: 0xa3e635, shield: 0xa78bfa, life: 0xff4d6d }[type] || 0x22d3ee;
+      var m = new THREE.Mesh(new THREE.OctahedronGeometry(0.75), new THREE.MeshLambertMaterial({ color: col, emissive: col, emissiveIntensity: 0.35 }));
+      m.position.set(x, by, z); m.castShadow = true; levelGroup.add(m);
+      powerups.push({ mesh: m, x: x, y: by, z: z, type: type, got: false });
+    },
+    // sign(x, z, 'text') — shows a message when you walk up to it
+    sign: function(x, z, text){
+      var y = surfaceY(x, z), grp = new THREE.Group();
+      var post = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.6, 0.25), mat(0x8b5a2b)); post.position.y = 0.8;
+      var cv = document.createElement('canvas'); cv.width = 256; cv.height = 128; var cx = cv.getContext('2d');
+      cx.fillStyle = '#fff4c2'; cx.fillRect(0, 0, 256, 128); cx.strokeStyle = '#8b5a2b'; cx.lineWidth = 10; cx.strokeRect(5, 5, 246, 118);
+      cx.fillStyle = '#4a2f12'; cx.font = 'bold 24px sans-serif'; cx.textAlign = 'center';
+      var words = String(text).split(' '), line = '', ly = 50, lines = 0;
+      words.forEach(function(w){ if((line + w).length > 17){ cx.fillText(line, 128, ly); ly += 28; line = w + ' '; lines++; } else line += w + ' '; }); cx.fillText(line, 128, ly);
+      var board = new THREE.Mesh(new THREE.BoxGeometry(3, 1.5, 0.15), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv) })); board.position.y = 2.2;
+      grp.add(post, board); grp.position.set(x, y, z); levelGroup.add(grp);
+      signs.push({ x: x, z: z, text: String(text), shown: false });
+    },
+    // lockGoal('all' | n) — the flag stays locked until you have collected that many coins
+    lockGoal: function(n){ goalNeed = n == null ? 'all' : n; },
     // enemy(x, z, {type:'patrol'|'chase', range, speed, color}) — jump on its head to defeat it
     enemy: function(x, z, o){
       o = o || {}; var y = surfaceY(x, z), col = toColor(o.color, 0xef4444);
@@ -579,8 +626,16 @@ function run(cfg){
   }
   hero = makeHero(); scene.add(hero);
 
-  // ----- backdrop: stars / embers -----
+  // ----- backdrop: sky gradient, stars, sun -----
   var backdrop = new THREE.Group(); scene.add(backdrop);
+  (function(){
+    var geo = new THREE.SphereGeometry(330, 24, 16), pos = geo.attributes.position, cols = [];
+    var top = new THREE.Color(theme.sky).multiplyScalar(0.72), hor = new THREE.Color(theme.fog), c = new THREE.Color();
+    for(var vi = 0; vi < pos.count; vi++){ var t = Math.max(0, pos.getY(vi) / 330); c.copy(hor).lerp(top, Math.pow(t, 0.55)); cols.push(c.r, c.g, c.b); }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+    var dome = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+    dome.renderOrder = -10; backdrop.add(dome);
+  })();
   if(theme.stars){
     var sg = new THREE.BufferGeometry(), sp = [];
     for(var si = 0; si < 400; si++){ var a1 = Math.random() * 6.28, a2 = Math.acos(Math.random() * 0.9 + 0.05), r2 = 220; sp.push(Math.cos(a1) * Math.sin(a2) * r2, Math.cos(a2) * r2, Math.sin(a1) * Math.sin(a2) * r2); }
@@ -610,6 +665,8 @@ function run(cfg){
   function paintHud(){
     document.getElementById('zg-coins').textContent = '🪙 ' + coinsGot + (coinsTotal ? ' / ' + coinsTotal : '') + (score ? '  ·  ⭐ ' + score : '');
     document.getElementById('zg-lives').textContent = maxLives ? '❤️'.repeat(Math.max(0, lives)) + '🖤'.repeat(Math.max(0, maxLives - lives)) : '';
+    var be = document.getElementById('zg-buffs'), bt = (buff.speed > 0 ? '⚡ ' + Math.ceil(buff.speed) + 's ' : '') + (buff.jump > 0 ? '🦘 ' + Math.ceil(buff.jump) + 's ' : '') + (buff.shield ? '🛡️' : '');
+    be.style.display = bt ? '' : 'none'; be.textContent = bt;
     var te = document.getElementById('zg-time');
     if(timeLimit){ te.style.display = ''; te.textContent = '⏱ ' + Math.max(0, Math.ceil(timeLimit - levelTime)) + 's'; }
     else if(playing){ te.style.display = ''; te.textContent = '⏱ ' + levelTime.toFixed(1) + 's'; }
@@ -640,41 +697,77 @@ function run(cfg){
   joyEl.addEventListener('touchend', joyEnd); joyEl.addEventListener('touchcancel', joyEnd);
   jumpEl.addEventListener('touchstart', function(e){ jumpQueued = true; e.preventDefault(); }, { passive: false });
   jumpEl.addEventListener('mousedown', function(){ jumpQueued = true; });
-  var camYaw = 0, camPitch = 0.4, camDist = 12, look = null;
-  renderer.domElement.addEventListener('pointerdown', function(e){ look = { x: e.clientX, y: e.clientY }; });
+  var camYaw = 0, camYawT = 0, camPitch = 0.4, camDist = cfg.cameraDistance || 12, camDistCur = camDist, look = null, lastLook = -9999, pinch = null;
+  var dom = renderer.domElement;
+  dom.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+  dom.addEventListener('pointerdown', function(e){ look = { x: e.clientX, y: e.clientY, id: e.pointerId }; lastLook = performance.now(); });
   addEventListener('pointerup', function(){ look = null; });
-  addEventListener('pointermove', function(e){ if(!look) return; camYaw -= (e.clientX - look.x) * 0.006; camPitch = Math.max(0.05, Math.min(1.3, camPitch + (e.clientY - look.y) * 0.004)); look = { x: e.clientX, y: e.clientY }; });
-  renderer.domElement.addEventListener('wheel', function(e){ camDist = Math.max(6, Math.min(24, camDist + e.deltaY * 0.01)); }, { passive: true });
+  addEventListener('pointermove', function(e){
+    if(!shiftLock && !look) return;
+    var dx, dy;
+    if(shiftLock && document.pointerLockElement === dom){ dx = e.movementX; dy = e.movementY; }
+    else if(look){ if(pinch) return; dx = e.clientX - look.x; dy = e.clientY - look.y; look.x = e.clientX; look.y = e.clientY; }
+    else return;
+    camYawT -= dx * 0.006; camYaw = camYawT; camPitch = Math.max(0.02, Math.min(1.35, camPitch + dy * 0.004)); lastLook = performance.now();
+  });
+  dom.addEventListener('wheel', function(e){ camDist = Math.max(4, Math.min(26, camDist + e.deltaY * 0.012)); }, { passive: true });
+  // two-finger pinch to zoom (phones)
+  dom.addEventListener('touchstart', function(e){ if(e.touches.length === 2){ pinch = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); look = null; } }, { passive: true });
+  dom.addEventListener('touchmove', function(e){
+    if(pinch && e.touches.length === 2){ var d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); camDist = Math.max(4, Math.min(26, camDist - (d - pinch) * 0.05)); pinch = d; }
+  }, { passive: true });
+  dom.addEventListener('touchend', function(e){ if(e.touches.length < 2) pinch = null; }, { passive: true });
+  // Q / E turn the camera, Shift toggles "shift lock" (mouse steers, the hero faces forward) like Roblox
+  addEventListener('keydown', function(e){
+    if(e.code === 'ShiftLeft' || e.code === 'ShiftRight'){
+      shiftLock = !shiftLock; lockEl.style.display = shiftLock ? 'block' : 'none';
+      try{ if(shiftLock) dom.requestPointerLock(); else if(document.exitPointerLock) document.exitPointerLock(); }catch(err){}
+    }
+  });
 
   // ----- physics -----
   function overlaps(s){
+    if(s.off) return false;
     return Math.abs(p.x - s.x) < HALF + s.w / 2 && Math.abs(p.z - s.z) < HALF + s.d / 2 && p.y < s.y + s.h / 2 && p.y + HEIGHT > s.y - s.h / 2;
   }
   function hurt(why){
     if(p.invul > 0 || !playing) return;
+    if(buff.shield){ buff.shield = false; p.invul = 1.4; SFX.check(); toast('Shield saved you! 🛡️'); paintHud(); return; }
+    camShake = 0.5;
     lives--; SFX.hurt(); flashHud(); paintHud();
     if(maxLives && lives <= 0){ gameOver(why); return; }
     respawn(false);
   }
   function step(dt){
+    var wasG = p.grounded;
     levelTime = (performance.now() - tStart) / 1000;
+    if(buff.speed > 0) buff.speed -= dt; if(buff.jump > 0) buff.jump -= dt;
     if(timeLimit && levelTime >= timeLimit){ gameOver("Time's up!"); return; }
     if(p.invul > 0) p.invul -= dt;
     var ix = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + joy.x;
     var iz = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0) + joy.y;
+    if(keys.KeyQ) camYawT += 2.2 * dt; if(keys.KeyE) camYawT -= 2.2 * dt;
     var len = Math.hypot(ix, iz); if(len > 1){ ix /= len; iz /= len; }
-    var sin = Math.sin(camYaw), cos = Math.cos(camYaw);
-    var wx = (ix * cos + iz * sin) * SPEED, wz = (-ix * sin + iz * cos) * SPEED;
+    p.inx = ix; p.inz = iz;
+    var sin = Math.sin(camYaw), cos = Math.cos(camYaw), spd = SPEED * (buff.speed > 0 ? 1.55 : 1);
+    var wx = (ix * cos + iz * sin) * spd, wz = (-ix * sin + iz * cos) * spd;
     var slide = p.ride && p.ride.ice ? 1.5 : 12;
     p.vx += (wx - p.vx) * Math.min(1, dt * slide); p.vz += (wz - p.vz) * Math.min(1, dt * slide);
-    if(Math.hypot(wx, wz) > 0.5) p.face = Math.atan2(wx, wz);
-    if(jumpQueued && (p.grounded || p.jumps < MAXJ)){ p.vy = JUMP_V; p.jumps = p.grounded ? 1 : p.jumps + 1; p.grounded = false; SFX.jump(); }
+    if(shiftLock){ p.face = camYaw + Math.PI; }
+    else if(Math.hypot(wx, wz) > 0.5) p.face = Math.atan2(wx, wz);
+    if(jumpQueued && (p.grounded || p.jumps < MAXJ)){ p.vy = JUMP_V * (buff.jump > 0 ? 1.32 : 1); p.jumps = p.grounded ? 1 : p.jumps + 1; p.grounded = false; SFX.jump(); squash = -1; burst(p.x, p.y + 0.1, p.z, 0xffffff, 4); }
     jumpQueued = false;
     p.vy -= GRAV * dt;
     // moving platforms (and carry the rider)
     var now = performance.now() / 1000;
     for(var i = 0; i < solids.length; i++){
       var s = solids[i];
+      if(s.crumble){
+        if(!s.off && p.ride === s && !s.timer) s.timer = 0.75;
+        if(s.timer > 0 && !s.off){ s.timer -= dt; s.mesh.position.x = s.x + (Math.random() - 0.5) * 0.12; if(s.timer <= 0){ s.off = true; s.fallT = 0; s.timer = 0; } }
+        if(s.off){ s.fallT += dt; s.mesh.position.y = s.y - 14 * s.fallT * s.fallT; if(s.fallT > 1.6) s.mesh.visible = false; if(s.fallT > 4){ s.off = false; s.mesh.visible = true; s.mesh.position.set(s.x, s.y, s.z); } }
+        continue;
+      }
       if(s.move){
         var off = Math.sin(now * (s.move.speed || 1) + s.phase) * (s.move.range || 5), ax = s.move.axis || 'x';
         var nx = s.base.x + (ax === 'x' ? off : 0), ny = s.base.y + (ax === 'y' ? off : 0), nz = s.base.z + (ax === 'z' ? off : 0);
@@ -684,6 +777,7 @@ function run(cfg){
     }
     p.x += p.vx * dt; for(i = 0; i < solids.length; i++){ s = solids[i]; if(overlaps(s)){ p.x = p.vx > 0 ? s.x - s.w / 2 - HALF : s.x + s.w / 2 + HALF; p.vx = 0; } }
     p.z += p.vz * dt; for(i = 0; i < solids.length; i++){ s = solids[i]; if(overlaps(s)){ p.z = p.vz > 0 ? s.z - s.d / 2 - HALF : s.z + s.d / 2 + HALF; p.vz = 0; } }
+    var preVy = p.vy;
     p.y += p.vy * dt; p.grounded = false; p.ride = null;
     for(i = 0; i < solids.length; i++){
       s = solids[i];
@@ -693,11 +787,13 @@ function run(cfg){
         p.vy = 0;
       }
     }
+    if(!wasG && p.grounded && preVy < -9){ squash = 1; camShake = Math.min(0.35, -preVy * 0.012); burst(p.x, p.y + 0.1, p.z, 0xffffff, 6); }
+    if(p.grounded && Math.hypot(p.vx, p.vz) > 4){ dustT -= dt; if(dustT <= 0){ dustT = 0.16; burst(p.x, p.y + 0.1, p.z, 0xffffff, 1); } }
     if(p.y < -30) hurt('You fell!');
     // hazards
     for(i = 0; i < hazards.length; i++){
       var h = hazards[i]; h.t += dt; h.mesh.material.emissiveIntensity = 0.7 + Math.sin(h.t * 4) * 0.3;
-      if(Math.abs(p.x - h.x) < HALF + h.w / 2 && Math.abs(p.z - h.z) < HALF + h.d / 2 && p.y < h.y + h.h / 2 && p.y + HEIGHT > h.y - h.h / 2) hurt('You touched lava!');
+      if(Math.abs(p.x - h.x) < HALF + h.w / 2 && Math.abs(p.z - h.z) < HALF + h.d / 2 && p.y < h.y + h.h / 2 && p.y + HEIGHT > h.y - h.h / 2) hurt(h.msg || 'You touched lava!');
     }
     // checkpoints
     for(i = 0; i < checkpoints.length; i++){
@@ -732,8 +828,36 @@ function run(cfg){
         else hurt('An enemy got you!');
       }
     }
+    for(i = 0; i < spinners.length; i++){
+      var sp = spinners[i]; sp.a += sp.speed * dt; sp.grp.rotation.y = sp.a;
+      var dx0 = p.x - sp.x, dz0 = p.z - sp.z, ca = Math.cos(sp.a), sa = Math.sin(sp.a), lx = dx0 * ca - dz0 * sa, lz = dx0 * sa + dz0 * ca;
+      if(Math.abs(lx) < sp.len / 2 + HALF && Math.abs(lz) < 0.35 + HALF && p.y < sp.y + 1.2 && p.y + HEIGHT > sp.y + 0.1) hurt('The spinner hit you!');
+    }
+    for(i = 0; i < powerups.length; i++){
+      var pu = powerups[i]; if(pu.got) continue;
+      pu.mesh.rotation.y += dt * 2.5; pu.mesh.position.y = pu.y + Math.sin(now * 3 + i) * 0.2;
+      if(Math.hypot(p.x - pu.x, p.z - pu.z) < 1.4 && Math.abs(p.y + 1 - pu.y) < 2){
+        pu.got = true; pu.mesh.visible = false; SFX.coin(); burst(pu.x, pu.y, pu.z, 0xffffff, 12);
+        if(pu.type === 'speed'){ buff.speed = 8; toast('⚡ Speed boost!'); }
+        else if(pu.type === 'jump'){ buff.jump = 10; toast('🦘 Super jump!'); }
+        else if(pu.type === 'shield'){ buff.shield = true; toast('🛡️ Shield ready!'); }
+        else if(pu.type === 'life'){ lives = Math.min(maxLives + 2, lives + 1); toast('❤️ Extra life!'); }
+        paintHud();
+      }
+    }
+    for(i = 0; i < signs.length; i++){
+      var sg2 = signs[i], dd = Math.hypot(p.x - sg2.x, p.z - sg2.z);
+      if(dd < 3.6 && !sg2.shown){ sg2.shown = true; toast(sg2.text); } else if(dd > 7) sg2.shown = false;
+    }
     for(i = 0; i < updaters.length; i++) updaters[i](dt, p, g);
-    if(goalObj && Math.hypot(p.x - goalObj.x, p.z - goalObj.z) < 2.6 && Math.abs(p.y - goalObj.y) < 3.5) levelDone();
+    if(goalObj){
+      var need = goalNeed === 'all' ? coinsTotal : (goalNeed || 0), open = coinsGot >= need;
+      goalObj.cloth.material.color.setHex(open ? 0xffc400 : 0x8a8f98);
+      if(Math.hypot(p.x - goalObj.x, p.z - goalObj.z) < 2.6 && Math.abs(p.y - goalObj.y) < 3.5){
+        if(open) levelDone();
+        else if(performance.now() - lockToast > 2500){ lockToast = performance.now(); toast('🔒 Collect ' + (need - coinsGot) + ' more coin' + (need - coinsGot === 1 ? '' : 's') + ' to open the flag!'); }
+      }
+    }
     paintHud();
   }
 
@@ -782,10 +906,40 @@ function run(cfg){
     var sw = moving ? Math.sin(walk) * 0.9 : 0;
     heroParts.lL.rotation.x = sw; heroParts.lR.rotation.x = -sw; heroParts.aL.rotation.x = -sw; heroParts.aR.rotation.x = sw;
     if(!p.grounded){ heroParts.aL.rotation.x = heroParts.aR.rotation.x = -2.4; }
-    var cx = p.x + Math.sin(camYaw) * Math.cos(camPitch) * camDist, cy = p.y + 2 + Math.sin(camPitch) * camDist, cz = p.z + Math.cos(camYaw) * Math.cos(camPitch) * camDist;
-    var k = Math.min(1, dt * 8);
-    camera.position.x += (cx - camera.position.x) * k; camera.position.y += (cy - camera.position.y) * k; camera.position.z += (cz - camera.position.z) * k;
-    camera.lookAt(p.x, p.y + 1.6, p.z);
+    // ----- Roblox-style camera: follows, swings round as you turn, never goes through walls -----
+    if(autoCamera && playing && !shiftLock && now - lastLook > 1100 && !pinch) camYawT -= (p.inx || 0) * 1.5 * dt;
+    camYaw += (camYawT - camYaw) * Math.min(1, dt * 9);
+    var fx = p.x, fy = p.y + 2.3, fz = p.z;
+    var dX = Math.sin(camYaw) * Math.cos(camPitch), dY = Math.sin(camPitch), dZ = Math.cos(camYaw) * Math.cos(camPitch);
+    var want = camDist, tHit = 1;
+    for(var si2 = 0; si2 < solids.length; si2++){
+      var so = solids[si2]; if(so.off) continue;
+      var t0 = 0, t1 = 1, ok = true, mn = [so.x - so.w / 2 - 0.35, so.y - so.h / 2 - 0.35, so.z - so.d / 2 - 0.35], mx = [so.x + so.w / 2 + 0.35, so.y + so.h / 2 + 0.35, so.z + so.d / 2 + 0.35], o3 = [fx, fy, fz], d3 = [dX * camDist, dY * camDist, dZ * camDist];
+      for(var ax = 0; ax < 3 && ok; ax++){
+        if(Math.abs(d3[ax]) < 1e-6){ if(o3[ax] < mn[ax] || o3[ax] > mx[ax]) ok = false; }
+        else { var ta = (mn[ax] - o3[ax]) / d3[ax], tb = (mx[ax] - o3[ax]) / d3[ax]; if(ta > tb){ var tt = ta; ta = tb; tb = tt; } t0 = Math.max(t0, ta); t1 = Math.min(t1, tb); if(t0 > t1) ok = false; }
+      }
+      if(ok && t0 > 0.02 && t0 < tHit) tHit = t0;
+    }
+    want = Math.max(2.4, Math.min(camDist, tHit * camDist - 0.3));
+    camDistCur += (want - camDistCur) * Math.min(1, dt * (want < camDistCur ? 18 : 3));
+    var cx = fx + dX * camDistCur, cy = fy + dY * camDistCur, cz = fz + dZ * camDistCur;
+    var k2 = Math.min(1, dt * 12);
+    camera.position.x += (cx - camera.position.x) * k2; camera.position.y += (cy - camera.position.y) * k2; camera.position.z += (cz - camera.position.z) * k2;
+    if(camShake > 0){ camera.position.x += (Math.random() - 0.5) * camShake; camera.position.y += (Math.random() - 0.5) * camShake; camShake = Math.max(0, camShake - dt * 1.6); }
+    var targetFov = 65 + Math.min(9, Math.hypot(p.vx, p.vz) * 0.55);
+    if(Math.abs(camera.fov - targetFov) > 0.05){ camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 5); camera.updateProjectionMatrix(); }
+    camera.lookAt(fx, fy - 0.5, fz);
+    // hero squash + stretch
+    squash += (0 - squash) * Math.min(1, dt * 10);
+    hero.scale.set(0.62 * (1 - squash * 0.12), 0.62 * (1 + squash * 0.16), 0.62 * (1 - squash * 0.12));
+    // compass to the goal
+    if(goalObj && playing){
+      var ddx = goalObj.x - p.x, ddz = goalObj.z - p.z, fwdx = -Math.sin(camYaw), fwdz = -Math.cos(camYaw);
+      var ang = Math.atan2(ddx * (-fwdz) + ddz * fwdx, ddx * fwdx + ddz * fwdz);
+      arrowEl.style.display = 'flex'; arrowEl.firstChild.style.transform = 'rotate(' + (ang * 57.3 - 90) + 'deg)';
+      arrowEl.lastChild.textContent = Math.round(Math.hypot(ddx, ddz)) + ' m' + (goalObj.y - p.y > 2 ? ' ↑' : goalObj.y - p.y < -2 ? ' ↓' : '');
+    } else arrowEl.style.display = 'none';
     sun.position.set(p.x + 30, p.y + 60, p.z + 20); sun.target.position.set(p.x, p.y, p.z);
     backdrop.position.set(camera.position.x, 0, camera.position.z);
     if(goalObj) goalObj.cloth.rotation.y = Math.sin(now / 300) * 0.35;
@@ -1802,6 +1956,8 @@ g.coin(x,z)  g.coinRow(x,z,count,dx,dz)  g.coins([[x,z],[x,z]])  — coins rest 
 g.checkpoint(x,z)  g.goal(x,z) — the golden flag that finishes the level (put it on a platform, at the end)
 g.lava(x,z,w,d) — costs a life   g.enemy(x,z,{type:'patrol'|'chase', range:6, axis:'x'|'z', speed:3, color}) — jump on its head to defeat it; touching its side hurts
 Decor (always grounded): g.tree(x,z,scale) g.rock(x,z) g.house(x,z,w,d,color) g.flower(x,z) g.cloud(x,y,z) g.scenery(area) (scatters trees + clouds)
+More challenges: g.platform(..., {crumble:true}) falls shortly after you step on it; g.spinner(x,z,length,speed) is a spinning bar to jump over; g.water(x,z,w,d) costs a life; g.powerup(x,z,'speed'|'jump'|'shield'|'life'); g.sign(x,z,'hint text') shows a message when you walk up; g.lockGoal('all') (or a number) keeps the flag locked until that many coins are collected — great for "collect everything" games. Config extras: autoCamera (default true).
+The camera is already Roblox-style (it follows the player, swings round when they turn, zooms in when walls block it, right-drag/Q/E to look, Shift for shift-lock, pinch/scroll to zoom) and a compass arrow points to the flag — do not code any camera.
 Extras: g.onUpdate(function(dt, player, g){ ... }) for custom rules; g.add(threeObject) to add your own THREE meshes; g.addScore(n); g.toast('text'); g.surfaceY(x,z); g.player.{x,y,z}; g.coinsCollected / g.coinsTotal.
 LEVEL DESIGN RULES: the player jumps about 3 units high and about 6 units across — keep platform gaps ≤ 6 and each step up ≤ 2.5. Build a clear path of platforms from spawn to the goal, with coins along the way that guide the player, a checkpoint in the middle of long levels, and a different challenge in each level (moving platforms, lava gaps, patrolling enemies, stairs, bouncy pads, ice). Make levels big enough to be fun (15–40 platforms/objects) and bright (use several colours; the kit picks theme colours for you if you omit them). Add g.scenery() for a lively world.
 Example level: function(g){ g.ground(50); g.spawn(0,8); g.scenery(40); g.platform(0,0,-14,6,6); g.coinRow(0,-14,3,0,2); g.platform(6,1.5,-22,5,5,{moving:{axis:'x',range:5}}); g.lava(0,-18,16,5); g.platform(-5,3,-30,5,5); g.checkpoint(-5,-30); g.enemy(0,2,{axis:'x',range:6}); g.platform(0,4.5,-38,9,9); g.goal(0,-38); }
