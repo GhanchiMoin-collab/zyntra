@@ -2203,7 +2203,9 @@ Rules:
     // model answers first; everyone else tries the faster one first.
     const primaryModelChain = hasImage
       ? ['qwen/qwen3.6-27b']
-      : (features.priority >= 1
+      : ((features.priority >= 1 || website)
+          // building a whole app/game is the hardest thing we ask of the AI,
+          // so builds always start with the strongest model
           ? ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b']
           : ['openai/gpt-oss-20b', 'openai/gpt-oss-120b', 'qwen/qwen3.8-27b']);
     // Images stream too now — the frontend always sends stream:true and
