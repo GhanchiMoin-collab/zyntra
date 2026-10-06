@@ -10764,3 +10764,9 @@ body.light-mode .cr-avatar-pre{ background:linear-gradient(160deg,#eef0ff,#fdf0f
 @media (prefers-reduced-motion:reduce){
     .cr-enter,.cr-row,.cr-hero,.cr-grid,.cr-stats,.cr-mine,.cr-play-btn,.cr-hero-btn{ animation:none !important; }
 }
+
+
+/* Codex preview: "fix it with AI" bar */
+.cr-fixbar{ position:absolute; left:16px; right:16px; bottom:16px; z-index:20; display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:16px; background:rgba(60,20,28,.96); border:1px solid rgba(255,99,120,.5); color:#fff; font-size:13px; box-shadow:0 14px 40px rgba(0,0,0,.5); }
+.cr-fixbar span{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.modal-box.code-preview-box{ position:relative; }
