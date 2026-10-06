@@ -245,6 +245,10 @@ function zyBridgeMain(INIT, avatarFn){
         Object.defineProperty(window, "localStorage", { value: makeStorage(true, store), configurable: true });
         Object.defineProperty(window, "sessionStorage", { value: makeStorage(false, {}), configurable: true });
     }catch(e){}
+    var errSent = 0;
+    function reportErr(msg){ if(errSent++ < 3){ try{ parent.postMessage({ zyntra: 1, type: "error", message: String(msg).slice(0, 300) }, "*"); }catch(e){} } }
+    addEventListener("error", function(e){ reportErr((e.message || "Script error") + (e.lineno ? " (line " + e.lineno + ")" : "")); });
+    addEventListener("unhandledrejection", function(e){ reportErr("Promise error: " + (e.reason && e.reason.message || e.reason)); });
     addEventListener("pagehide", flush);
     document.addEventListener("visibilitychange", function(){ if(document.hidden) flush(); });
     addEventListener("message", function(e){ if(e.data && e.data.zyntra && e.data.type === "flush") flush(); });
@@ -267,12 +271,544 @@ function zyBridgeMain(INIT, avatarFn){
     };
 }
 
+// Zyntra Game Kit — a tiny Roblox-style 3D engine on top of Three.js (r128).
+// The AI describes a world with a few friendly calls; the kit supplies the
+// colours, lighting, physics, collisions, character, camera, controls, HUD,
+// lives, levels and win/lose screens — so games are always colourful,
+// grounded and playable. Self-contained: injected as source text.
+function zgKit(){
+"use strict";
+if(window.ZG) return;
+
+var THEMES = {
+  grass:  { sky: 0x8fd3ff, fog: 0xcdeeff, ground: 0x6cd16c, accents: [0xff6b6b, 0xffd93d, 0x6bcbff, 0xc77dff, 0xff9f43], clouds: true },
+  candy:  { sky: 0xffc4ea, fog: 0xffd9f2, ground: 0xffc857, accents: [0xff7ab6, 0x7affc9, 0x7ab6ff, 0xffe27a, 0xc79bff], clouds: true },
+  lava:   { sky: 0x3b1020, fog: 0x4a1a2a, ground: 0x4a3640, accents: [0xff8a3d, 0xffc857, 0xb26bff, 0xf15bb5, 0x00bbf9], embers: true },
+  space:  { sky: 0x080b2e, fog: 0x0d1250, ground: 0x2c3170, accents: [0x00f5d4, 0xfee440, 0xf15bb5, 0x9b5de5, 0x00bbf9], stars: true },
+  ice:    { sky: 0xbfe6ff, fog: 0xdaf3ff, ground: 0xa9e3f5, accents: [0x7fd8ff, 0xffffff, 0xa0c4ff, 0xbdb2ff, 0x9bf6ff], clouds: true },
+  desert: { sky: 0xffd7a0, fog: 0xffe8c8, ground: 0xf2c777, accents: [0xe76f51, 0xf4a261, 0x2a9d8f, 0xe9c46a, 0x5fa8d3], clouds: true },
+  night:  { sky: 0x111b3d, fog: 0x18265a, ground: 0x2f6b43, accents: [0xffd166, 0x06d6a0, 0x118ab2, 0xef476f, 0xc77dff], stars: true },
+  ocean:  { sky: 0x7fdcff, fog: 0xc2f0ff, ground: 0xf0cf7a, accents: [0xff6f61, 0xffd166, 0x06d6a0, 0xffffff, 0x9d4edd], clouds: true }
+};
+
+function toColor(c, fallback){
+  if(c == null) return fallback;
+  if(typeof c === 'number') return c;
+  try{ return new THREE.Color(c).getHex(); }catch(e){ return fallback; }
+}
+
+// ---------- tiny sound effects (WebAudio) ----------
+var actx = null, muted = false;
+function beep(f, d, type, vol, slide){
+  if(muted) return;
+  try{
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    var o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+    o.type = type || 'sine'; o.frequency.setValueAtTime(f, t);
+    if(slide) o.frequency.exponentialRampToValueAtTime(slide, t + d);
+    g.gain.setValueAtTime(vol || 0.12, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + d);
+  }catch(e){}
+}
+var SFX = {
+  coin: function(){ beep(880, 0.09, 'square', 0.08); setTimeout(function(){ beep(1320, 0.12, 'square', 0.08); }, 70); },
+  jump: function(){ beep(300, 0.16, 'sine', 0.12, 640); },
+  hurt: function(){ beep(220, 0.3, 'sawtooth', 0.14, 70); },
+  stomp: function(){ beep(180, 0.12, 'square', 0.12, 420); },
+  win: function(){ [523, 659, 784, 1046].forEach(function(f, i){ setTimeout(function(){ beep(f, 0.18, 'triangle', 0.12); }, i * 130); }); },
+  check: function(){ beep(660, 0.12, 'triangle', 0.1); setTimeout(function(){ beep(990, 0.14, 'triangle', 0.1); }, 90); }
+};
+
+// ---------- the game ----------
+function run(cfg){
+  if(typeof THREE === 'undefined'){ document.body.innerHTML = '<p style="font:18px sans-serif;padding:20px">3D engine failed to load. Check your internet and reload.</p>'; return; }
+  cfg = cfg || {};
+  var theme = THEMES[cfg.theme] || THEMES.grass;
+  var title = String(cfg.title || 'My 3D Game');
+  var maxLives = cfg.lives == null ? 3 : cfg.lives;
+  var levelFns = cfg.levels && cfg.levels.length ? cfg.levels : [cfg.build || function(g){ g.platform(0, 0, 0, 20, 20); g.goal(0, -8); }];
+  var goalText = cfg.goalText || 'Reach the golden flag!';
+  var bestKey = 'zg-best-' + title.replace(/\W+/g, '').toLowerCase();
+  var best = +(localStorage.getItem(bestKey) || 0);
+
+  // ----- DOM -----
+  var css = document.createElement('style');
+  css.textContent = "html,body{margin:0;height:100%;overflow:hidden;background:#000;touch-action:none;user-select:none;-webkit-user-select:none;font-family:'Fredoka','Baloo 2',system-ui,sans-serif}" +
+    "canvas.zg-canvas{display:block;position:fixed;inset:0}" +
+    ".zg-hud{position:fixed;top:10px;left:10px;right:10px;display:flex;gap:8px;flex-wrap:wrap;pointer-events:none;color:#fff;font-weight:700}" +
+    ".zg-pill{background:rgba(15,20,50,.6);padding:6px 14px;border-radius:99px;font-size:16px;box-shadow:0 3px 0 rgba(0,0,0,.25);backdrop-filter:blur(4px)}" +
+    ".zg-pill.zg-flash{animation:zgflash .5s}@keyframes zgflash{50%{background:#e53935;transform:scale(1.15)}}" +
+    ".zg-spacer{flex:1}.zg-mute{pointer-events:auto;cursor:pointer;border:0;color:#fff;font-size:16px}" +
+    ".zg-toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);padding:10px 20px;border-radius:99px;background:rgba(15,20,50,.75);color:#fff;font-weight:700;font-size:18px;opacity:0;transition:opacity .25s;pointer-events:none}.zg-toast.on{opacity:1}" +
+    ".zg-joy{position:fixed;left:22px;bottom:26px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.45);display:none}.zg-knob{position:absolute;left:35px;top:35px;width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.75)}" +
+    ".zg-jump{position:fixed;right:26px;bottom:34px;width:88px;height:88px;border-radius:50%;border:3px solid #fff;background:rgba(255,90,130,.85);color:#fff;font:700 16px system-ui;display:none;box-shadow:0 5px 0 rgba(0,0,0,.25)}" +
+    ".zg-menu{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:radial-gradient(circle at 50% 40%,rgba(255,255,255,.12),rgba(10,20,60,.72));color:#fff;text-align:center;padding:20px}" +
+    ".zg-menu h1{margin:0;font-size:clamp(34px,7vw,58px);text-shadow:0 5px 0 rgba(0,0,0,.3);letter-spacing:.02em}.zg-menu p{margin:0;max-width:440px;font-size:17px;line-height:1.4}" +
+    ".zg-menu button{margin-top:6px;padding:14px 46px;border:0;border-radius:18px;background:linear-gradient(#4ade80,#22c55e);color:#052e16;font:700 24px system-ui;cursor:pointer;box-shadow:0 6px 0 #15803d}.zg-menu button:active{transform:translateY(3px);box-shadow:0 3px 0 #15803d}" +
+    ".zg-big{font-size:46px}";
+  document.head.appendChild(css);
+  var hud = document.createElement('div'); hud.className = 'zg-hud';
+  hud.innerHTML = '<span class="zg-pill" id="zg-coins"></span><span class="zg-pill" id="zg-lives"></span><span class="zg-pill" id="zg-level"></span><span class="zg-pill" id="zg-time" style="display:none"></span><span class="zg-spacer"></span><button class="zg-pill zg-mute" id="zg-mute">🔊</button>';
+  document.body.appendChild(hud);
+  var toastEl = document.createElement('div'); toastEl.className = 'zg-toast'; document.body.appendChild(toastEl);
+  var joyEl = document.createElement('div'); joyEl.className = 'zg-joy'; joyEl.innerHTML = '<div class="zg-knob"></div>'; document.body.appendChild(joyEl);
+  var jumpEl = document.createElement('button'); jumpEl.className = 'zg-jump'; jumpEl.textContent = 'JUMP'; document.body.appendChild(jumpEl);
+  var menu = document.createElement('div'); menu.className = 'zg-menu'; document.body.appendChild(menu);
+  var isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  function showMenu(h, p1, p2, btn){
+    menu.innerHTML = '<h1>' + h + '</h1>' + (p1 ? '<p>' + p1 + '</p>' : '') + (p2 ? '<p>' + p2 + '</p>' : '') + '<button id="zg-go">' + btn + '</button>';
+    menu.style.display = 'flex';
+    menu.querySelector('#zg-go').onclick = function(){ menu.style.display = 'none'; if(btnAction) btnAction(); };
+  }
+  var btnAction = null;
+  var toastT = null;
+  function toast(t){ toastEl.textContent = t; toastEl.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(function(){ toastEl.classList.remove('on'); }, 2200); }
+  document.getElementById('zg-mute').onclick = function(){ muted = !muted; this.textContent = muted ? '🔇' : '🔊'; };
+
+  // ----- three.js -----
+  var renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.domElement.className = 'zg-canvas';
+  document.body.insertBefore(renderer.domElement, document.body.firstChild);
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(theme.sky);
+  scene.fog = new THREE.Fog(theme.fog, 70, 260);
+  var camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 500);
+  scene.add(new THREE.HemisphereLight(0xffffff, theme.stars ? 0x5566aa : 0x88aacc, theme.stars ? 0.6 : 0.62));
+  var sun = new THREE.DirectionalLight(0xffffff, theme.stars ? 0.5 : 0.7);
+  sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
+  var sc = sun.shadow.camera; sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45; sc.far = 220;
+  scene.add(sun); scene.add(sun.target);
+
+  var palette = theme.accents, palI = 0;
+  function nextColor(){ return palette[(palI++) % palette.length]; }
+
+  // ----- level state -----
+  var levelGroup, solids, coins, enemies, hazards, checkpoints, goalObj, updaters, decor;
+  var spawn, lastCheckpoint, levelIndex = 0, score = 0, lives = maxLives, coinsGot = 0, coinsTotal = 0;
+  var playing = false, tStart = 0, levelTime = 0, timeLimit = cfg.time || 0, won = false;
+  var hero, heroParts, p = { x: 0, y: 2, z: 0, vx: 0, vy: 0, vz: 0, grounded: false, face: 0, jumps: 0, invul: 0, ride: null };
+  var HALF = 0.42, HEIGHT = 1.9, GRAV = 40, JUMP_V = 15.5, MAXJ = cfg.doubleJump ? 2 : 1, SPEED = cfg.speed || 11;
+  var particles = [];
+
+  function newLevelGroup(){
+    if(levelGroup) scene.remove(levelGroup);
+    levelGroup = new THREE.Group(); scene.add(levelGroup);
+    solids = []; coins = []; enemies = []; hazards = []; checkpoints = []; updaters = []; decor = []; goalObj = null; palI = 0;
+  }
+
+  function mat(c){ return new THREE.MeshLambertMaterial({ color: c, flatShading: true }); }
+  function outline(mesh){
+    var e = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.18 }));
+    mesh.add(e);
+  }
+
+  // highest solid top under a point (so decor/coins sit on something real)
+  function surfaceY(x, z, maxY){
+    var best = null;
+    for(var i = 0; i < solids.length; i++){
+      var s = solids[i];
+      if(s.kind === 'wall' && false) continue;
+      if(Math.abs(x - s.x) <= s.w / 2 && Math.abs(z - s.z) <= s.d / 2){
+        var top = s.y + s.h / 2;
+        if(maxY != null && top > maxY) continue;
+        if(best === null || top > best) best = top;
+      }
+    }
+    return best === null ? 0 : best;
+  }
+
+  // ----- the building API the AI uses -----
+  var g = {
+    theme: cfg.theme || 'grass',
+    colors: palette,
+    // platform(x, top, z, width, depth, {color, h, moving:{axis,range,speed}, ice, bounce})
+    platform: function(x, top, z, w, d, o){
+      o = o || {}; var h = o.h || 1.2, col = toColor(o.color, nextColor());
+      var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(col));
+      m.position.set(x, top - h / 2, z); m.castShadow = true; m.receiveShadow = true; outline(m); levelGroup.add(m);
+      var s = { mesh: m, x: x, y: top - h / 2, z: z, w: w, h: h, d: d, base: { x: x, y: top - h / 2, z: z }, move: o.moving || null, phase: Math.random() * 6, ice: !!o.ice, bounce: !!o.bounce, kind: 'platform' };
+      if(o.bounce){ m.material = mat(0xffe14d); }
+      solids.push(s); return s;
+    },
+    // ground(size, {color}) — a big floor with its top at height 0
+    ground: function(size, o){
+      o = o || {}; size = size || 80; var s = g.platform(0, 0, 0, size, size, { color: toColor(o.color, theme.ground), h: 3 }); s.kind = 'ground';
+      var grid = new THREE.GridHelper(size, Math.round(size / 4), 0x000000, 0x000000); grid.material.transparent = true; grid.material.opacity = 0.14; grid.position.y = 0.03; levelGroup.add(grid);
+      return s;
+    },
+    // wall(x, bottom, z, w, height, d)
+    wall: function(x, bottom, z, w, hgt, d, color){
+      var m = new THREE.Mesh(new THREE.BoxGeometry(w, hgt, d), mat(toColor(color, nextColor())));
+      m.position.set(x, bottom + hgt / 2, z); m.castShadow = true; m.receiveShadow = true; outline(m); levelGroup.add(m);
+      var s = { mesh: m, x: x, y: bottom + hgt / 2, z: z, w: w, h: hgt, d: d, base: { x: x, y: bottom + hgt / 2, z: z }, move: null, kind: 'wall' }; solids.push(s); return s;
+    },
+    // stairs(x, bottom, z, steps, {dir:'z-'|'z+'|'x+'|'x-', width, rise, run})
+    stairs: function(x, bottom, z, steps, o){
+      o = o || {}; var rise = o.rise || 0.7, run = o.run || 2.2, wd = o.width || 6, dir = o.dir || 'z-';
+      for(var i = 0; i < steps; i++){
+        var dx = dir === 'x+' ? i * run : dir === 'x-' ? -i * run : 0, dz = dir === 'z+' ? i * run : dir === 'z-' ? -i * run : 0;
+        var alongX = dir[0] === 'x';
+        g.platform(x + dx, bottom + rise * (i + 1), z + dz, alongX ? run : wd, alongX ? wd : run, { color: o.color, h: rise });
+      }
+    },
+    // coin(x, z, [y]) — rests on whatever is below it
+    coin: function(x, z, y){
+      var by = y != null ? y : surfaceY(x, z) + 1.4;
+      var c = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.16, 20), new THREE.MeshLambertMaterial({ color: 0xffd23f, emissive: 0x805f00 }));
+      c.rotation.x = Math.PI / 2; c.position.set(x, by, z); c.castShadow = true; levelGroup.add(c);
+      coins.push({ mesh: c, x: x, y: by, z: z, got: false }); coinsTotal++; return c;
+    },
+    coins: function(list){ list.forEach(function(a){ g.coin(a[0], a[1], a[2]); }); },
+    // coinRow(x, z, count, dx, dz)
+    coinRow: function(x, z, n, dx, dz){ for(var i = 0; i < n; i++) g.coin(x + (dx || 0) * i, z + (dz || 0) * i); },
+    checkpoint: function(x, z){
+      var y = surfaceY(x, z), grp = new THREE.Group();
+      var pole = new THREE.Mesh(new THREE.BoxGeometry(0.25, 3.2, 0.25), mat(0xffffff)); pole.position.y = 1.6;
+      var cloth = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.9, 0.08), mat(0x38bdf8)); cloth.position.set(0.7, 2.7, 0);
+      grp.add(pole, cloth); grp.position.set(x, y, z); levelGroup.add(grp);
+      checkpoints.push({ x: x, y: y, z: z, cloth: cloth, on: false });
+    },
+    spawn: function(x, z, y){ spawn = { x: x, y: (y != null ? y : surfaceY(x, z)) + 0.2, z: z }; lastCheckpoint = spawn; },
+    goal: function(x, z){
+      var y = surfaceY(x, z), grp = new THREE.Group();
+      var pole = new THREE.Mesh(new THREE.BoxGeometry(0.3, 5.5, 0.3), mat(0xffffff)); pole.position.y = 2.75;
+      var cloth = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.4, 0.1), new THREE.MeshLambertMaterial({ color: 0xffc400, emissive: 0x805000 })); cloth.position.set(1.1, 4.7, 0);
+      var base = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.1, 0.5, 20), mat(0xffd54a)); base.position.y = 0.25;
+      grp.add(pole, cloth, base); grp.position.set(x, y, z); levelGroup.add(grp);
+      goalObj = { x: x, y: y, z: z, cloth: cloth };
+    },
+    // lava(x, z, w, d) — touching it costs a life
+    lava: function(x, z, w, d, y){
+      var by = y != null ? y : 0.05;
+      var m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.5, d), new THREE.MeshLambertMaterial({ color: 0xff5722, emissive: 0xcc3300 }));
+      m.position.set(x, by, z); levelGroup.add(m);
+      hazards.push({ x: x, y: by, z: z, w: w, d: d, h: 0.5, mesh: m, t: Math.random() * 6 });
+    },
+    // enemy(x, z, {type:'patrol'|'chase', range, speed, color}) — jump on its head to defeat it
+    enemy: function(x, z, o){
+      o = o || {}; var y = surfaceY(x, z), col = toColor(o.color, 0xef4444);
+      var grp = new THREE.Group();
+      var body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.5, 1.5), mat(col)); body.position.y = 0.75; body.castShadow = true; outline(body);
+      var eyeM = new THREE.MeshBasicMaterial({ color: 0xffffff }), pupM = new THREE.MeshBasicMaterial({ color: 0x111111 });
+      [-0.35, 0.35].forEach(function(ex){
+        var e = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.45, 0.1), eyeM); e.position.set(ex, 1.0, 0.76);
+        var pu = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.25, 0.1), pupM); pu.position.set(ex, 0.98, 0.82); grp.add(e, pu);
+      });
+      var brow = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 0.1), pupM); brow.position.set(0, 1.35, 0.78); grp.add(brow);
+      grp.add(body); grp.position.set(x, y, z); levelGroup.add(grp);
+      enemies.push({ grp: grp, x: x, y: y, z: z, bx: x, bz: z, type: o.type || 'patrol', range: o.range || 5, speed: o.speed || 3, axis: o.axis || 'x', phase: Math.random() * 6, alive: true, squash: 0, hp: 1 });
+    },
+    // decor — always sits on the ground / platform beneath it
+    tree: function(x, z, s){
+      s = s || 1; var y = surfaceY(x, z), grp = new THREE.Group();
+      var trunk = new THREE.Mesh(new THREE.BoxGeometry(0.7 * s, 2.2 * s, 0.7 * s), mat(0x8b5a2b)); trunk.position.y = 1.1 * s;
+      var top1 = new THREE.Mesh(new THREE.BoxGeometry(3 * s, 2 * s, 3 * s), mat(theme.stars ? 0x2e8b57 : 0x3ecf6a)); top1.position.y = 3 * s;
+      var top2 = new THREE.Mesh(new THREE.BoxGeometry(2 * s, 1.6 * s, 2 * s), mat(theme.stars ? 0x3aa66a : 0x58e07f)); top2.position.y = 4.6 * s;
+      [trunk, top1, top2].forEach(function(m){ m.castShadow = true; grp.add(m); }); grp.position.set(x, y, z); levelGroup.add(grp);
+    },
+    rock: function(x, z, s){
+      s = s || 1; var y = surfaceY(x, z), m = new THREE.Mesh(new THREE.BoxGeometry(1.6 * s, 1.1 * s, 1.3 * s), mat(0x9aa5b1));
+      m.position.set(x, y + 0.55 * s, z); m.rotation.y = Math.random() * 3; m.castShadow = true; levelGroup.add(m);
+    },
+    house: function(x, z, w, d, color){
+      w = w || 6; d = d || 6; var y = surfaceY(x, z), grp = new THREE.Group();
+      var body = new THREE.Mesh(new THREE.BoxGeometry(w, 4, d), mat(toColor(color, nextColor()))); body.position.y = 2;
+      var roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.78, 2.4, 4), mat(0xc0392b)); roof.position.y = 5.2; roof.rotation.y = Math.PI / 4;
+      var door = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.2, 0.1), mat(0x6d4c41)); door.position.set(0, 1.1, d / 2 + 0.03);
+      [body, roof].forEach(function(m){ m.castShadow = true; }); grp.add(body, roof, door); grp.position.set(x, y, z); levelGroup.add(grp);
+      return g.wall(x, y, z, w, 4, d, color) && null;
+    },
+    flower: function(x, z){
+      var y = surfaceY(x, z), grp = new THREE.Group();
+      var stem = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.7, 0.1), mat(0x2ecc71)); stem.position.y = 0.35;
+      var head = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.2, 0.45), mat(nextColor())); head.position.y = 0.75;
+      grp.add(stem, head); grp.position.set(x, y, z); levelGroup.add(grp);
+    },
+    cloud: function(x, y, z){
+      var grp = new THREE.Group(), cm = new THREE.MeshLambertMaterial({ color: 0xffffff });
+      [[0, 0, 0, 5, 1.6, 3], [2, 0.7, 0, 3, 1.4, 2.4], [-2, 0.5, 0.4, 3, 1.2, 2.2]].forEach(function(a){ var m = new THREE.Mesh(new THREE.BoxGeometry(a[3], a[4], a[5]), cm); m.position.set(a[0], a[1], a[2]); grp.add(m); });
+      grp.position.set(x, y, z); levelGroup.add(grp); updaters.push(function(dt){ grp.position.x += dt * 0.6; if(grp.position.x > 140) grp.position.x = -140; });
+    },
+    // trees/clouds/flowers scattered for you: scenery(areaSize)
+    scenery: function(area){
+      area = area || 60;
+      for(var i = 0; i < 14; i++){
+        var a = Math.random() * 6.28, r = area * (0.55 + Math.random() * 0.5);
+        g.tree(Math.cos(a) * r, Math.sin(a) * r, 0.9 + Math.random() * 0.6);
+      }
+      for(var j = 0; j < 8; j++) g.cloud((Math.random() - 0.5) * 220, 38 + Math.random() * 24, (Math.random() - 0.5) * 220);
+    },
+    // box(x, bottom, z, w, h, d, color, {solid:true}) — any custom block
+    box: function(x, bottom, z, w, hgt, d, color, o){
+      o = o || {};
+      if(o.solid !== false) return g.wall(x, bottom, z, w, hgt, d, color);
+      var m = new THREE.Mesh(new THREE.BoxGeometry(w, hgt, d), mat(toColor(color, nextColor()))); m.position.set(x, bottom + hgt / 2, z); m.castShadow = true; levelGroup.add(m); return m;
+    },
+    add: function(obj){ levelGroup.add(obj); return obj; },
+    surfaceY: surfaceY,
+    toast: toast,
+    addScore: function(n){ score += n; },
+    onUpdate: function(fn){ updaters.push(fn); },
+    player: p,
+    get coinsCollected(){ return coinsGot; },
+    get coinsTotal(){ return coinsTotal; },
+    get score(){ return score; }
+  };
+
+  // ----- the blocky Roblox-style hero (uses the player's own avatar when published) -----
+  function makeHero(){
+    var av = (window.Zyntra && Zyntra.avatar) || cfg.hero || {};
+    var skin = av.skin || '#f2c9a0', shirt = av.shirtColor || '#3b82f6', pants = av.pantsColor || '#374151', shoes = av.shoes || '#1f2937', hair = av.hairColor || '#3b2415';
+    function box(w, h, d, c, x, y, z){ var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: c })); m.position.set(x, y, z); m.castShadow = true; return m; }
+    var grp = new THREE.Group();
+    grp.add(box(1, 1, 1, skin, 0, 3.0, 0)); grp.add(box(1.06, 0.3, 1.06, hair, 0, 3.58, 0));
+    grp.add(box(0.14, 0.16, 0.05, 0x111111, -0.22, 3.1, 0.52)); grp.add(box(0.14, 0.16, 0.05, 0x111111, 0.22, 3.1, 0.52));
+    grp.add(box(0.5, 0.08, 0.05, 0x7a3b2e, 0, 2.8, 0.52));
+    grp.add(box(1.5, 1.6, 0.8, shirt, 0, 1.7, 0));
+    var aL = new THREE.Group(), aR = new THREE.Group(), lL = new THREE.Group(), lR = new THREE.Group();
+    aL.position.set(-1.0, 2.4, 0); aR.position.set(1.0, 2.4, 0); lL.position.set(-0.38, 0.95, 0); lR.position.set(0.38, 0.95, 0);
+    aL.add(box(0.5, 1.5, 0.5, skin, 0, -0.65, 0)); aR.add(box(0.5, 1.5, 0.5, skin, 0, -0.65, 0));
+    lL.add(box(0.7, 1.0, 0.7, pants, 0, -0.5, 0)); lR.add(box(0.7, 1.0, 0.7, pants, 0, -0.5, 0));
+    lL.add(box(0.74, 0.3, 0.8, shoes, 0, -0.9, 0.05)); lR.add(box(0.74, 0.3, 0.8, shoes, 0, -0.9, 0.05));
+    grp.add(aL, aR, lL, lR); grp.scale.setScalar(0.62);
+    heroParts = { aL: aL, aR: aR, lL: lL, lR: lR };
+    return grp;
+  }
+  hero = makeHero(); scene.add(hero);
+
+  // ----- backdrop: stars / embers -----
+  var backdrop = new THREE.Group(); scene.add(backdrop);
+  if(theme.stars){
+    var sg = new THREE.BufferGeometry(), sp = [];
+    for(var si = 0; si < 400; si++){ var a1 = Math.random() * 6.28, a2 = Math.acos(Math.random() * 0.9 + 0.05), r2 = 220; sp.push(Math.cos(a1) * Math.sin(a2) * r2, Math.cos(a2) * r2, Math.sin(a1) * Math.sin(a2) * r2); }
+    sg.setAttribute('position', new THREE.Float32BufferAttribute(sp, 3));
+    backdrop.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffffff, size: 1.6, fog: false })));
+  }
+  if(!theme.stars){ // a sun
+    var sunMesh = new THREE.Mesh(new THREE.SphereGeometry(10, 16, 12), new THREE.MeshBasicMaterial({ color: 0xfff3a0, fog: false })); sunMesh.position.set(120, 140, -180); backdrop.add(sunMesh);
+  }
+
+  // ----- level loading -----
+  function loadLevel(i){
+    levelIndex = i;
+    newLevelGroup(); coinsGot = 0; coinsTotal = 0; spawn = { x: 0, y: 2, z: 0 }; lastCheckpoint = null;
+    levelFns[i](g);
+    if(!lastCheckpoint) lastCheckpoint = spawn;
+    respawn(true);
+    document.getElementById('zg-level').textContent = levelFns.length > 1 ? 'Level ' + (i + 1) + '/' + levelFns.length : '';
+    document.getElementById('zg-level').style.display = levelFns.length > 1 ? '' : 'none';
+    tStart = performance.now(); levelTime = 0;
+    paintHud();
+  }
+  function respawn(full){
+    var c = lastCheckpoint || spawn;
+    p.x = c.x; p.y = c.y + 0.1; p.z = c.z; p.vx = p.vy = p.vz = 0; p.invul = full ? 0 : 1.2; p.jumps = 0;
+  }
+  function paintHud(){
+    document.getElementById('zg-coins').textContent = '🪙 ' + coinsGot + (coinsTotal ? ' / ' + coinsTotal : '') + (score ? '  ·  ⭐ ' + score : '');
+    document.getElementById('zg-lives').textContent = maxLives ? '❤️'.repeat(Math.max(0, lives)) + '🖤'.repeat(Math.max(0, maxLives - lives)) : '';
+    var te = document.getElementById('zg-time');
+    if(timeLimit){ te.style.display = ''; te.textContent = '⏱ ' + Math.max(0, Math.ceil(timeLimit - levelTime)) + 's'; }
+    else if(playing){ te.style.display = ''; te.textContent = '⏱ ' + levelTime.toFixed(1) + 's'; }
+  }
+  function flashHud(){ var el = document.getElementById('zg-lives'); el.classList.remove('zg-flash'); void el.offsetWidth; el.classList.add('zg-flash'); }
+
+  // ----- particles -----
+  function burst(x, y, z, color, n){
+    for(var i = 0; i < (n || 10); i++){
+      var m = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.25), new THREE.MeshBasicMaterial({ color: color })); m.position.set(x, y, z);
+      scene.add(m); particles.push({ m: m, vx: (Math.random() - 0.5) * 8, vy: Math.random() * 8 + 2, vz: (Math.random() - 0.5) * 8, life: 0.7 });
+    }
+  }
+
+  // ----- input -----
+  var keys = {}, joy = { x: 0, y: 0 }, jumpQueued = false;
+  addEventListener('keydown', function(e){ keys[e.code] = true; if(e.code === 'Space'){ jumpQueued = true; e.preventDefault(); } });
+  addEventListener('keyup', function(e){ keys[e.code] = false; });
+  if(isTouch){ joyEl.style.display = 'block'; jumpEl.style.display = 'block'; }
+  var knob = joyEl.firstChild, joyId = null;
+  function joyMove(t){
+    var r = joyEl.getBoundingClientRect(), dx = t.clientX - (r.left + 60), dy = t.clientY - (r.top + 60), len = Math.min(50, Math.hypot(dx, dy)), a = Math.atan2(dy, dx);
+    joy.x = Math.cos(a) * len / 50; joy.y = Math.sin(a) * len / 50; knob.style.left = (35 + Math.cos(a) * len) + 'px'; knob.style.top = (35 + Math.sin(a) * len) + 'px';
+  }
+  joyEl.addEventListener('touchstart', function(e){ joyId = e.changedTouches[0].identifier; joyMove(e.changedTouches[0]); e.preventDefault(); }, { passive: false });
+  joyEl.addEventListener('touchmove', function(e){ for(var i = 0; i < e.changedTouches.length; i++) if(e.changedTouches[i].identifier === joyId) joyMove(e.changedTouches[i]); e.preventDefault(); }, { passive: false });
+  function joyEnd(e){ for(var i = 0; i < e.changedTouches.length; i++) if(e.changedTouches[i].identifier === joyId){ joyId = null; joy.x = joy.y = 0; knob.style.left = '35px'; knob.style.top = '35px'; } }
+  joyEl.addEventListener('touchend', joyEnd); joyEl.addEventListener('touchcancel', joyEnd);
+  jumpEl.addEventListener('touchstart', function(e){ jumpQueued = true; e.preventDefault(); }, { passive: false });
+  jumpEl.addEventListener('mousedown', function(){ jumpQueued = true; });
+  var camYaw = 0, camPitch = 0.4, camDist = 12, look = null;
+  renderer.domElement.addEventListener('pointerdown', function(e){ look = { x: e.clientX, y: e.clientY }; });
+  addEventListener('pointerup', function(){ look = null; });
+  addEventListener('pointermove', function(e){ if(!look) return; camYaw -= (e.clientX - look.x) * 0.006; camPitch = Math.max(0.05, Math.min(1.3, camPitch + (e.clientY - look.y) * 0.004)); look = { x: e.clientX, y: e.clientY }; });
+  renderer.domElement.addEventListener('wheel', function(e){ camDist = Math.max(6, Math.min(24, camDist + e.deltaY * 0.01)); }, { passive: true });
+
+  // ----- physics -----
+  function overlaps(s){
+    return Math.abs(p.x - s.x) < HALF + s.w / 2 && Math.abs(p.z - s.z) < HALF + s.d / 2 && p.y < s.y + s.h / 2 && p.y + HEIGHT > s.y - s.h / 2;
+  }
+  function hurt(why){
+    if(p.invul > 0 || !playing) return;
+    lives--; SFX.hurt(); flashHud(); paintHud();
+    if(maxLives && lives <= 0){ gameOver(why); return; }
+    respawn(false);
+  }
+  function step(dt){
+    levelTime = (performance.now() - tStart) / 1000;
+    if(timeLimit && levelTime >= timeLimit){ gameOver("Time's up!"); return; }
+    if(p.invul > 0) p.invul -= dt;
+    var ix = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + joy.x;
+    var iz = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0) + joy.y;
+    var len = Math.hypot(ix, iz); if(len > 1){ ix /= len; iz /= len; }
+    var sin = Math.sin(camYaw), cos = Math.cos(camYaw);
+    var wx = (ix * cos + iz * sin) * SPEED, wz = (-ix * sin + iz * cos) * SPEED;
+    var slide = p.ride && p.ride.ice ? 1.5 : 12;
+    p.vx += (wx - p.vx) * Math.min(1, dt * slide); p.vz += (wz - p.vz) * Math.min(1, dt * slide);
+    if(Math.hypot(wx, wz) > 0.5) p.face = Math.atan2(wx, wz);
+    if(jumpQueued && (p.grounded || p.jumps < MAXJ)){ p.vy = JUMP_V; p.jumps = p.grounded ? 1 : p.jumps + 1; p.grounded = false; SFX.jump(); }
+    jumpQueued = false;
+    p.vy -= GRAV * dt;
+    // moving platforms (and carry the rider)
+    var now = performance.now() / 1000;
+    for(var i = 0; i < solids.length; i++){
+      var s = solids[i];
+      if(s.move){
+        var off = Math.sin(now * (s.move.speed || 1) + s.phase) * (s.move.range || 5), ax = s.move.axis || 'x';
+        var nx = s.base.x + (ax === 'x' ? off : 0), ny = s.base.y + (ax === 'y' ? off : 0), nz = s.base.z + (ax === 'z' ? off : 0);
+        if(p.ride === s){ p.x += nx - s.x; p.y += ny - s.y; p.z += nz - s.z; }
+        s.x = nx; s.y = ny; s.z = nz; s.mesh.position.set(nx, ny, nz);
+      }
+    }
+    p.x += p.vx * dt; for(i = 0; i < solids.length; i++){ s = solids[i]; if(overlaps(s)){ p.x = p.vx > 0 ? s.x - s.w / 2 - HALF : s.x + s.w / 2 + HALF; p.vx = 0; } }
+    p.z += p.vz * dt; for(i = 0; i < solids.length; i++){ s = solids[i]; if(overlaps(s)){ p.z = p.vz > 0 ? s.z - s.d / 2 - HALF : s.z + s.d / 2 + HALF; p.vz = 0; } }
+    p.y += p.vy * dt; p.grounded = false; p.ride = null;
+    for(i = 0; i < solids.length; i++){
+      s = solids[i];
+      if(overlaps(s)){
+        if(p.vy <= 0){ p.y = s.y + s.h / 2; p.grounded = true; p.ride = s; p.jumps = 0; if(s.bounce){ p.vy = JUMP_V * 1.5; p.grounded = false; SFX.jump(); continue; } }
+        else p.y = s.y - s.h / 2 - HEIGHT;
+        p.vy = 0;
+      }
+    }
+    if(p.y < -30) hurt('You fell!');
+    // hazards
+    for(i = 0; i < hazards.length; i++){
+      var h = hazards[i]; h.t += dt; h.mesh.material.emissiveIntensity = 0.7 + Math.sin(h.t * 4) * 0.3;
+      if(Math.abs(p.x - h.x) < HALF + h.w / 2 && Math.abs(p.z - h.z) < HALF + h.d / 2 && p.y < h.y + h.h / 2 && p.y + HEIGHT > h.y - h.h / 2) hurt('You touched lava!');
+    }
+    // checkpoints
+    for(i = 0; i < checkpoints.length; i++){
+      var c = checkpoints[i];
+      if(!c.on && Math.hypot(p.x - c.x, p.z - c.z) < 2.6 && Math.abs(p.y - c.y) < 3){ c.on = true; c.cloth.material.color.setHex(0x22c55e); lastCheckpoint = { x: c.x, y: c.y + 0.2, z: c.z }; SFX.check(); toast('Checkpoint saved! 🚩'); }
+    }
+    // coins
+    for(i = 0; i < coins.length; i++){
+      var co = coins[i]; if(co.got) continue;
+      co.mesh.rotation.z += dt * 3; co.mesh.position.y = co.y + Math.sin(now * 3 + i) * 0.15;
+      if(Math.hypot(p.x - co.x, p.z - co.z) < 1.2 && Math.abs(p.y + 1.1 - co.y) < 1.9){
+        co.got = true; co.mesh.visible = false; coinsGot++; score += 10; SFX.coin(); burst(co.x, co.y, co.z, 0xffd23f, 8); paintHud();
+        if(typeof cfg.onCoin === 'function') cfg.onCoin(g, coinsGot, coinsTotal);
+      }
+    }
+    // enemies
+    for(i = 0; i < enemies.length; i++){
+      var e = enemies[i];
+      if(!e.alive){ e.squash += dt * 6; e.grp.scale.y = Math.max(0.05, 1 - e.squash); if(e.squash > 1) e.grp.visible = false; continue; }
+      if(e.type === 'chase'){
+        var dx = p.x - e.x, dz = p.z - e.z, dist = Math.hypot(dx, dz);
+        if(dist < (e.range || 14) && dist > 0.1){ e.x += dx / dist * e.speed * dt; e.z += dz / dist * e.speed * dt; e.grp.rotation.y = Math.atan2(dx, dz); }
+      } else {
+        var o2 = Math.sin(now * (e.speed / Math.max(2, e.range)) + e.phase) * e.range;
+        var px0 = e.x, pz0 = e.z;
+        e.x = e.bx + (e.axis === 'x' ? o2 : 0); e.z = e.bz + (e.axis === 'z' ? o2 : 0);
+        if(e.x !== px0 || e.z !== pz0) e.grp.rotation.y = Math.atan2(e.x - px0, e.z - pz0);
+      }
+      e.y = surfaceY(e.x, e.z); e.grp.position.set(e.x, e.y + Math.abs(Math.sin(now * 4 + i)) * 0.15, e.z);
+      if(Math.abs(p.x - e.x) < HALF + 0.8 && Math.abs(p.z - e.z) < HALF + 0.8 && p.y < e.y + 1.6 && p.y + HEIGHT > e.y){
+        if(p.vy < -2 && p.y > e.y + 0.9){ e.alive = false; p.vy = 13; score += 25; SFX.stomp(); burst(e.x, e.y + 1, e.z, 0xff6b6b, 12); paintHud(); }
+        else hurt('An enemy got you!');
+      }
+    }
+    for(i = 0; i < updaters.length; i++) updaters[i](dt, p, g);
+    if(goalObj && Math.hypot(p.x - goalObj.x, p.z - goalObj.z) < 2.6 && Math.abs(p.y - goalObj.y) < 3.5) levelDone();
+    paintHud();
+  }
+
+  function levelDone(){
+    if(!playing) return;
+    SFX.win(); burst(goalObj.x, goalObj.y + 3, goalObj.z, 0xffd23f, 30);
+    if(levelIndex + 1 < levelFns.length){
+      playing = false;
+      score += 50;
+      btnAction = function(){ loadLevel(levelIndex + 1); playing = true; tStart = performance.now(); };
+      showMenu('⭐ Level complete!', 'Coins: ' + coinsGot + ' / ' + coinsTotal, 'Next up: level ' + (levelIndex + 2), 'Next level ▶');
+      return;
+    }
+    playing = false; won = true; score += 100 + coinsGot * 5;
+    var total = Math.round(score);
+    var isBest = total > best; if(isBest){ best = total; try{ localStorage.setItem(bestKey, String(total)); }catch(e){} }
+    btnAction = function(){ restart(); };
+    showMenu('🎉 You win!', 'Score: <b>' + total + '</b>' + (isBest ? ' — new best!' : ' · best ' + best), 'Time: ' + levelTime.toFixed(1) + 's · Coins ' + coinsGot + '/' + coinsTotal, '↻ Play again');
+  }
+  function gameOver(why){
+    playing = false;
+    btnAction = function(){ restart(); };
+    showMenu('💥 ' + (why || 'Game over'), 'Score: ' + Math.round(score), 'Best: ' + best, '↻ Try again');
+  }
+  function restart(){ score = 0; lives = maxLives; won = false; palI = 0; loadLevel(0); playing = true; tStart = performance.now(); }
+
+  btnAction = function(){ restart(); };
+  showMenu(title, goalText, isTouch ? 'Left stick to move · JUMP button · drag the right side to look' : 'WASD / arrows to move · Space to jump · drag to look around', '▶ Play');
+
+  // ----- loop -----
+  var last = performance.now(), walk = 0;
+  loadLevel(0);
+  function frame(now){
+    requestAnimationFrame(frame);
+    var dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if(playing) step(dt);
+    for(var i = particles.length - 1; i >= 0; i--){
+      var q = particles[i]; q.life -= dt; q.vy -= 20 * dt; q.m.position.x += q.vx * dt; q.m.position.y += q.vy * dt; q.m.position.z += q.vz * dt;
+      if(q.life <= 0){ scene.remove(q.m); particles.splice(i, 1); }
+    }
+    hero.position.set(p.x, p.y, p.z);
+    hero.visible = !(p.invul > 0 && Math.floor(now / 90) % 2 === 0);
+    hero.rotation.y += (((p.face - hero.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * Math.min(1, dt * 14);
+    var moving = Math.hypot(p.vx, p.vz) > 1 && p.grounded;
+    walk += dt * (moving ? 11 : 0);
+    var sw = moving ? Math.sin(walk) * 0.9 : 0;
+    heroParts.lL.rotation.x = sw; heroParts.lR.rotation.x = -sw; heroParts.aL.rotation.x = -sw; heroParts.aR.rotation.x = sw;
+    if(!p.grounded){ heroParts.aL.rotation.x = heroParts.aR.rotation.x = -2.4; }
+    var cx = p.x + Math.sin(camYaw) * Math.cos(camPitch) * camDist, cy = p.y + 2 + Math.sin(camPitch) * camDist, cz = p.z + Math.cos(camYaw) * Math.cos(camPitch) * camDist;
+    var k = Math.min(1, dt * 8);
+    camera.position.x += (cx - camera.position.x) * k; camera.position.y += (cy - camera.position.y) * k; camera.position.z += (cz - camera.position.z) * k;
+    camera.lookAt(p.x, p.y + 1.6, p.z);
+    sun.position.set(p.x + 30, p.y + 60, p.z + 20); sun.target.position.set(p.x, p.y, p.z);
+    backdrop.position.set(camera.position.x, 0, camera.position.z);
+    if(goalObj) goalObj.cloth.rotation.y = Math.sin(now / 300) * 0.35;
+    renderer.render(scene, camera);
+  }
+  addEventListener('resize', function(){ renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
+  camera.position.set(0, 10, 14);
+  requestAnimationFrame(frame);
+  window.ZG._state = { p: p, g: g, get lives(){ return lives; }, get coins(){ return coinsGot; }, get playing(){ return playing; }, get level(){ return levelIndex; }, get solids(){ return solids; }, get enemies(){ return enemies; } };
+  return g;
+}
+
+window.ZG = { run: run, themes: Object.keys(THEMES), version: 1 };
+}
+
+
 const SANDBOX_CSP = "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' https:; style-src 'unsafe-inline' https:; font-src data: https:; img-src data: blob: https:; media-src data: blob: https:; connect-src https: wss:; worker-src blob:; frame-src 'none'; form-action 'none'; base-uri 'none'";
 
 // Wraps the creator's HTML with our security policy + the bridge.
 function buildGameSrcdoc(html, init){
     const json = JSON.stringify(init).replace(/</g, "\\u003c");
-    const inject = `<meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}"><script>(${zyBridgeMain.toString()})(${json}, ${zyAvatarSVG.toString()});<\/script>`;
+    const kitTag = /\bZG\.run\s*\(/.test(html) ? `<script>(${zgKit.toString()})();<\/script>` : "";
+    const inject = `<meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}"><script>(${zyBridgeMain.toString()})(${json}, ${zyAvatarSVG.toString()});<\/script>${kitTag}`;
     if(/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, m => m + inject);
     if(/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, m => m + "<head>" + inject + "</head>");
     return inject + html;
@@ -288,8 +824,8 @@ function playerInfo(){
 
 // Frames we are talking to (so we only trust messages from our own iframes)
 const frames = new Map();
-function registerFrame(iframe, onSave){
-    const attach = () => { if(iframe.contentWindow) frames.set(iframe.contentWindow, { onSave }); };
+function registerFrame(iframe, onSave, onError){
+    const attach = () => { if(iframe.contentWindow) frames.set(iframe.contentWindow, { onSave, onError }); };
     iframe.addEventListener("load", attach);
     attach();
 }
@@ -297,6 +833,7 @@ window.addEventListener("message", e => {
     const f = frames.get(e.source);
     if(!f || !e.data || e.data.zyntra !== 1) return;
     if(e.data.type === "save" && typeof e.data.store === "string" && e.data.store.length < 120000) f.onSave(e.data.store);
+    if(e.data.type === "error" && f.onError) f.onError(String(e.data.message || "").slice(0, 300));
 });
 function flushFrame(iframe){
     try{ iframe.contentWindow.postMessage({ zyntra: 1, type: "flush" }, "*"); }catch(e){}
@@ -1198,9 +1735,30 @@ function openAvatarModal(onSaved){
 // ==========================================================
 // A creator's draft test: same sandbox + saving as a published game, but
 // the saves stay on this device under "preview".
+function showFixBar(message){
+    const modal = document.getElementById("codePreviewModal");
+    if(!modal) return;
+    let bar = modal.querySelector(".cr-fixbar");
+    if(bar){ bar.querySelector("span").textContent = "⚠ The game hit an error: " + message; bar.dataset.msg = message; return; }
+    bar = document.createElement("div");
+    bar.className = "cr-fixbar"; bar.dataset.msg = message;
+    bar.innerHTML = `<span></span><button type="button" class="cr-btn cr-btn-primary">🛠 Fix it with AI</button><button type="button" class="cr-x" title="Dismiss">✕</button>`;
+    bar.querySelector("span").textContent = "⚠ The game hit an error: " + message;
+    (modal.querySelector(".modal-box") || modal).appendChild(bar);
+    bar.querySelector(".cr-x").onclick = () => bar.remove();
+    bar.querySelector(".cr-btn").onclick = () => {
+        const msg = bar.dataset.msg;
+        bar.remove();
+        if(typeof closeModal === "function") closeModal("codePreviewModal");
+        if(typeof sendChatMessage === "function"){
+            sendChatMessage("The game you made crashed with this error: \"" + msg + "\". Please find the bug and send the complete corrected file. Keep everything that already works, and make sure the game is colourful, has real logic, and is playable.");
+        }
+    };
+}
 function previewDoc(code, iframe){
     let store = ""; try{ store = localStorage.getItem("zyntra-preview-save") || ""; }catch(e){}
-    if(iframe) registerFrame(iframe, s => { try{ localStorage.setItem("zyntra-preview-save", s); }catch(e){} });
+    document.querySelector("#codePreviewModal .cr-fixbar")?.remove();
+    if(iframe) registerFrame(iframe, s => { try{ localStorage.setItem("zyntra-preview-save", s); }catch(e){} }, showFixBar);
     return buildGameSrcdoc(code, { gameId: "preview", store, player: playerInfo(), avatar: getAvatar() });
 }
 function openInNewTab(code){
@@ -1229,21 +1787,25 @@ LEARNING: if the user sounds like a beginner or a child, add two or three plain,
 
 const CODEX_3D_RULES = `
 
-3D FIRST — Zyntra games should feel like Roblox, so build GAMES IN 3D with Three.js by default. Use 3D for anything with a character or avatar, a world to move through, obstacle courses (obbies), parkour, adventure, exploring, racing, flying, driving, shooters, survival, tycoons, simulators, escapes, mazes and runners. Only stay 2D when the user asks for 2D, or the game is naturally flat: card/board/word/quiz/memory/puzzle games, classics like Snake, Tetris, Pong, 2048, tic-tac-toe, chess, and simple clickers. If the user's request was vague ("make me a game"), choose an exciting 3D obby or adventure.
-3D RULES (follow exactly, or the game will not run):
-- Load Three.js r128 with this exact classic script tag: <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script> — this gives a global THREE. Do NOT use ES modules, import maps, "import ... from", or any addons (no OrbitControls, GLTFLoader, FBXLoader, CapsuleGeometry — they don't exist in this build).
-- Build EVERYTHING in code from BoxGeometry, CylinderGeometry, SphereGeometry, ConeGeometry, PlaneGeometry (no external models, textures or images). Use MeshLambertMaterial with bright, cheerful colours, a hemisphere light + one directional light, a sky-coloured background and fog.
-- Characters are blocky Roblox-style figures made of boxes (head, torso, two arms, two legs on pivot groups so they swing when walking). Use the player's outfit from window.Zyntra.avatar when it exists.
-- Third-person camera that follows the player; drag to look; WASD/arrows + Space on desktop AND an on-screen joystick + jump button on touch devices; pixel ratio capped at 2; handle window resize; a start screen with a Play button, a HUD (score/coins/time), a win or game-over screen with Play Again, and the best score saved in localStorage.
-- Real physics: gravity, jumping, and collisions with platforms and walls (resolve one axis at a time against boxes), falling off the world respawns at the last checkpoint. Keep it fun: coins to collect, checkpoints, moving platforms or enemies, levels that get harder.
-- Keep the scene light (a few hundred meshes at most; reuse geometries) so it runs on phones. All code in ONE html file.`;
+3D FIRST — Zyntra games should feel like Roblox, so build GAMES IN 3D by default. Use 3D for anything with a character, a world to move through, obstacle courses (obbies), parkour, adventure, exploring, racing, shooters, survival, tycoons, simulators, escapes and runners. Stay 2D only when the user asks for 2D or the game is naturally flat (card/board/word/quiz/puzzle games, Snake, Tetris, Pong, 2048, tic-tac-toe, chess, clickers). A vague "make me a game" means a colourful 3D obby/adventure.
 
-const THREE_TEMPLATE = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no\">\n<title>Sky Obby</title>\n<link href=\"https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap\" rel=\"stylesheet\">\n<style>\nhtml,body{margin:0;height:100%;overflow:hidden;background:#8fd3ff;font-family:'Fredoka',system-ui,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none}\ncanvas{display:block}\n#hud{position:fixed;top:10px;left:10px;right:10px;display:flex;gap:8px;pointer-events:none;color:#fff;font-weight:700;text-shadow:0 2px 0 rgba(0,0,0,.35)}\n.pill:empty{display:none}\n.pill{background:rgba(20,30,60,.55);padding:6px 14px;border-radius:99px;font-size:16px}\n#joy{position:fixed;left:22px;bottom:26px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.4);display:none}\n#knob{position:absolute;left:35px;top:35px;width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,.7)}\n#jump{position:fixed;right:26px;bottom:34px;width:86px;height:86px;border-radius:50%;border:3px solid #fff;background:rgba(255,80,120,.8);color:#fff;font:700 16px 'Fredoka',sans-serif;display:none}\n#menu{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:rgba(20,40,90,.55);color:#fff;text-align:center;padding:20px}\n#menu h1{margin:0;font-size:44px;text-shadow:0 4px 0 rgba(0,0,0,.3)}\n#menu p{margin:0;max-width:420px;font-size:16px;opacity:.95}\n#menu button{padding:14px 44px;border:0;border-radius:16px;background:#2ecc71;color:#06220f;font:700 22px 'Fredoka',sans-serif;cursor:pointer;box-shadow:0 6px 0 #1f9d55}\n</style>\n</head>\n<body>\n<div id=\"hud\"><span class=\"pill\" id=\"coins\">\ud83e\ude99 0 / 0</span><span class=\"pill\" id=\"time\">\u23f1 0.0s</span><span class=\"pill\" id=\"best\"></span></div>\n<div id=\"joy\"><div id=\"knob\"></div></div>\n<button id=\"jump\">JUMP</button>\n<div id=\"menu\"><h1>Sky Obby</h1><p>Hop across the floating blocks, grab the coins and reach the golden flag!</p><p id=\"help\">WASD / arrows to move \u00b7 Space to jump \u00b7 drag to look around</p><button id=\"play\">\u25b6 Play</button></div>\n\n<script src=\"https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js\"></script>\n<script>\n(function(){\n'use strict';\n// ---------- setup ----------\nvar renderer = new THREE.WebGLRenderer({ antialias: true });\nrenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));\nrenderer.setSize(innerWidth, innerHeight);\nrenderer.shadowMap.enabled = true;\ndocument.body.appendChild(renderer.domElement);\nvar scene = new THREE.Scene();\nscene.background = new THREE.Color(0x8fd3ff);\nscene.fog = new THREE.Fog(0x8fd3ff, 60, 220);\nvar camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 400);\nscene.add(new THREE.HemisphereLight(0xffffff, 0x6a8caf, 0.85));\nvar sun = new THREE.DirectionalLight(0xffffff, 0.8);\nsun.position.set(30, 60, 20);\nsun.castShadow = true;\nsun.shadow.mapSize.set(1024, 1024);\nvar sc = sun.shadow.camera; sc.left = -50; sc.right = 50; sc.top = 50; sc.bottom = -50; sc.far = 200;\nscene.add(sun); scene.add(sun.target);\n\n// ---------- world: every solid thing is a box in `solids` ----------\nvar solids = [];\nfunction addBlock(x, y, z, w, h, d, color, opts){\n  var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: color }));\n  m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;\n  scene.add(m);\n  var s = { mesh: m, x: x, y: y, z: z, w: w, h: h, d: d, moving: opts && opts.move, base: new THREE.Vector3(x, y, z), phase: Math.random() * 6 };\n  solids.push(s); return s;\n}\naddBlock(0, -1, 0, 24, 2, 24, 0x6cd16c);                       // start island (top surface at y = 0)\nvar colors = [0xff6b6b, 0xffd93d, 0x6bcBff, 0xc77dff, 0xff9f43];\nvar px = 0, py = 0, pz = -10;\nfor(var i = 0; i < 16; i++){                                   // a winding path of platforms\n  px += Math.sin(i * 0.9) * 6; pz -= 7 + (i % 3); py += (i % 4 === 3) ? 1.2 : 0.2;\n  addBlock(px, py - 0.5, pz, 5, 1, 5, colors[i % colors.length], i % 5 === 4 ? { move: 'x' } : null);\n  if(i === 7) var checkpoint = { x: px, y: py + 1, z: pz };\n}\naddBlock(px, py - 0.5, pz - 9, 12, 1, 12, 0xffd54a);            // goal island\nvar goal = { x: px, y: py, z: pz - 9 };\nvar flag = new THREE.Mesh(new THREE.BoxGeometry(0.3, 5, 0.3), new THREE.MeshLambertMaterial({ color: 0xffffff }));\nflag.position.set(goal.x, goal.y + 2.5, goal.z); scene.add(flag);\nvar cloth = new THREE.Mesh(new THREE.BoxGeometry(2, 1.2, 0.1), new THREE.MeshLambertMaterial({ color: 0xff3366 }));\ncloth.position.set(goal.x + 1.1, goal.y + 4.3, goal.z); scene.add(cloth);\n\n// coins\nvar coins = [];\nsolids.forEach(function(s, i){\n  if(i > 0 && i % 2 === 0){\n    var c = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.15, 20), new THREE.MeshLambertMaterial({ color: 0xffd23f, emissive: 0x665500 }));\n    c.rotation.x = Math.PI / 2; c.position.set(s.x, s.y + s.h / 2 + 1.3, s.z); scene.add(c); coins.push(c);\n  }\n});\n\n// ---------- the player: a blocky Roblox-style character ----------\nfunction makeCharacter(av){\n  av = av || {};\n  var skin = av.skin || '#f2c9a0', shirt = av.shirtColor || '#1e88e5', pants = av.pantsColor || '#37474f', shoes = av.shoes || '#212121', hair = av.hairColor || '#3b2415';\n  function box(w, h, d, col, x, y, z){ var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color: col })); m.position.set(x, y, z); m.castShadow = true; return m; }\n  var g = new THREE.Group();\n  g.add(box(1, 1, 1, skin, 0, 3.0, 0));                         // head\n  var hairTop = box(1.06, 0.3, 1.06, hair, 0, 3.58, 0); g.add(hairTop);\n  g.add(box(0.14, 0.14, 0.05, 0x111111, -0.22, 3.1, 0.52)); g.add(box(0.14, 0.14, 0.05, 0x111111, 0.22, 3.1, 0.52));\n  g.add(box(1.5, 1.6, 0.8, shirt, 0, 1.7, 0));                  // torso\n  var armL = new THREE.Group(), armR = new THREE.Group(), legL = new THREE.Group(), legR = new THREE.Group();\n  armL.position.set(-1.0, 2.4, 0); armR.position.set(1.0, 2.4, 0); legL.position.set(-0.38, 0.95, 0); legR.position.set(0.38, 0.95, 0);\n  armL.add(box(0.5, 1.5, 0.5, skin, 0, -0.65, 0)); armR.add(box(0.5, 1.5, 0.5, skin, 0, -0.65, 0));\n  legL.add(box(0.7, 1.0, 0.7, pants, 0, -0.5, 0)); legR.add(box(0.7, 1.0, 0.7, pants, 0, -0.5, 0));\n  legL.add(box(0.74, 0.3, 0.8, shoes, 0, -0.9, 0.05)); legR.add(box(0.74, 0.3, 0.8, shoes, 0, -0.9, 0.05));\n  g.add(armL, armR, legL, legR);\n  g.userData = { armL: armL, armR: armR, legL: legL, legR: legR };\n  g.scale.setScalar(0.62);\n  return g;\n}\nvar avatar = (window.Zyntra && Zyntra.avatar) ? Zyntra.avatar : null;   // the player's own outfit, when published on Zyntra\nvar hero = makeCharacter(avatar); scene.add(hero);\n\n// ---------- state ----------\nvar HALF = 0.4, HEIGHT = 1.9;                                   // player's collision box\nvar p = { x: 0, y: 1, z: 0, vx: 0, vy: 0, vz: 0, grounded: false, face: 0 };\nvar spawn = { x: 0, y: 1, z: 0 };\nvar camYaw = 0, camPitch = 0.38, camDist = 11;\nvar playing = false, t0 = 0, got = 0, won = false, walk = 0;\nvar best = +(localStorage.getItem('skyobby-best') || 0);\nfunction hud(){\n  document.getElementById('coins').textContent = '\ud83e\ude99 ' + got + ' / ' + coins.length;\n  document.getElementById('time').textContent = '\u23f1 ' + (playing ? ((performance.now() - t0) / 1000).toFixed(1) : '0.0') + 's';\n  document.getElementById('best').textContent = best ? '\ud83c\udfc6 ' + best.toFixed(1) + 's' : '';\n}\n\n// ---------- input: keyboard, touch joystick, drag to look ----------\nvar keys = {}, joy = { x: 0, y: 0 }, jumpQueued = false;\naddEventListener('keydown', function(e){ keys[e.code] = true; if(e.code === 'Space'){ jumpQueued = true; e.preventDefault(); } });\naddEventListener('keyup', function(e){ keys[e.code] = false; });\nvar isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;\nif(isTouch){\n  document.getElementById('joy').style.display = 'block'; document.getElementById('jump').style.display = 'block';\n  document.getElementById('help').textContent = 'Left stick to move \u00b7 JUMP button \u00b7 drag the right side to look';\n}\nvar joyEl = document.getElementById('joy'), knob = document.getElementById('knob'), joyId = null;\nfunction joyMove(t){\n  var r = joyEl.getBoundingClientRect(), dx = t.clientX - (r.left + 60), dy = t.clientY - (r.top + 60), len = Math.min(50, Math.hypot(dx, dy)), a = Math.atan2(dy, dx);\n  joy.x = Math.cos(a) * len / 50; joy.y = Math.sin(a) * len / 50;\n  knob.style.left = (35 + Math.cos(a) * len) + 'px'; knob.style.top = (35 + Math.sin(a) * len) + 'px';\n}\njoyEl.addEventListener('touchstart', function(e){ joyId = e.changedTouches[0].identifier; joyMove(e.changedTouches[0]); e.preventDefault(); }, { passive: false });\njoyEl.addEventListener('touchmove', function(e){ for(var i = 0; i < e.changedTouches.length; i++) if(e.changedTouches[i].identifier === joyId) joyMove(e.changedTouches[i]); e.preventDefault(); }, { passive: false });\nfunction joyEnd(e){ for(var i = 0; i < e.changedTouches.length; i++) if(e.changedTouches[i].identifier === joyId){ joyId = null; joy.x = joy.y = 0; knob.style.left = '35px'; knob.style.top = '35px'; } }\njoyEl.addEventListener('touchend', joyEnd); joyEl.addEventListener('touchcancel', joyEnd);\ndocument.getElementById('jump').addEventListener('touchstart', function(e){ jumpQueued = true; e.preventDefault(); }, { passive: false });\ndocument.getElementById('jump').addEventListener('mousedown', function(){ jumpQueued = true; });\nvar look = null;\nrenderer.domElement.addEventListener('pointerdown', function(e){ look = { x: e.clientX, y: e.clientY }; });\naddEventListener('pointerup', function(){ look = null; });\naddEventListener('pointermove', function(e){\n  if(!look) return;\n  camYaw -= (e.clientX - look.x) * 0.006; camPitch = Math.max(0.05, Math.min(1.3, camPitch + (e.clientY - look.y) * 0.004));\n  look = { x: e.clientX, y: e.clientY };\n});\nrenderer.domElement.addEventListener('wheel', function(e){ camDist = Math.max(5, Math.min(22, camDist + e.deltaY * 0.01)); }, { passive: true });\n\n// ---------- physics: move one axis at a time and push out of boxes ----------\nfunction overlaps(s){\n  return Math.abs(p.x - s.x) < HALF + s.w / 2 && Math.abs(p.z - s.z) < HALF + s.d / 2 && p.y < s.y + s.h / 2 && p.y + HEIGHT > s.y - s.h / 2;\n}\nfunction respawn(){ p.x = spawn.x; p.y = spawn.y + 1; p.z = spawn.z; p.vx = p.vy = p.vz = 0; }\nfunction step(dt){\n  // movement relative to the camera\n  var ix = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + joy.x;\n  var iz = (keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0) + joy.y;\n  var len = Math.hypot(ix, iz); if(len > 1){ ix /= len; iz /= len; }\n  var sin = Math.sin(camYaw), cos = Math.cos(camYaw), speed = 11;\n  var wx = (ix * cos + iz * sin) * speed, wz = (-ix * sin + iz * cos) * speed;\n  p.vx += (wx - p.vx) * Math.min(1, dt * 12); p.vz += (wz - p.vz) * Math.min(1, dt * 12);\n  if(Math.hypot(wx, wz) > 0.5) p.face = Math.atan2(wx, wz);\n  if(jumpQueued && p.grounded){ p.vy = 15; p.grounded = false; }\n  jumpQueued = false;\n  p.vy -= 38 * dt;\n  // platforms that slide carry the player\n  solids.forEach(function(s){\n    if(s.moving){ var nx = s.base.x + Math.sin(performance.now() / 1000 + s.phase) * 6, dx = nx - s.x; if(p.grounded && p.ride === s) p.x += dx; s.x = nx; s.mesh.position.x = nx; }\n  });\n  p.x += p.vx * dt; solids.forEach(function(s){ if(overlaps(s)){ p.x = p.vx > 0 ? s.x - s.w / 2 - HALF : s.x + s.w / 2 + HALF; p.vx = 0; } });\n  p.z += p.vz * dt; solids.forEach(function(s){ if(overlaps(s)){ p.z = p.vz > 0 ? s.z - s.d / 2 - HALF : s.z + s.d / 2 + HALF; p.vz = 0; } });\n  p.y += p.vy * dt; p.grounded = false; p.ride = null;\n  solids.forEach(function(s){\n    if(overlaps(s)){\n      if(p.vy <= 0){ p.y = s.y + s.h / 2; p.grounded = true; p.ride = s; } else { p.y = s.y - s.h / 2 - HEIGHT; }\n      p.vy = 0;\n    }\n  });\n  if(p.y < -25) respawn();\n  // checkpoint + coins + goal\n  if(checkpoint && Math.hypot(p.x - checkpoint.x, p.z - checkpoint.z) < 3 && Math.abs(p.y - checkpoint.y) < 3) spawn = checkpoint;\n  coins.forEach(function(c){\n    if(c.visible){ c.rotation.z += dt * 3; if(Math.hypot(p.x - c.position.x, p.z - c.position.z) < 1.1 && Math.abs(p.y + 1 - c.position.y) < 1.8){ c.visible = false; got++; } }\n  });\n  if(!won && Math.hypot(p.x - goal.x, p.z - goal.z) < 2.5 && Math.abs(p.y - goal.y) < 3) win();\n}\nfunction win(){\n  won = true; playing = false;\n  var t = (performance.now() - t0) / 1000;\n  if(!best || t < best){ best = t; localStorage.setItem('skyobby-best', String(t)); }\n  var m = document.getElementById('menu');\n  m.querySelector('h1').textContent = '\ud83c\udf89 You made it!';\n  m.querySelectorAll('p')[0].textContent = 'Time: ' + t.toFixed(1) + 's \u00b7 Coins: ' + got + ' / ' + coins.length;\n  m.querySelectorAll('p')[1].textContent = best === t ? 'New best time!' : 'Best: ' + best.toFixed(1) + 's';\n  document.getElementById('play').textContent = '\u21bb Play again';\n  m.style.display = 'flex';\n}\nfunction reset(){\n  coins.forEach(function(c){ c.visible = true; }); got = 0; won = false; spawn = { x: 0, y: 1, z: 0 }; respawn();\n  t0 = performance.now(); playing = true;\n}\ndocument.getElementById('play').addEventListener('click', function(){ document.getElementById('menu').style.display = 'none'; reset(); });\n\n// ---------- loop ----------\nvar last = performance.now();\nfunction frame(now){\n  requestAnimationFrame(frame);\n  var dt = Math.min(0.05, (now - last) / 1000); last = now;\n  if(playing) step(dt);\n  hero.position.set(p.x, p.y, p.z);\n  hero.rotation.y += (((p.face - hero.rotation.y + Math.PI * 3) % (Math.PI * 2)) - Math.PI) * Math.min(1, dt * 14);\n  var moving = Math.hypot(p.vx, p.vz) > 1 && p.grounded;\n  walk += dt * (moving ? 11 : 0);\n  var u = hero.userData, sw = moving ? Math.sin(walk) * 0.9 : 0;\n  u.legL.rotation.x = sw; u.legR.rotation.x = -sw; u.armL.rotation.x = -sw; u.armR.rotation.x = sw;\n  if(!p.grounded){ u.armL.rotation.x = u.armR.rotation.x = -2.4; }\n  var cx = p.x + Math.sin(camYaw) * Math.cos(camPitch) * camDist, cy = p.y + 2 + Math.sin(camPitch) * camDist, cz = p.z + Math.cos(camYaw) * Math.cos(camPitch) * camDist;\n  camera.position.x += (cx - camera.position.x) * Math.min(1, dt * 8); camera.position.y += (cy - camera.position.y) * Math.min(1, dt * 8); camera.position.z += (cz - camera.position.z) * Math.min(1, dt * 8);\n  camera.lookAt(p.x, p.y + 1.6, p.z);\n  sun.position.set(p.x + 30, p.y + 60, p.z + 20); sun.target.position.set(p.x, p.y, p.z);\n  cloth.rotation.y = Math.sin(now / 300) * 0.3;\n  hud();\n  renderer.render(scene, camera);\n}\naddEventListener('resize', function(){ renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });\ncamera.position.set(0, 8, 12);\nrequestAnimationFrame(frame);\n})();\n</script>\n</body>\n</html>\n";
-
-const CODEX_3D_TEMPLATE_NOTE = `
-
-START FROM THIS WORKING 3D TEMPLATE (a complete obby that already runs correctly: Three.js scene, blocky character with walking animation, third-person camera, keyboard + touch controls, gravity, jumping, box collisions, moving platforms, coins, checkpoint, goal, HUD, win screen, best time). Keep its physics, camera, controls and character code, and change the world, theme, title, colours, rules, enemies, levels and mechanics to fit what the user asked for — make it clearly THEIR game, not a copy of this one. Add more features on top (more levels, hazards, power-ups, a wardrobe for the character…). Return the complete edited HTML file.
-` + "```html\n" + THREE_TEMPLATE + "\n```";
+USE THE ZYNTRA GAME KIT FOR 3D. It is a ready-made Roblox-style engine: colourful themes, lighting, shadows, a blocky character (wearing the player's own avatar), third-person camera, keyboard + touch controls, gravity, jumping, collisions, moving platforms, enemies, coins, checkpoints, lives, levels, HUD, sounds and win/lose screens. Everything it places sits on the ground — nothing floats. DO NOT write your own physics, camera, controls, HUD or menus, and do not define ZG yourself (Zyntra injects it). Your job is to design great levels, rules and theme.
+Page skeleton (the whole file): <!DOCTYPE html><html><head><meta charset="utf-8"><title>Game name</title></head><body><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script><script> ZG.run({...}); </script></body></html>
+ZG.run({ title:'Candy Island', theme:'candy', lives:3, time:0, doubleJump:false, speed:11, goalText:'Collect the coins and reach the flag!', levels:[ function(g){ ...build level 1... }, function(g){ ...level 2... } ] })
+Themes: grass, candy, lava, space, ice, desert, night, ocean (pick one that fits; it sets sky, fog, ground and bright platform colours). Use 2–4 levels that get harder. "time" is a countdown in seconds (0 = none).
+Level builders (y = the height of the TOP surface; the ground top is 0; x/z are the floor position; -z is "forward"):
+g.ground(size)  big floor at height 0 (optional; leave it out for floating-island levels, then everything must be reachable by jumping)
+g.spawn(x,z)  where the player starts (put it on the ground/a platform; defaults to 0,0)
+g.platform(x, top, z, width, depth, {color, h, moving:{axis:'x'|'y'|'z', range:5, speed:1}, ice:true, bounce:true})
+g.stairs(x, bottom, z, steps, {dir:'z-', width:6})   g.wall(x, bottom, z, w, height, d, color)   g.box(x, bottom, z, w, h, d, color, {solid:true})
+g.coin(x,z)  g.coinRow(x,z,count,dx,dz)  g.coins([[x,z],[x,z]])  — coins rest on whatever is below them
+g.checkpoint(x,z)  g.goal(x,z) — the golden flag that finishes the level (put it on a platform, at the end)
+g.lava(x,z,w,d) — costs a life   g.enemy(x,z,{type:'patrol'|'chase', range:6, axis:'x'|'z', speed:3, color}) — jump on its head to defeat it; touching its side hurts
+Decor (always grounded): g.tree(x,z,scale) g.rock(x,z) g.house(x,z,w,d,color) g.flower(x,z) g.cloud(x,y,z) g.scenery(area) (scatters trees + clouds)
+Extras: g.onUpdate(function(dt, player, g){ ... }) for custom rules; g.add(threeObject) to add your own THREE meshes; g.addScore(n); g.toast('text'); g.surfaceY(x,z); g.player.{x,y,z}; g.coinsCollected / g.coinsTotal.
+LEVEL DESIGN RULES: the player jumps about 3 units high and about 6 units across — keep platform gaps ≤ 6 and each step up ≤ 2.5. Build a clear path of platforms from spawn to the goal, with coins along the way that guide the player, a checkpoint in the middle of long levels, and a different challenge in each level (moving platforms, lava gaps, patrolling enemies, stairs, bouncy pads, ice). Make levels big enough to be fun (15–40 platforms/objects) and bright (use several colours; the kit picks theme colours for you if you omit them). Add g.scenery() for a lively world.
+Example level: function(g){ g.ground(50); g.spawn(0,8); g.scenery(40); g.platform(0,0,-14,6,6); g.coinRow(0,-14,3,0,2); g.platform(6,1.5,-22,5,5,{moving:{axis:'x',range:5}}); g.lava(0,-18,16,5); g.platform(-5,3,-30,5,5); g.checkpoint(-5,-30); g.enemy(0,2,{axis:'x',range:6}); g.platform(0,4.5,-38,9,9); g.goal(0,-38); }
+If you add your own THREE code, use only r128 features (no ES modules, no addons, no CapsuleGeometry).`;
 
 // does this request call for a 3D game? (3D by default for real "worlds"; 2D for flat classics)
 function wants3D(text){
@@ -1257,9 +1819,7 @@ function wants3D(text){
 
 function codexRuntimeNote(lastUserText, hasThreeCode){
     let note = CODEX_PLATFORM_NOTE;
-    const three = hasThreeCode || wants3D(lastUserText);
-    if(three) note += CODEX_3D_RULES;
-    if(wants3D(lastUserText) && !hasThreeCode) note += CODEX_3D_TEMPLATE_NOTE;
+    if(hasThreeCode || wants3D(lastUserText)) note += CODEX_3D_RULES;
     const pub = publishedForSession();
     if(pub){
         note += `
@@ -1274,7 +1834,7 @@ THIS CHAT'S ${pub.kind === "game" ? "GAME" : "APP"} IS ALREADY PUBLISHED: "${pub
 function withCodexRuntime(history){
     let lastUser = "";
     for(let i = history.length - 1; i >= 0; i--){ if(history[i].role === "user"){ lastUser = String(history[i].content || ""); break; } }
-    const hasThree = history.some(m => m.role === "assistant" && /THREE\.WebGLRenderer|three\.min\.js/.test(String(m.content || "")));
+    const hasThree = history.some(m => m.role === "assistant" && /THREE\.WebGLRenderer|three\.min\.js|ZG\.run/.test(String(m.content || "")));
     const note = { role: "system", content: codexRuntimeNote(lastUser, hasThree) };
     let i = 0;
     while(i < history.length && history[i].role === "system") i++;
