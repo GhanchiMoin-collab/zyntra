@@ -10770,3 +10770,45 @@ body.light-mode .cr-avatar-pre{ background:linear-gradient(160deg,#eef0ff,#fdf0f
 .cr-fixbar{ position:absolute; left:16px; right:16px; bottom:16px; z-index:20; display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:16px; background:rgba(60,20,28,.96); border:1px solid rgba(255,99,120,.5); color:#fff; font-size:13px; box-shadow:0 14px 40px rgba(0,0,0,.5); }
 .cr-fixbar span{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .modal-box.code-preview-box{ position:relative; }
+
+
+/* ==========================================================
+   Skills
+   ========================================================== */
+.sk-sub{ margin:0 0 14px; font-size:13.5px; line-height:1.55; color:var(--text-2,#b4b4c2); }
+.sk-actions{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
+.sk-count{ margin-left:auto; font-size:12px; color:var(--text-3,#9a9aa8); }
+.sk-list{ display:flex; flex-direction:column; gap:10px; max-height:52vh; overflow-y:auto; padding-right:4px; }
+.sk-card{ display:flex; gap:14px; align-items:flex-start; padding:14px; border-radius:16px; background:var(--glass,rgba(255,255,255,.05)); border:1px solid var(--glass-border,rgba(255,255,255,.1)); transition:opacity .2s ease, border-color .2s ease; }
+.sk-card:hover{ border-color:rgba(167,139,250,.4); }
+.sk-card.off{ opacity:.5; }
+.sk-icon{ width:42px; height:42px; flex-shrink:0; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:22px; background:linear-gradient(135deg,rgba(124,92,255,.35),rgba(236,72,153,.25)); }
+.sk-info{ flex:1; min-width:0; }
+.sk-name{ font-weight:700; font-size:14.5px; color:var(--text-1,#fff); display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.sk-tag{ padding:2px 8px; border-radius:99px; font-size:10.5px; font-weight:700; letter-spacing:.03em; background:rgba(124,92,255,.25); color:#d8ccff; }
+.sk-tag-soft{ background:rgba(255,255,255,.08); color:var(--text-2,#b4b4c2); }
+.sk-desc{ margin:4px 0 6px; font-size:12.8px; line-height:1.45; color:var(--text-2,#b4b4c2); }
+.sk-links{ display:flex; gap:14px; }
+.sk-del{ color:#ff8090; }
+.sk-switch{ position:relative; width:42px; height:24px; flex-shrink:0; margin-top:4px; }
+.sk-switch input{ opacity:0; width:100%; height:100%; margin:0; cursor:pointer; position:absolute; z-index:2; }
+.sk-switch span{ position:absolute; inset:0; border-radius:99px; background:rgba(255,255,255,.18); transition:background .2s ease; }
+.sk-switch span::after{ content:""; position:absolute; left:3px; top:3px; width:18px; height:18px; border-radius:50%; background:#fff; transition:transform .2s ease; }
+.sk-switch input:checked + span{ background:#7c5cff; }
+.sk-switch input:checked + span::after{ transform:translateX(18px); }
+.sk-body{ font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; line-height:1.5; }
+
+.sk-chiprow{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+.sk-chip-label{ font-size:11.5px; color:var(--text-3,#9a9aa8); }
+.sk-chip{ padding:3px 10px; border-radius:99px; border:1px solid rgba(167,139,250,.4); background:rgba(124,92,255,.14); color:inherit; font:inherit; font-size:11.5px; font-weight:600; cursor:pointer; }
+.sk-chip:hover{ background:rgba(124,92,255,.3); }
+
+.sk-pop{ position:absolute; left:12px; right:12px; bottom:calc(100% + 8px); z-index:60; max-height:300px; overflow-y:auto; padding:6px; border-radius:16px; background:#16161f; border:1px solid var(--glass-border-strong,rgba(255,255,255,.16)); box-shadow:0 18px 50px rgba(0,0,0,.55); }
+.sk-pop-title{ padding:6px 10px 8px; font-size:12px; font-weight:700; color:var(--text-2,#b4b4c2); display:flex; justify-content:space-between; }
+.sk-pop-title span{ font-weight:500; color:var(--text-3,#8b8b99); }
+.sk-pop-item{ display:flex; gap:10px; align-items:baseline; width:100%; text-align:left; padding:8px 10px; border:none; border-radius:10px; background:transparent; color:inherit; font:inherit; font-size:13px; cursor:pointer; }
+.sk-pop-item.active,.sk-pop-item:hover{ background:rgba(124,92,255,.25); }
+.sk-pop-item b{ white-space:nowrap; }
+.sk-pop-item em{ font-style:normal; color:var(--text-3,#9a9aa8); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-input-bar{ position:relative; }
+body.light-mode .sk-pop{ background:#fff; }
