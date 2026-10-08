@@ -3935,6 +3935,8 @@ async function pushLocalToCloud(){
             memories: getMemories(),
             plugins: getPlugins(),
             scheduledTasks: getScheduledTasks(),
+            skills: (window.ZyntraSkills ? ZyntraSkills.getCustom() : []),
+            skillsOff: (function(){ try{ return JSON.parse(localStorage.getItem("zyntra-skills-off") || "[]"); }catch(e){ return []; } })(),
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
     }catch(err){
@@ -3955,6 +3957,9 @@ async function pullCloudToLocal(){
             if(Array.isArray(data.memories)) localStorage.setItem("zyntra-memories", JSON.stringify(data.memories));
             if(data.plugins) localStorage.setItem("zyntra-plugins", JSON.stringify(data.plugins));
             if(Array.isArray(data.scheduledTasks)) localStorage.setItem("zyntra-scheduled", JSON.stringify(data.scheduledTasks));
+            if(Array.isArray(data.skills)) localStorage.setItem("zyntra-skills", JSON.stringify(data.skills));
+            if(Array.isArray(data.skillsOff)) localStorage.setItem("zyntra-skills-off", JSON.stringify(data.skillsOff));
+            if(data.avatar) localStorage.setItem("zyntra-avatar", JSON.stringify(data.avatar));
             if(Array.isArray(data.notifications)){
                 localStorage.setItem("zyntra-notifications", JSON.stringify(data.notifications));
                 updateNotifBadge();
@@ -6602,6 +6607,7 @@ async function streamAssistantReply(){
     }
 
     let accumulated = "";
+    let usedSkills = [];
     let firstChunkReceived = false;
     const controller = new AbortController();
     setGeneratingState(true, controller);
@@ -6616,12 +6622,17 @@ async function streamAssistantReply(){
         aiTime.className = "msg-time";
         aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         aiContent.appendChild(aiTime);
+        if(window.ZyntraSkills && usedSkills.length) ZyntraSkills.addChip(aiContent, usedSkills);
     }
 
     try{
         // Codex gets fresh platform / 3D / "this is an update" instructions on
         // every request (kept out of the stored chat so they never go stale).
-        const outgoing = (activeChatTool === "codex" && window.ZyntraCreations) ? ZyntraCreations.withCodexRuntime(chatHistory) : chatHistory;
+        let outgoing = (activeChatTool === "codex" && window.ZyntraCreations) ? ZyntraCreations.withCodexRuntime(chatHistory) : chatHistory;
+        // Skills: load only the instruction packs that fit this request
+        if(window.ZyntraSkills){
+            try{ const sk = ZyntraSkills.inject(outgoing, activeChatTool); outgoing = sk.messages; usedSkills = sk.used; }catch(e){ console.warn("skills:", e); }
+        }
         const { sources, memoryWrites, usage } = await streamChatAPI(outgoing, (chunk) => {
             if(!firstChunkReceived){
                 aiContent.textContent = "";
@@ -6779,6 +6790,7 @@ const FEATURE_INFO = {
     google:   { name: "Google tools",      plan: "starter" },
     webSearch:{ name: "More web searches", plan: "starter" },
     projectPublish: { name: "Publishing under a project", plan: "starter" },
+    skills: { name: "More custom skills", plan: "starter" },
     memory:   { name: "More memory",       plan: "starter" }
 };
 const FEATURE_PLAN_CARD = {
