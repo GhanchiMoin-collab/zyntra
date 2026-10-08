@@ -348,12 +348,17 @@ function run(cfg){
     ".zg-big{font-size:46px}" +
     ".zg-arrow{position:fixed;left:50%;top:58px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;color:#fff;font-weight:700;font-size:13px;pointer-events:none;text-shadow:0 2px 0 rgba(0,0,0,.4);opacity:.95}" +
     ".zg-arrow i{display:block;font-style:normal;font-size:30px;line-height:30px;transition:transform .08s linear;filter:drop-shadow(0 2px 0 rgba(0,0,0,.35))}" +
+    ".zg-atk{position:fixed;right:124px;bottom:44px;width:70px;height:70px;border-radius:50%;border:3px solid #fff;background:rgba(255,170,30,.9);color:#fff;font:700 26px system-ui;display:none;box-shadow:0 5px 0 rgba(0,0,0,.25)}" +
+    ".zg-boss{position:fixed;left:50%;top:104px;transform:translateX(-50%);width:min(380px,70vw);display:none;color:#fff;font-weight:700;text-align:center;text-shadow:0 2px 0 rgba(0,0,0,.4)}" +
+    ".zg-boss div{height:14px;border-radius:99px;background:rgba(0,0,0,.45);overflow:hidden;margin-top:4px;border:2px solid rgba(255,255,255,.6)}.zg-boss i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ef4444,#f97316);transition:width .25s}" +
     ".zg-lock{position:fixed;right:14px;top:58px;color:#fff;font-size:12px;font-weight:700;background:rgba(15,20,50,.6);padding:4px 10px;border-radius:99px;display:none}";
   document.head.appendChild(css);
   var hud = document.createElement('div'); hud.className = 'zg-hud';
   hud.innerHTML = '<span class="zg-pill" id="zg-coins"></span><span class="zg-pill" id="zg-lives"></span><span class="zg-pill" id="zg-level"></span><span class="zg-pill" id="zg-time" style="display:none"></span><span class="zg-pill" id="zg-buffs" style="display:none"></span><span class="zg-spacer"></span><button class="zg-pill zg-mute" id="zg-mute">🔊</button>';
   document.body.appendChild(hud);
   var arrowEl = document.createElement('div'); arrowEl.className = 'zg-arrow'; arrowEl.innerHTML = '<i>➤</i><span></span>'; arrowEl.style.display = 'none'; document.body.appendChild(arrowEl);
+  var atkEl = document.createElement('button'); atkEl.className = 'zg-atk'; atkEl.textContent = '⚔'; document.body.appendChild(atkEl);
+  var bossEl = document.createElement('div'); bossEl.className = 'zg-boss'; bossEl.innerHTML = '<span></span><div><i></i></div>'; document.body.appendChild(bossEl);
   var lockEl = document.createElement('div'); lockEl.className = 'zg-lock'; lockEl.textContent = '🔒 Shift-lock on'; document.body.appendChild(lockEl);
   var toastEl = document.createElement('div'); toastEl.className = 'zg-toast'; document.body.appendChild(toastEl);
   var joyEl = document.createElement('div'); joyEl.className = 'zg-joy'; joyEl.innerHTML = '<div class="zg-knob"></div>'; document.body.appendChild(joyEl);
@@ -397,14 +402,14 @@ function run(cfg){
   var playing = false, tStart = 0, levelTime = 0, timeLimit = cfg.time || 0, won = false;
   var hero, heroParts, p = { x: 0, y: 2, z: 0, vx: 0, vy: 0, vz: 0, grounded: false, face: 0, jumps: 0, invul: 0, ride: null };
   var HALF = 0.42, HEIGHT = 1.9, GRAV = 40, JUMP_V = 15.5, MAXJ = cfg.doubleJump ? 2 : 1, SPEED = cfg.speed || 11;
-  var particles = [], spinners = [], signs = [], powerups = [], buff = { speed: 0, jump: 0, shield: false }, goalNeed = 0, lockToast = 0;
+  var particles = [], spinners = [], signs = [], powerups = [], keysList = [], doors = [], portals = [], npcs = [], shots = [], keysHeld = 0, atkCool = 0, buff = { speed: 0, jump: 0, shield: false }, goalNeed = 0, lockToast = 0;
   var autoCamera = cfg.autoCamera !== false, shiftLock = false, camShake = 0, squash = 0, dustT = 0;
 
   function newLevelGroup(){
     if(levelGroup) scene.remove(levelGroup);
     levelGroup = new THREE.Group(); scene.add(levelGroup);
     solids = []; coins = []; enemies = []; hazards = []; checkpoints = []; updaters = []; decor = []; goalObj = null; palI = 0;
-    spinners = []; signs = []; powerups = []; goalNeed = 0; buff.speed = 0; buff.jump = 0; buff.shield = false;
+    spinners = []; signs = []; powerups = []; keysList = []; doors = []; portals = []; npcs = []; shots = []; keysHeld = 0; goalNeed = 0; buff.speed = 0; buff.jump = 0; buff.shield = false;
   }
 
   function mat(c){ return new THREE.MeshLambertMaterial({ color: c, flatShading: true }); }
@@ -532,7 +537,50 @@ function run(cfg){
       grp.add(post, board); grp.position.set(x, y, z); levelGroup.add(grp);
       signs.push({ x: x, z: z, text: String(text), shown: false });
     },
-    // lockGoal('all' | n) — the flag stays locked until you have collected that many coins
+    // island(x, top, z, w, d, {color, trees}) — a floating island with a dirt underside and scenery on top
+    island: function(x, top, z, w, d, o){
+      o = o || {}; var s = g.platform(x, top, z, w, d, { color: o.color, h: 0.9, moving: o.moving });
+      var dirt1 = new THREE.Mesh(new THREE.BoxGeometry(w * 0.85, 1.4, d * 0.85), mat(0x8d6e63)), dirt2 = new THREE.Mesh(new THREE.BoxGeometry(w * 0.55, 1.6, d * 0.55), mat(0x6d4c41));
+      dirt1.position.set(0, -1.15, 0); dirt2.position.set(0, -2.6, 0); s.mesh.add(dirt1); s.mesh.add(dirt2);
+      var n = o.trees == null ? Math.min(3, Math.floor(w * d / 40)) : o.trees;
+      for(var i = 0; i < n; i++){ var tx = x + (Math.random() - 0.5) * (w - 3), tz = z + (Math.random() - 0.5) * (d - 3); if(Math.hypot(tx - x, tz - z) > 1) g.tree(tx, tz, 0.7); }
+      return s;
+    },
+    // key(x, z) + door(x, bottom, z, w, h, d) — pick up the key to open every door
+    key: function(x, z){
+      var by = surfaceY(x, z) + 1.5, grp = new THREE.Group(), gm = new THREE.MeshLambertMaterial({ color: 0xffd23f, emissive: 0x8a6a00 });
+      var ring = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.13, 8, 14), gm), stem = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.9, 0.16), gm), tooth = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 0.14), gm);
+      ring.position.y = 0.6; stem.position.y = 0; tooth.position.set(0.18, -0.32, 0); grp.add(ring, stem, tooth); grp.position.set(x, by, z); levelGroup.add(grp);
+      keysList.push({ grp: grp, x: x, y: by, z: z, got: false });
+    },
+    door: function(x, bottom, z, w, hgt, d, color){
+      var s = g.wall(x, bottom, z, w || 6, hgt || 5, d || 1.2, color || 0x8d6e63); s.door = true; s.mesh.material.emissive = new THREE.Color(0x221100); doors.push(s); return s;
+    },
+    // portal(x, z, toX, toZ) — a glowing ring that teleports you
+    portal: function(x, z, tx, tz){
+      var y = surfaceY(x, z), grp = new THREE.Group(), pm = new THREE.MeshBasicMaterial({ color: 0xb388ff });
+      var ring = new THREE.Mesh(new THREE.TorusGeometry(1.5, 0.22, 10, 24), pm); ring.position.y = 1.8;
+      var disc = new THREE.Mesh(new THREE.CircleGeometry(1.35, 24), new THREE.MeshBasicMaterial({ color: 0x7c4dff, transparent: true, opacity: 0.45, side: THREE.DoubleSide })); disc.position.y = 1.8;
+      grp.add(ring, disc); grp.position.set(x, y, z); levelGroup.add(grp);
+      portals.push({ grp: grp, ring: ring, x: x, y: y, z: z, tx: tx, tz: tz, cool: 0 });
+    },
+    // npc(x, z, 'Hello!', {name, color}) — a friendly character who talks when you walk up
+    npc: function(x, z, text, o){
+      o = o || {}; var y = surfaceY(x, z), grp = new THREE.Group(), col = toColor(o.color, nextColor());
+      function b2(w, h, d, c, px, py, pz){ var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(c)); m.position.set(px, py, pz); m.castShadow = true; return m; }
+      grp.add(b2(0.7, 0.7, 0.7, 0xf2c9a0, 0, 2.05, 0), b2(0.75, 0.2, 0.75, 0x4a2f12, 0, 2.5, 0), b2(1, 1.1, 0.55, col, 0, 1.1, 0), b2(0.4, 0.8, 0.4, 0x374151, -0.25, 0.4, 0), b2(0.4, 0.8, 0.4, 0x374151, 0.25, 0.4, 0));
+      grp.add(b2(0.1, 0.12, 0.05, 0x111111, -0.15, 2.1, 0.36), b2(0.1, 0.12, 0.05, 0x111111, 0.15, 2.1, 0.36));
+      var ex = new THREE.Mesh(new THREE.OctahedronGeometry(0.22), new THREE.MeshBasicMaterial({ color: 0xffe14d })); ex.position.y = 3.1; grp.add(ex);
+      grp.position.set(x, y, z); grp.scale.setScalar(1.2); levelGroup.add(grp);
+      npcs.push({ grp: grp, mark: ex, x: x, z: z, text: (o.name ? o.name + ': ' : '') + String(text), shown: false });
+    },
+    // boss(x, z, {hp, color, speed}) — a big enemy: stomp it or throw stars (F). Pair with g.lockGoal('boss').
+    boss: function(x, z, o){
+      o = o || {}; g.enemy(x, z, { type: 'chase', range: 40, speed: o.speed || 2.6, color: o.color || 0x7c3aed });
+      var e = enemies[enemies.length - 1]; e.boss = true; e.hp = e.maxHp = o.hp || 6; e.grp.scale.setScalar(2.4); e.stun = 0; e.name = o.name || 'BOSS';
+      var crown = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.7, 5), new THREE.MeshLambertMaterial({ color: 0xffd23f, emissive: 0x805f00 })); crown.position.y = 1.85; e.grp.add(crown);
+    },
+    // lockGoal('all' | n | 'boss') — the flag stays locked until you have collected that many coins
     lockGoal: function(n){ goalNeed = n == null ? 'all' : n; },
     // enemy(x, z, {type:'patrol'|'chase', range, speed, color}) — jump on its head to defeat it
     enemy: function(x, z, o){
@@ -697,6 +745,10 @@ function run(cfg){
   joyEl.addEventListener('touchend', joyEnd); joyEl.addEventListener('touchcancel', joyEnd);
   jumpEl.addEventListener('touchstart', function(e){ jumpQueued = true; e.preventDefault(); }, { passive: false });
   jumpEl.addEventListener('mousedown', function(){ jumpQueued = true; });
+  var atkQueued = false;
+  if(cfg.attack && isTouch) atkEl.style.display = 'block';
+  atkEl.addEventListener('touchstart', function(e){ atkQueued = true; e.preventDefault(); }, { passive: false });
+  atkEl.addEventListener('mousedown', function(){ atkQueued = true; });
   var camYaw = 0, camYawT = 0, camPitch = 0.4, camDist = cfg.cameraDistance || 12, camDistCur = camDist, look = null, lastLook = -9999, pinch = null;
   var dom = renderer.domElement;
   dom.addEventListener('contextmenu', function(e){ e.preventDefault(); });
@@ -823,9 +875,11 @@ function run(cfg){
         if(e.x !== px0 || e.z !== pz0) e.grp.rotation.y = Math.atan2(e.x - px0, e.z - pz0);
       }
       e.y = surfaceY(e.x, e.z); e.grp.position.set(e.x, e.y + Math.abs(Math.sin(now * 4 + i)) * 0.15, e.z);
-      if(Math.abs(p.x - e.x) < HALF + 0.8 && Math.abs(p.z - e.z) < HALF + 0.8 && p.y < e.y + 1.6 && p.y + HEIGHT > e.y){
-        if(p.vy < -2 && p.y > e.y + 0.9){ e.alive = false; p.vy = 13; score += 25; SFX.stomp(); burst(e.x, e.y + 1, e.z, 0xff6b6b, 12); paintHud(); }
-        else hurt('An enemy got you!');
+      var sc2 = e.boss ? 2.4 : 1, rad = 0.8 * sc2, tall = 1.6 * sc2;
+      if(e.stun > 0){ e.stun -= dt; e.grp.rotation.z = Math.sin(now * 30) * 0.12; continue; } else if(e.boss) e.grp.rotation.z = 0;
+      if(Math.abs(p.x - e.x) < HALF + rad && Math.abs(p.z - e.z) < HALF + rad && p.y < e.y + tall && p.y + HEIGHT > e.y){
+        if(p.vy < -2 && p.y > e.y + 0.9 * sc2){ hitEnemy(e, 1); p.vy = 14; }
+        else hurt(e.boss ? 'The boss got you!' : 'An enemy got you!');
       }
     }
     for(i = 0; i < spinners.length; i++){
@@ -849,18 +903,66 @@ function run(cfg){
       var sg2 = signs[i], dd = Math.hypot(p.x - sg2.x, p.z - sg2.z);
       if(dd < 3.6 && !sg2.shown){ sg2.shown = true; toast(sg2.text); } else if(dd > 7) sg2.shown = false;
     }
+    if(atkCool > 0) atkCool -= dt;
+    if(cfg.attack && (keys.KeyF || atkQueued)){ atkQueued = false; throwStar(); }
+    for(i = shots.length - 1; i >= 0; i--){
+      var sh = shots[i]; sh.life -= dt; sh.m.position.x += sh.vx * dt; sh.m.position.z += sh.vz * dt; sh.m.rotation.y += dt * 12;
+      var dead = sh.life <= 0;
+      for(var j = 0; j < enemies.length && !dead; j++){
+        var en = enemies[j]; if(!en.alive) continue; var r2 = en.boss ? 2.2 : 1.1;
+        if(Math.hypot(sh.m.position.x - en.x, sh.m.position.z - en.z) < r2 && Math.abs(sh.m.position.y - (en.y + (en.boss ? 2 : 0.8))) < (en.boss ? 3 : 1.6)){ hitEnemy(en, 1); dead = true; }
+      }
+      for(var j2 = 0; j2 < solids.length && !dead; j2++){ var so2 = solids[j2]; if(!so2.off && Math.abs(sh.m.position.x - so2.x) < so2.w / 2 && Math.abs(sh.m.position.z - so2.z) < so2.d / 2 && sh.m.position.y < so2.y + so2.h / 2 && sh.m.position.y > so2.y - so2.h / 2) dead = true; }
+      if(dead){ scene.remove(sh.m); shots.splice(i, 1); }
+    }
+    for(i = 0; i < keysList.length; i++){
+      var ky = keysList[i]; if(ky.got) continue; ky.grp.rotation.y += dt * 2.5; ky.grp.position.y = ky.y + Math.sin(now * 3) * 0.2;
+      if(Math.hypot(p.x - ky.x, p.z - ky.z) < 1.4 && Math.abs(p.y + 1 - ky.y) < 2){ ky.got = true; ky.grp.visible = false; keysHeld++; SFX.check(); toast('🔑 Got the key! Doors will open.'); }
+    }
+    for(i = 0; i < doors.length; i++){
+      var dr = doors[i]; if(dr.off) { dr.mesh.position.y += dt * 4; if(dr.mesh.position.y > dr.y + dr.h) dr.mesh.visible = false; continue; }
+      if(keysHeld > 0 && Math.abs(p.x - dr.x) < dr.w / 2 + 2.6 && Math.abs(p.z - dr.z) < dr.d / 2 + 2.6 && p.y < dr.y + dr.h / 2){ dr.off = true; SFX.win(); toast('🚪 Door unlocked!'); }
+    }
+    for(i = 0; i < portals.length; i++){
+      var po = portals[i]; po.ring.rotation.z += dt * 1.5; po.cool -= dt;
+      if(po.cool <= 0 && Math.hypot(p.x - po.x, p.z - po.z) < 1.6 && Math.abs(p.y - po.y) < 3){
+        var ty = surfaceY(po.tx, po.tz); p.x = po.tx; p.z = po.tz; p.y = ty + 0.3; p.vy = 0; po.cool = 1.2; SFX.check(); burst(po.x, po.y + 1.5, po.z, 0xb388ff, 12); burst(p.x, p.y + 1, p.z, 0xb388ff, 12); toast('🌀 Whoosh!');
+        for(var q2 = 0; q2 < portals.length; q2++) if(Math.hypot(portals[q2].x - p.x, portals[q2].z - p.z) < 3) portals[q2].cool = 1.5;
+      }
+    }
+    for(i = 0; i < npcs.length; i++){
+      var nc = npcs[i], dn = Math.hypot(p.x - nc.x, p.z - nc.z); nc.mark.position.y = 3.1 + Math.sin(now * 3) * 0.12; nc.grp.rotation.y = Math.atan2(p.x - nc.x, p.z - nc.z);
+      if(dn < 4 && !nc.shown){ nc.shown = true; toast(nc.text); } else if(dn > 8) nc.shown = false;
+    }
+    var bossE = enemies.filter(function(en){ return en.boss && en.alive; })[0];
+    if(bossE){ bossEl.style.display = 'block'; bossEl.firstChild.textContent = '👹 ' + bossE.name; bossEl.querySelector('i').style.width = Math.max(0, bossE.hp / bossE.maxHp * 100) + '%'; } else bossEl.style.display = 'none';
     for(i = 0; i < updaters.length; i++) updaters[i](dt, p, g);
     if(goalObj){
-      var need = goalNeed === 'all' ? coinsTotal : (goalNeed || 0), open = coinsGot >= need;
+      var bossAlive = enemies.some(function(en){ return en.boss && en.alive; });
+      var need = goalNeed === 'all' ? coinsTotal : (typeof goalNeed === 'number' ? goalNeed : 0), open = coinsGot >= need && !(goalNeed === 'boss' && bossAlive);
       goalObj.cloth.material.color.setHex(open ? 0xffc400 : 0x8a8f98);
       if(Math.hypot(p.x - goalObj.x, p.z - goalObj.z) < 2.6 && Math.abs(p.y - goalObj.y) < 3.5){
         if(open) levelDone();
-        else if(performance.now() - lockToast > 2500){ lockToast = performance.now(); toast('🔒 Collect ' + (need - coinsGot) + ' more coin' + (need - coinsGot === 1 ? '' : 's') + ' to open the flag!'); }
+        else if(performance.now() - lockToast > 2500){ lockToast = performance.now(); toast(goalNeed === 'boss' && bossAlive ? '🔒 Defeat the boss to open the flag!' : '🔒 Collect ' + (need - coinsGot) + ' more coin' + (need - coinsGot === 1 ? '' : 's') + ' to open the flag!'); }
       }
     }
     paintHud();
   }
 
+  function hitEnemy(e, dmg){
+    e.hp = (e.hp || 1) - dmg; SFX.stomp(); burst(e.x, e.y + 1.2, e.z, e.boss ? 0xb388ff : 0xff6b6b, e.boss ? 14 : 12);
+    if(e.boss){ e.stun = 1.0; camShake = 0.3; }
+    if(e.hp <= 0){ e.alive = false; score += e.boss ? 150 : 25; if(e.boss) toast('💥 Boss defeated!'); }
+    else score += 5;
+    paintHud();
+  }
+  function throwStar(){
+    if(atkCool > 0 || !playing) return;
+    atkCool = 0.35; SFX.jump();
+    var m = new THREE.Mesh(new THREE.OctahedronGeometry(0.4), new THREE.MeshBasicMaterial({ color: 0xffe14d }));
+    m.position.set(p.x, p.y + 1.4, p.z); scene.add(m);
+    shots.push({ m: m, vx: Math.sin(p.face) * 30, vz: Math.cos(p.face) * 30, life: 1.1 });
+  }
   function levelDone(){
     if(!playing) return;
     SFX.win(); burst(goalObj.x, goalObj.y + 3, goalObj.z, 0xffd23f, 30);
@@ -885,7 +987,7 @@ function run(cfg){
   function restart(){ score = 0; lives = maxLives; won = false; palI = 0; loadLevel(0); playing = true; tStart = performance.now(); }
 
   btnAction = function(){ restart(); };
-  showMenu(title, goalText, isTouch ? 'Left stick to move · JUMP button · drag the right side to look' : 'WASD / arrows to move · Space to jump · drag to look around', '▶ Play');
+  showMenu(title, (cfg.story ? cfg.story + '<br><br>' : '') + goalText, (isTouch ? 'Left stick to move · JUMP button · drag the right side to look' : 'WASD / arrows to move · Space to jump · drag or Q/E to look' + (cfg.attack ? ' · F to throw a star' : '')) + (cfg.attack && isTouch ? ' · ⚔ to throw a star' : ''), '▶ Play');
 
   // ----- loop -----
   var last = performance.now(), walk = 0;
@@ -952,7 +1054,7 @@ function run(cfg){
   return g;
 }
 
-window.ZG = { run: run, themes: Object.keys(THEMES), version: 1 };
+window.ZG = { run: run, themes: Object.keys(THEMES), version: 2 };
 }
 
 
@@ -1956,6 +2058,7 @@ g.coin(x,z)  g.coinRow(x,z,count,dx,dz)  g.coins([[x,z],[x,z]])  — coins rest 
 g.checkpoint(x,z)  g.goal(x,z) — the golden flag that finishes the level (put it on a platform, at the end)
 g.lava(x,z,w,d) — costs a life   g.enemy(x,z,{type:'patrol'|'chase', range:6, axis:'x'|'z', speed:3, color}) — jump on its head to defeat it; touching its side hurts
 Decor (always grounded): g.tree(x,z,scale) g.rock(x,z) g.house(x,z,w,d,color) g.flower(x,z) g.cloud(x,y,z) g.scenery(area) (scatters trees + clouds)
+Adventure features: g.island(x,top,z,w,d) a floating island with dirt underneath and trees; g.key(x,z) + g.door(x,bottom,z,w,h,d) (pick up the key and the doors open); g.portal(x,z,toX,toZ) teleports; g.npc(x,z,'text',{name}) a friendly character who talks; g.boss(x,z,{hp:6,speed}) a big enemy with a health bar — pair it with g.lockGoal('boss') so the flag opens when it is defeated; ZG.run({attack:true}) lets the player throw stars with F / the ⚔ button (kills enemies, damages the boss); ZG.run({story:'one-sentence intro'}) shows a story on the start screen. A great game has: a story line, an easy first level, a key/door or portal puzzle in the middle, and a boss on the last level.
 More challenges: g.platform(..., {crumble:true}) falls shortly after you step on it; g.spinner(x,z,length,speed) is a spinning bar to jump over; g.water(x,z,w,d) costs a life; g.powerup(x,z,'speed'|'jump'|'shield'|'life'); g.sign(x,z,'hint text') shows a message when you walk up; g.lockGoal('all') (or a number) keeps the flag locked until that many coins are collected — great for "collect everything" games. Config extras: autoCamera (default true).
 The camera is already Roblox-style (it follows the player, swings round when they turn, zooms in when walls block it, right-drag/Q/E to look, Shift for shift-lock, pinch/scroll to zoom) and a compass arrow points to the flag — do not code any camera.
 Extras: g.onUpdate(function(dt, player, g){ ... }) for custom rules; g.add(threeObject) to add your own THREE meshes; g.addScore(n); g.toast('text'); g.surfaceY(x,z); g.player.{x,y,z}; g.coinsCollected / g.coinsTotal.
@@ -1975,7 +2078,6 @@ function wants3D(text){
 
 function codexRuntimeNote(lastUserText, hasThreeCode){
     let note = CODEX_PLATFORM_NOTE;
-    if(hasThreeCode || wants3D(lastUserText)) note += CODEX_3D_RULES;
     const pub = publishedForSession();
     if(pub){
         note += `
@@ -2005,6 +2107,7 @@ function route(slug, sub){
     return false;
 }
 
+Z.CODEX_3D_RULES = CODEX_3D_RULES;
 Object.assign(Z, { startPublish, previewDoc, openInNewTab, codexContextNote, withCodexRuntime, wants3D, codexRuntimeNote, refreshPublishButton, route, openDashboard, openGamePage, openAvatarModal, publishedForSession, hookDiscover, openDiscover, startCreating, openDetailsModal });
 
 // wire up once the page is ready
