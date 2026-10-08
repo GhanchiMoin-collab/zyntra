@@ -911,6 +911,9 @@
                 <button type="button" class="settings-nav-item" data-settings-section="account">
                     <span class="settings-nav-icon">👤</span> Account
                 </button>
+                <button type="button" class="settings-nav-item" data-settings-section="skills">
+                    <span class="settings-nav-icon">🧩</span> Skills
+                </button>
                 <button type="button" class="settings-nav-item" data-settings-section="pinned">
                     <span class="settings-nav-icon">📌</span> Pinned Chats
                 </button>
@@ -1083,6 +1086,11 @@
                         <button id="securityDeleteAccountBtn" type="button" style="margin-top:12px; padding:12px 20px; border:1px solid #5a2334; border-radius:12px; background:#2a1420; color:#ff8fa8; font-weight:700; cursor:pointer;">🗑 Delete my account</button>
                         <p id="securityDeleteMsg" class="settings-section-hint" style="margin-top:10px;"></p>
                     </div>
+                </div>
+
+                <div class="settings-panel" data-settings-panel="skills" style="display:none;">
+                    <h2 class="settings-panel-title">Skills</h2>
+                    <div id="skillsPanelHost" style="margin-top:14px;"></div>
                 </div>
 
                 <div class="settings-panel" data-settings-panel="pinned" style="display:none;">
@@ -1477,6 +1485,7 @@
 
 <script src="/script.js"></script>
 <script src="/creations.js"></script>
+<script src="/skills.js"></script>
 <script>
     if("serviceWorker" in navigator){
         window.addEventListener("load", () => {
