@@ -229,4 +229,235 @@ function openSkillsSettings(){
   if(typeof switchSettingsSection === "function") switchSettingsSection("skills");
 }
 
-function
+function renderPanel(){
+  const host = $("skillsPanelHost");
+  if(!host) return;
+  const list = allSkills();
+  const custom = getCustom().length, limit = customLimit();
+  host.innerHTML = `
+    <p class="sk-sub">Skills teach Zyntra how to do specific jobs really well. Zyntra loads the right one automatically (you'll see a <b>🧩 Skills used</b> chip under replies) — or type <b>/</b> in the message box to pick one.</p>
+    <div class="sk-actions">
+      <button type="button" class="cr-btn cr-btn-primary" id="skNew">＋ Create skill</button>
+      <button type="button" class="cr-btn cr-btn-ghost" id="skAi">✨ Draft with AI</button>
+      <button type="button" class="cr-btn cr-btn-ghost" id="skImport">⬆ Upload SKILL.md</button>
+      <input type="file" id="skFile" accept=".md,.txt,text/markdown,text/plain" multiple hidden>
+      <span class="sk-count">${custom} / ${limit} custom skills</span>
+    </div>
+    <div class="sk-list">${list.map(s => `
+      <div class="sk-card${s.enabled ? "" : " off"}" data-id="${esc(s.id)}" data-builtin="${s.builtin ? 1 : 0}">
+        <div class="sk-icon">${esc(s.icon || "🧩")}</div>
+        <div class="sk-info">
+          <div class="sk-name">${esc(s.name)} <span class="sk-tag">${s.builtin ? "Built-in" : "Custom"}</span>${s.tools && !s.tools.includes("*") ? `<span class="sk-tag sk-tag-soft">${s.tools.includes("codex") && s.tools.length === 1 ? "Codex" : s.tools.join(", ")}</span>` : ""}</div>
+          <div class="sk-desc">${esc(s.description || "")}</div>
+          <div class="sk-links"><button type="button" class="cr-link" data-act="view">${s.builtin ? "View" : "Edit"}</button><button type="button" class="cr-link" data-act="export">Download .md</button>${s.builtin ? `<button type="button" class="cr-link" data-act="copy">Duplicate</button>` : `<button type="button" class="cr-link sk-del" data-act="delete">Delete</button>`}</div>
+        </div>
+        <label class="sk-switch" title="${s.enabled ? "On" : "Off"}"><input type="checkbox" data-act="toggle" ${s.enabled ? "checked" : ""}><span></span></label>
+      </div>`).join("")}</div>`;
+
+  $("skNew").onclick = () => openEditor();
+  $("skAi").onclick = () => openAiDraft();
+  $("skImport").onclick = () => $("skFile").click();
+  $("skFile").onchange = async e => { for(const f of e.target.files) await importFile(f); e.target.value = ""; renderPanel(); };
+  host.querySelector(".sk-list").addEventListener("click", e => {
+    const card = e.target.closest(".sk-card"); if(!card) return;
+    const id = card.dataset.id, s = list.find(x => x.id === id), act = (e.target.closest("[data-act]") || {}).dataset?.act;
+    if(!s || !act) return;
+    if(act === "view") openEditor(s);
+    else if(act === "export") downloadSkill(s);
+    else if(act === "copy") openEditor(Object.assign({}, s, { id: null, builtin: false, name: s.name + " (my copy)", instructions: bodyOf(s) }), true);
+    else if(act === "delete"){ if(confirm("Delete the skill “" + s.name + "”?")){ saveCustom(getCustom().filter(x => x.id !== id)); renderPanel(); } }
+  });
+  host.querySelector(".sk-list").addEventListener("change", e => {
+    if(e.target.dataset.act !== "toggle") return;
+    const card = e.target.closest(".sk-card"), id = card.dataset.id, on = e.target.checked;
+    if(card.dataset.builtin === "1"){
+      const off = new Set(getOff()); if(on) off.delete(id); else off.add(id); saveOff(Array.from(off));
+    } else {
+      saveCustom(getCustom().map(x => x.id === id ? Object.assign({}, x, { enabled: on }) : x));
+    }
+    card.classList.toggle("off", !on);
+  });
+}
+
+// ----- editor -----
+function openEditor(skill, asNew){
+  const isNew = !skill || asNew;
+  const readOnly = skill && skill.builtin;
+  if(isNew && getCustom().length >= customLimit()){
+    if(typeof showFeatureLockedModal === "function" && planKey() !== "ultra") showFeatureLockedModal("skills");
+    else toast("You've reached the custom skill limit for your plan.");
+    return;
+  }
+  document.querySelector(".cr-overlay.sk-editor")?.remove();
+  const s = skill || { name: "", description: "", triggers: [], tools: ["*"], instructions: "" };
+  const body = readOnly ? bodyOf(s) : (s.instructions || "");
+  const ov = document.createElement("div");
+  ov.className = "cr-overlay sk-editor";
+  ov.innerHTML = `<div class="cr-modal cr-modal-lg">
+    <div class="cr-modal-head"><h3>${readOnly ? esc((s.icon || "🧩") + " " + s.name) : (isNew ? "Create a skill" : "Edit skill")}</h3><button type="button" class="cr-x">✕</button></div>
+    ${readOnly ? `<p class="cr-dim">This is a built-in skill. You can read how it works and duplicate it to make your own version.</p>` : ""}
+    <label class="cr-label">Name</label>
+    <input class="cr-input" id="skName" maxlength="50" placeholder="e.g. Cricket Commentator" ${readOnly ? "readonly" : ""}>
+    <label class="cr-label">When should Zyntra use it? <span class="cr-dim">(one or two sentences)</span></label>
+    <textarea class="cr-input" id="skDesc" rows="2" maxlength="${MAX_DESC}" placeholder="Use when the user asks for live match commentary or cricket analysis." ${readOnly ? "readonly" : ""}></textarea>
+    <label class="cr-label">Trigger words <span class="cr-dim">(optional, comma separated — helps it load at the right time)</span></label>
+    <input class="cr-input" id="skTrig" placeholder="cricket, wicket, over, commentary" ${readOnly ? "readonly" : ""}>
+    <label class="cr-label">Works in</label>
+    <select class="cr-input" id="skTools" ${readOnly ? "disabled" : ""}><option value="*">Everywhere</option><option value="chat">AI Chat only</option><option value="codex">Codex only</option></select>
+    <label class="cr-label">Instructions <span class="cr-dim">(what Zyntra should do, step by step)</span></label>
+    <textarea class="cr-input sk-body" id="skBody" rows="12" maxlength="${MAX_BODY}" placeholder="Write it like you're training a new teammate: the goal, the steps, the style, examples of good output, and things to avoid." ${readOnly ? "readonly" : ""}></textarea>
+    <div class="cr-modal-foot">
+      ${readOnly ? `<button type="button" class="cr-btn cr-btn-ghost" id="skDup">Duplicate &amp; edit</button><button type="button" class="cr-btn cr-btn-primary" id="skClose">Close</button>`
+        : `<button type="button" class="cr-btn cr-btn-ghost" id="skCancel">Cancel</button><button type="button" class="cr-btn cr-btn-primary" id="skSave">Save skill</button>`}
+    </div></div>`;
+  document.body.appendChild(ov);
+  const q = id => ov.querySelector("#" + id);
+  q("skName").value = s.name || ""; q("skDesc").value = s.description || ""; q("skTrig").value = (s.triggers || []).join(", ");
+  q("skTools").value = (s.tools && s.tools.length === 1 && ["chat", "codex"].includes(s.tools[0])) ? s.tools[0] : "*";
+  q("skBody").value = body;
+  const close = () => ov.remove();
+  ov.querySelector(".cr-x").onclick = close;
+  ov.addEventListener("mousedown", e => { if(e.target === ov) close(); });
+  if(readOnly){
+    q("skClose").onclick = close;
+    q("skDup").onclick = () => { close(); openEditor(Object.assign({}, s, { id: null, builtin: false, name: s.name + " (my copy)", instructions: bodyOf(s) }), true); };
+    return;
+  }
+  q("skCancel").onclick = close;
+  q("skSave").onclick = () => {
+    const name = q("skName").value.trim(), desc = q("skDesc").value.trim(), instr = q("skBody").value.trim();
+    if(!name){ toast("Give the skill a name."); return; }
+    if(!desc){ toast("Say when Zyntra should use it."); return; }
+    if(instr.length < 20){ toast("Add some instructions (at least a sentence)."); return; }
+    const rec = { id: (!isNew && s.id) ? s.id : "c-" + Date.now().toString(36), name, description: desc, instructions: instr,
+      triggers: q("skTrig").value.split(",").map(x => x.trim()).filter(Boolean).slice(0, 12),
+      tools: [q("skTools").value], enabled: true, icon: s.icon || "🧩" };
+    const list = getCustom();
+    const idx = list.findIndex(x => x.id === rec.id);
+    if(idx >= 0) list[idx] = rec; else list.push(rec);
+    saveCustom(list); toast("Skill saved 🧩"); close(); renderPanel();
+  };
+}
+
+// ----- import / export (Claude-style SKILL.md: frontmatter + body) -----
+function slugFile(s){ return (slugOf(s) || "skill") + ".md"; }
+function downloadSkill(s){
+  const md = "---\nname: " + s.name + "\ndescription: " + String(s.description || "").replace(/\n/g, " ") + "\n" +
+    (s.triggers && s.triggers.length ? "triggers: " + s.triggers.join(", ") + "\n" : "") + "---\n\n" + bodyOf(s).trim() + "\n";
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" })); a.download = slugFile(s);
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
+function parseSkillMd(text){
+  const m = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/.exec(text.trim());
+  let meta = {}, body = text.trim();
+  if(m){
+    body = m[2].trim();
+    m[1].split("\n").forEach(line => { const kv = /^([a-zA-Z_-]+)\s*:\s*(.*)$/.exec(line); if(kv) meta[kv[1].toLowerCase()] = kv[2].trim(); });
+  }
+  const heading = /^#\s+(.+)$/m.exec(body);
+  const name = (meta.name || (heading && heading[1]) || "").slice(0, 50);
+  const desc = (meta.description || body.split("\n").find(l => l.trim() && !l.startsWith("#")) || "").slice(0, MAX_DESC);
+  return { name, description: desc, instructions: body.slice(0, MAX_BODY), triggers: meta.triggers ? meta.triggers.split(",").map(x => x.trim()).filter(Boolean).slice(0, 12) : [] };
+}
+async function importFile(file){
+  try{
+    if(file.size > 60 * 1024){ toast("“" + file.name + "” is too big for a skill (60KB max)."); return; }
+    const sk = parseSkillMd(await file.text());
+    if(!sk.name || sk.instructions.length < 20){ toast("Couldn't find a name and instructions in “" + file.name + "”."); return; }
+    if(getCustom().length >= customLimit()){ if(typeof showFeatureLockedModal === "function" && planKey() !== "ultra") showFeatureLockedModal("skills"); else toast("Custom skill limit reached."); return; }
+    const list = getCustom(); list.push(Object.assign({ id: "c-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), tools: ["*"], enabled: true, icon: "🧩" }, sk));
+    saveCustom(list); toast("Added skill “" + sk.name + "” 🧩");
+  }catch(e){ toast("Couldn't read that file."); }
+}
+
+// ----- draft a skill with the AI -----
+function openAiDraft(){
+  if(!(typeof isLoggedIn === "function" && isLoggedIn())){ toast("Sign in to draft skills with AI."); return; }
+  document.querySelector(".cr-overlay.sk-ai")?.remove();
+  const ov = document.createElement("div");
+  ov.className = "cr-overlay sk-ai";
+  ov.innerHTML = `<div class="cr-modal cr-modal-sm">
+    <div class="cr-modal-head"><h3>✨ Draft a skill with AI</h3><button type="button" class="cr-x">✕</button></div>
+    <p class="cr-dim">Describe what the skill should do in a sentence or two. Zyntra will write the instructions; you can edit them. (This uses one message.)</p>
+    <textarea class="cr-input" id="skAiText" rows="4" maxlength="500" placeholder="e.g. Help me write funny, short Instagram captions for my cafe in a friendly tone."></textarea>
+    <div class="cr-modal-foot"><button type="button" class="cr-btn cr-btn-ghost" id="skAiCancel">Cancel</button><button type="button" class="cr-btn cr-btn-primary" id="skAiGo">Draft it</button></div></div>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.querySelector(".cr-x").onclick = close; ov.querySelector("#skAiCancel").onclick = close;
+  ov.addEventListener("mousedown", e => { if(e.target === ov) close(); });
+  ov.querySelector("#skAiGo").onclick = async () => {
+    const idea = ov.querySelector("#skAiText").value.trim();
+    if(idea.length < 8){ toast("Describe the skill a bit more."); return; }
+    const btn = ov.querySelector("#skAiGo"); btn.disabled = true; btn.textContent = "Writing…";
+    try{
+      const res = await callChatAPI([
+        { role: "system", content: "You write SKILLS for an AI assistant: short instruction packs. Reply with ONLY a JSON object, no markdown fences, with keys: name (max 40 chars), description (one or two sentences starting 'Use when…'), triggers (array of 5-10 lowercase keywords or short phrases that would appear in a request needing this skill), instructions (150-400 words of clear, specific, step-by-step guidance: goal, steps, style, what to avoid, and a short example of excellent output)." },
+        { role: "user", content: idea }
+      ], { lite: true });
+      let txt = String(res.content || "").trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+      const j = JSON.parse(txt.slice(txt.indexOf("{"), txt.lastIndexOf("}") + 1));
+      close();
+      openEditor({ name: String(j.name || "").slice(0, 50), description: String(j.description || "").slice(0, MAX_DESC), triggers: Array.isArray(j.triggers) ? j.triggers.map(String).slice(0, 12) : [], tools: ["*"], instructions: String(j.instructions || "").slice(0, MAX_BODY) }, true);
+    }catch(err){
+      btn.disabled = false; btn.textContent = "Draft it";
+      toast(err && err.message && /limit|plan/i.test(err.message) ? err.message : "Couldn't draft that. Try again or write it yourself.");
+    }
+  };
+}
+
+// ----------------------------------------------------------
+// "/" picker in the message box
+// ----------------------------------------------------------
+let pop = null, popIndex = 0, popItems = [];
+function hidePop(){ if(pop){ pop.remove(); pop = null; } }
+function showPop(filter){
+  const tool = (typeof activeChatTool !== "undefined") ? activeChatTool : "chat";
+  popItems = allSkills().filter(s => s.enabled && (!s.tools || s.tools.includes("*") || s.tools.includes(tool)) && (slugOf(s).includes(filter) || s.name.toLowerCase().includes(filter)));
+  if(!popItems.length){ hidePop(); return; }
+  // names that START with what you typed come first
+  popItems.sort((a, b) => (slugOf(b).startsWith(filter) ? 1 : 0) - (slugOf(a).startsWith(filter) ? 1 : 0));
+  popIndex = Math.min(popIndex, popItems.length - 1);
+  if(!pop){
+    pop = document.createElement("div"); pop.className = "sk-pop";
+    const bar = document.querySelector(".chat-input-bar") || document.body;
+    bar.appendChild(pop);
+  }
+  pop.innerHTML = `<div class="sk-pop-title">Skills <span>↑↓ to move · Enter to pick · Esc to close</span></div>` + popItems.map((s, i) => `<button type="button" class="sk-pop-item${i === popIndex ? " active" : ""}" data-i="${i}"><span>${esc(s.icon || "🧩")}</span><b>/${esc(slugOf(s))}</b><em>${esc(s.description || "")}</em></button>`).join("");
+  pop.querySelectorAll(".sk-pop-item").forEach(b => b.addEventListener("mousedown", e => { e.preventDefault(); pick(+b.dataset.i); }));
+}
+function pick(i){
+  const s = popItems[i]; if(!s) return;
+  const input = $("userInput"); input.value = "/" + slugOf(s) + " "; hidePop(); input.focus();
+}
+function setupSlash(){
+  const input = $("userInput"); if(!input || input.dataset.skills) return;
+  input.dataset.skills = "1";
+  input.addEventListener("input", () => {
+    const v = input.value;
+    if(/^\/[a-z0-9-]*$/i.test(v)){ popIndex = 0; showPop(v.slice(1).toLowerCase()); } else hidePop();
+  });
+  input.addEventListener("keydown", e => {
+    if(!pop) return;
+    if(e.key === "ArrowDown"){ e.preventDefault(); popIndex = (popIndex + 1) % popItems.length; showPop(input.value.slice(1).toLowerCase()); }
+    else if(e.key === "ArrowUp"){ e.preventDefault(); popIndex = (popIndex - 1 + popItems.length) % popItems.length; showPop(input.value.slice(1).toLowerCase()); }
+    else if(e.key === "Enter" || e.key === "Tab"){ e.preventDefault(); e.stopImmediatePropagation(); pick(popIndex); }
+    else if(e.key === "Escape"){ hidePop(); }
+  }, true);
+  input.addEventListener("blur", () => setTimeout(hidePop, 120));
+}
+
+// ----------------------------------------------------------
+// wiring
+// ----------------------------------------------------------
+function wire(){
+  setupSlash();
+  if(typeof window.switchSettingsSection === "function" && !window.switchSettingsSection.__skills){
+    const orig = window.switchSettingsSection;
+    window.switchSettingsSection = function(section){ orig(section); if(section === "skills") renderPanel(); };
+    window.switchSettingsSection.__skills = true;
+  }
+}
+wire();
+
+window.ZyntraSkills = { inject, addChip, allSkills, renderPanel, openSkillsSettings, parseSkillMd, BUILTIN, slugOf, getCustom, scoreCustom };
+})();
