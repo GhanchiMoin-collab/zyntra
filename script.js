@@ -1057,6 +1057,8 @@ function linkifyText(escapedText){
 }
 
 function formatAIText(text){
+    // action blocks are for Zyntra, not for reading — hide them (even half-streamed)
+    if(typeof text === "string" && text.indexOf("zyntra-action") !== -1) text = text.replace(/```zyntra-action[\s\S]*?(```|$)/g, "").replace(/\n{3,}/g, "\n\n").trimEnd();
     const { withPlaceholders: withCodePlaceholders, blocks } = extractCodeBlocks(text);
     const { withPlaceholders, images } = extractImageBlocks(withCodePlaceholders);
 
@@ -6623,6 +6625,7 @@ async function streamAssistantReply(){
         aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
         aiContent.appendChild(aiTime);
         if(window.ZyntraSkills && usedSkills.length) ZyntraSkills.addChip(aiContent, usedSkills);
+        if(window.ZyntraActions && accumulated.indexOf("zyntra-action") !== -1) ZyntraActions.process(aiContent, accumulated);
     }
 
     try{
