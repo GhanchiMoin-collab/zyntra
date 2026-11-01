@@ -2870,6 +2870,8 @@ function toggleAccountMenu(forceState){
     const show = forceState !== undefined ? forceState : !menu.classList.contains("show");
     if(show){
         renderAccountMenu();
+        applyAdminMenuItem();
+        refreshAdminFlag().then(applyAdminMenuItem);
         const anchor = document.getElementById("sidebarUser");
         if(anchor){
             const rect = anchor.getBoundingClientRect();
@@ -4042,8 +4044,11 @@ function attachAuthStateListener(authInstance, slot){
         if(user){
             pullCloudToLocal().then(tryApplyInitialRoute).catch(tryApplyInitialRoute);
             refreshProjectsCache();
+            refreshAdminFlag();
         } else {
             projectsCache = [];
+            adminFlag = { uid: null, value: false };
+            applyAdminMenuItem();
             tryApplyInitialRoute();
         }
     });
@@ -9213,7 +9218,8 @@ const ROUTE_META = {
     "shares": { title: "My Shared Chats — Zyntra AI", description: "Chats and projects you've shared from Zyntra AI." },
     "persona": { title: "Personas — Zyntra AI", description: "Create and switch between custom AI personas in Zyntra AI." },
     "incognito": { title: "Temporary Chat — Zyntra AI", description: "A Zyntra AI chat that skips memory, history, and personalization." },
-    "invite": { title: "Invite Friends — Zyntra AI", description: "Share your Zyntra AI referral link and earn bonus messages." }
+    "invite": { title: "Invite Friends — Zyntra AI", description: "Share your Zyntra AI referral link and earn bonus messages." },
+    "admin": { title: "Admin — Zyntra AI", description: "Owner-only overview of Zyntra AI." }
 };
 
 const TOOL_TO_SLUG = { chat: "chat", image: "image-generator", voice: "jarvis", codex: "codex", agent: "agent-mode", business: "business-tools", data: "data-analysis" };
@@ -9337,6 +9343,10 @@ function applyRouteFromPath(){
     if(slug === "contact"){
         openModal("contactModal");
         setRouteMeta("contact");
+        return;
+    }
+    if(slug === "admin"){
+        openAdminDashboard();
         return;
     }
     if(slug === "plans"){
@@ -9929,3 +9939,182 @@ document.getElementById("accountMenuShortcuts")?.addEventListener("click", () =>
 // Hints on the buttons the shortcuts trigger.
 document.getElementById("newChatBtn")?.setAttribute("title", `New chat (${MOD_LABEL}+Shift+O)`);
 document.getElementById("searchChatsBtn")?.setAttribute("title", `Search chats (${MOD_LABEL}+K)`);
+
+
+// ==========================================================
+// Admin dashboard (owner only)
+// The REAL protection is server-side: /api/payment?action=admin-stats
+// verifies the Firebase ID token and compares the uid to the ADMIN_UID
+// env var, returning 403 to everyone else. Hiding the menu item below
+// is cosmetic only.
+// ==========================================================
+var adminFlag = { uid: null, value: false };
+
+async function refreshAdminFlag(){
+    try {
+        const user = activeAuth().currentUser;
+        if(!user){ adminFlag = { uid: null, value: false }; return false; }
+        if(adminFlag.uid === user.uid) return adminFlag.value;
+        const idToken = await user.getIdToken();
+        const resp = await fetch("/api/payment?action=admin-check", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: "{}"
+        });
+        const data = await resp.json().catch(() => ({}));
+        adminFlag = { uid: user.uid, value: !!data.admin };
+        return adminFlag.value;
+    } catch(e){
+        return false;
+    }
+}
+
+function applyAdminMenuItem(){
+    const el = document.getElementById("accountMenuAdmin");
+    if(el) el.style.display = adminFlag.value ? "" : "none";
+}
+
+function admFmt(n){
+    return (Number(n) || 0).toLocaleString("en-IN");
+}
+function admEsc(t){
+    return String(t == null ? "" : t).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function admCard(label, value, sub){
+    return '<div class="adm-card"><p class="adm-card-label">' + admEsc(label) + '</p><p class="adm-card-value">' + value + '</p>' +
+        (sub ? '<p class="adm-card-sub">' + sub + '</p>' : '') + '</div>';
+}
+function admBars(rows, colorClass){
+    const max = Math.max(1, ...rows.map(r => r.value));
+    return '<div class="adm-bars">' + rows.map(r =>
+        '<div class="adm-bar-row"><span class="adm-bar-name">' + admEsc(r.label) + '</span>' +
+        '<div class="adm-bar-track"><div class="adm-bar-fill ' + (colorClass || "") + '" style="width:' + Math.round((r.value / max) * 100) + '%"></div></div>' +
+        '<span class="adm-bar-num">' + admFmt(r.value) + '</span></div>'
+    ).join("") + '</div>';
+}
+
+function renderAdminStats(d){
+    const planLabel = { free: "Free", starter: "Starter", pro: "Pro", ultra: "Ultra" };
+    const mom = d.usage.prevMonthMessages
+        ? Math.round(((d.usage.messages - d.usage.prevMonthMessages) / d.usage.prevMonthMessages) * 100)
+        : null;
+    const paid = d.plans.starter + d.plans.pro + d.plans.ultra;
+    const convPct = d.users.total ? ((paid / d.users.total) * 100).toFixed(1) : "0.0";
+    const maxSignup = Math.max(1, ...d.users.signupsByDay.map(x => x.count));
+
+    let html = '<div class="adm-grid">';
+    html += admCard("Total users", admFmt(d.users.total) + (d.users.truncated ? "+" : ""), "+" + admFmt(d.users.new7) + " this week · +" + admFmt(d.users.new30) + " in 30 days");
+    html += admCard("Signed in (7d)", admFmt(d.users.signedIn7), "last sign-in within a week");
+    html += admCard("Messages (" + admEsc(d.month) + ")", admFmt(d.usage.messages),
+        mom === null ? "no earlier month to compare" : (mom >= 0 ? "▲ " : "▼ ") + Math.abs(mom) + "% vs last month");
+    html += admCard("Active users", admFmt(d.usage.activeUsers), "avg " + admFmt(d.usage.avgPerActive) + " msgs each");
+    html += admCard("Paid users", admFmt(paid), convPct + "% of all users");
+    html += admCard("Revenue", "₹" + admFmt(d.revenue.total), admFmt(d.revenue.payments) + " payment" + (d.revenue.payments === 1 ? "" : "s") + (d.razorpayTestMode ? " · <b>TEST mode</b>" : ""));
+    html += '</div>';
+
+    if(d.usage.hitLimit > 0){
+        html += '<div class="adm-note">💡 <b>' + admFmt(d.usage.hitLimit) + '</b> user' + (d.usage.hitLimit === 1 ? " has" : "s have") +
+            ' hit their monthly message limit — your most likely upgrade prospects.</div>';
+    }
+
+    // Signups chart
+    html += '<div class="adm-panel"><h3>New signups — last 30 days</h3><div class="adm-chart">' +
+        d.users.signupsByDay.map(x =>
+            '<div class="adm-chart-col" title="' + admEsc(x.date) + ': ' + x.count + '"><div class="adm-chart-bar" style="height:' + Math.max(x.count ? 6 : 2, Math.round((x.count / maxSignup) * 100)) + '%"></div></div>'
+        ).join("") + '</div>' +
+        '<div class="adm-chart-axis"><span>' + admEsc(d.users.signupsByDay[0].date.slice(5)) + '</span><span>' + admEsc(d.users.signupsByDay[d.users.signupsByDay.length - 1].date.slice(5)) + '</span></div></div>';
+
+    html += '<div class="adm-two">';
+    html += '<div class="adm-panel"><h3>Plans</h3>' + admBars(Object.keys(planLabel).map(k => ({ label: planLabel[k], value: d.plans[k] || 0 }))) + '</div>';
+    html += '<div class="adm-panel"><h3>Sign-in methods</h3>' + admBars(Object.entries(d.users.providers).map(([k, v]) => ({
+        label: ({ "google.com": "Google", "password": "Email", "microsoft.com": "Microsoft", "other": "Other" }[k]) || k, value: v
+    })), "adm-fill-alt") + '</div>';
+    html += '</div>';
+
+    html += '<div class="adm-two">';
+    html += '<div class="adm-panel"><h3>AI usage this month</h3><div class="adm-kv">' +
+        '<span>Groq requests</span><b>' + admFmt(d.usage.groq) + '</b>' +
+        '<span>Input tokens</span><b>' + admFmt(d.usage.input) + '</b>' +
+        '<span>Output tokens</span><b>' + admFmt(d.usage.output) + '</b>' +
+        '<span>Web searches</span><b>' + admFmt(d.usage.searches) + '</b>' +
+        '<span>Research runs</span><b>' + admFmt(d.usage.research) + '</b>' +
+        '<span>Guest messages</span><b>' + admFmt(d.guests.messages) + ' <small>(' + admFmt(d.guests.visitors) + ' visitors)</small></b></div></div>';
+    html += '<div class="adm-panel"><h3>Model usage</h3>' +
+        (d.models.length ? admBars(d.models.slice(0, 6).map(m => ({ label: m.model.replace(/^.*\//, ""), value: m.count })), "adm-fill-alt") : '<p class="adm-sub">No data yet.</p>') + '</div>';
+    html += '</div>';
+
+    html += '<div class="adm-two">';
+    html += '<div class="adm-panel"><h3>Top users this month</h3>' +
+        (d.topUsers.length ? '<table class="adm-table"><tr><th>User</th><th>Plan</th><th>Msgs</th></tr>' +
+            d.topUsers.map(u => '<tr><td>' + admEsc(u.user) + '</td><td>' + admEsc(planLabel[u.plan] || u.plan) + '</td><td>' + admFmt(u.messages) + '</td></tr>').join("") + '</table>'
+            : '<p class="adm-sub">No usage yet.</p>') + '</div>';
+    html += '<div class="adm-panel"><h3>Content &amp; growth</h3><div class="adm-kv">' +
+        '<span>Shared chats</span><b>' + (d.content.sharedChats == null ? "—" : admFmt(d.content.sharedChats)) + ' <small>(' + (d.content.sharedPublic == null ? "—" : admFmt(d.content.sharedPublic)) + ' public)</small></b>' +
+        '<span>Published sites</span><b>' + (d.content.publishedSites == null ? "—" : admFmt(d.content.publishedSites)) + '</b>' +
+        '<span>Ratings</span><b>' + (d.content.ratings == null ? "—" : admFmt(d.content.ratings)) + '</b>' +
+        '<span>Reports</span><b>' + (d.content.reports == null ? "—" : admFmt(d.content.reports)) + '</b>' +
+        '<span>Referral joins</span><b>' + admFmt(d.referrals.joins) + '</b>' +
+        '<span>Bonus msgs given</span><b>' + admFmt(d.referrals.bonusMessages) + '</b></div></div>';
+    html += '</div>';
+
+    if(d.revenue.byMonth.length){
+        html += '<div class="adm-panel"><h3>Revenue by month</h3>' + admBars(d.revenue.byMonth.map(r => ({ label: r.month, value: r.amount })), "adm-fill-green") + '</div>';
+    }
+    html += '<p class="adm-foot">Revenue counts the last 20 payments per user. Only totals and masked emails are shown — never chat contents.</p>';
+    return html;
+}
+
+async function loadAdminStats(refresh){
+    const body = document.getElementById("adminBody");
+    const upd = document.getElementById("adminUpdated");
+    if(!body) return;
+    if(!refresh) body.innerHTML = '<p class="adm-sub">Loading…</p>';
+    try {
+        const user = activeAuth().currentUser;
+        const idToken = await user.getIdToken();
+        const resp = await fetch("/api/payment?action=admin-stats", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: JSON.stringify({ refresh: !!refresh })
+        });
+        if(resp.status === 403){
+            showToast("The admin dashboard is owner-only.");
+            showPageView("chat");
+            setActiveNav("chat");
+            navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+            return;
+        }
+        const data = await resp.json();
+        if(!resp.ok) throw new Error(data.error || "Couldn't load stats.");
+        body.innerHTML = renderAdminStats(data);
+        if(upd) upd.textContent = "Updated " + new Date(data.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch(err){
+        body.innerHTML = '<div class="adm-note">⚠️ ' + admEsc(err.message || "Couldn't load stats.") + '</div>' +
+            '<p class="adm-sub">If this says ADMIN_UID or Firebase isn\'t configured, check your Vercel environment variables.</p>';
+    }
+}
+
+function openAdminDashboard(){
+    if(!isLoggedIn()){
+        if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+        openModal("signinModal");
+        setRouteMeta("login");
+        return;
+    }
+    showPageView("admin");
+    setActiveNav("admin");
+    navigateToRoute("admin");
+    closeSidebarMobile();
+    loadAdminStats(false);
+}
+
+document.getElementById("accountMenuAdmin")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openAdminDashboard();
+});
+document.getElementById("adminBackBtn")?.addEventListener("click", () => {
+    showPageView("chat");
+    setActiveNav("chat");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+});
+document.getElementById("adminRefreshBtn")?.addEventListener("click", () => loadAdminStats(true));
