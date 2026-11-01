@@ -184,6 +184,7 @@
         <div class="account-menu-divider"></div>
 
         <button class="account-menu-item" id="accountMenuDashboard"><span class="account-menu-icon">📊</span> Creator dashboard</button>
+        <button class="account-menu-item" id="accountMenuAdmin" style="display:none;"><span class="account-menu-icon">🛡️</span> Admin</button>
         <button class="account-menu-item" id="accountMenuHelp"><span class="account-menu-icon">🛟</span> Help <span class="account-menu-chevron account-menu-chevron-right">›</span></button>
         <button class="account-menu-item" id="accountMenuShortcuts"><span class="account-menu-icon">⌨️</span> Keyboard shortcuts</button>
         <button class="account-menu-item account-menu-item-danger" id="accountMenuLogout"><span class="account-menu-icon">↩</span> Log out</button>
@@ -500,6 +501,20 @@
             </div>
             <p style="color:var(--text-2);font-size:13.5px;margin:0 0 20px;">Real conversations people chose to share publicly.</p>
             <div id="discoverList" class="discover-grid"></div>
+        </div>
+
+        <div class="page-view" id="adminView">
+            <div class="page-view-inner adm-wrap">
+                <button type="button" id="adminBackBtn" class="page-view-back-btn">← Back</button>
+                <div class="adm-head">
+                    <div>
+                        <h1 class="page-view-title">Admin dashboard</h1>
+                        <p class="adm-sub" id="adminUpdated">Owner-only overview of Zyntra AI</p>
+                    </div>
+                    <button type="button" id="adminRefreshBtn" class="adm-refresh">↻ Refresh</button>
+                </div>
+                <div id="adminBody"><p class="adm-sub">Loading…</p></div>
+            </div>
         </div>
 
         <div class="page-view" id="aboutView">
