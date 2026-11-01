@@ -10869,3 +10869,6 @@ body.light-mode .sk-pop{ background:#fff; }
 @media(max-width:600px){.adm-bar-row{grid-template-columns:70px 1fr 44px;}.adm-card-value{font-size:24px;}}
 
 .pricing-note{color:var(--text-2);font-size:12.5px;text-align:center;margin:14px auto 4px;max-width:520px;}
+
+.forgot-password-link{align-self:flex-end;margin:-4px 2px 2px;font-size:13px;font-weight:600;color:#c9a8ff;text-decoration:none;}
+.forgot-password-link:hover{text-decoration:underline;}
