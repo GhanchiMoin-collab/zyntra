@@ -1,4 +1,5 @@
 import { getAdminAuth, getAdminDb, increment } from "./_lib/firebaseAdmin.js";
+import { effectivePlan } from "./_lib/plan.js";
 
 // ----------------------------------------------------------------------
 // Zyntra Creations — a small "Roblox-style" platform for apps and games.
@@ -82,7 +83,7 @@ async function getUser(req) {
 async function planOf(db, uid) {
   try {
     const snap = await db.collection("billing").doc(uid).get();
-    return snap.exists ? (snap.data().plan || "free") : "free";
+    return snap.exists ? effectivePlan(snap.data()) : "free";
   } catch (e) { return "free"; }
 }
 function handleFromUser(decoded) {
