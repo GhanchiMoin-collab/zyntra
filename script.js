@@ -2534,8 +2534,14 @@ async function refreshUserPlan(){
     if(!user) return "free";
     try{
         const snap = await activeFirestore().collection("billing").doc(user.uid).get();
-        const plan = snap.exists ? (snap.data().plan || "free") : "free";
+        const billing = snap.exists ? snap.data() : {};
+        // Same rule as api/_lib/plan.js: an expired paid plan counts as Free.
+        // (No planExpiresAt = older plan from before expiry existed = active.)
+        let plan = billing.plan || "free";
+        if(plan !== "free" && typeof billing.planExpiresAt === "number" && billing.planExpiresAt < Date.now()) plan = "free";
         localStorage.setItem("zyntra-plan", plan);
+        if(plan !== "free" && typeof billing.planExpiresAt === "number") localStorage.setItem("zyntra-plan-expires", String(billing.planExpiresAt));
+        else localStorage.removeItem("zyntra-plan-expires");
         applyPlanToUI(plan);
         return plan;
     }catch(err){
@@ -2670,7 +2676,13 @@ function applyPlanToUI(plan){
     const sidebarPlanEl = document.getElementById("sidebarUserPlan");
     const menuPlanEl = document.getElementById("accountMenuPlan");
     if(sidebarPlanEl && isLoggedIn()) sidebarPlanEl.textContent = planDisplayName(plan);
-    if(menuPlanEl) menuPlanEl.textContent = planDisplayName(plan);
+    if(menuPlanEl){
+        // Paid plans show when they run out, e.g. "Pro · until Dec 1".
+        const exp = Number(localStorage.getItem("zyntra-plan-expires"));
+        menuPlanEl.textContent = (plan !== "free" && exp > Date.now())
+            ? planDisplayName(plan) + " · until " + new Date(exp).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+            : planDisplayName(plan);
+    }
 
     document.querySelectorAll(".pricing-card").forEach(card => {
         const cardPlan = card.dataset.plan;
@@ -2750,6 +2762,7 @@ async function startPlanUpgrade(plan){
                     if(!verifyResp.ok) throw new Error(verifyData.error || "Payment verification failed.");
 
                     localStorage.setItem("zyntra-plan", verifyData.plan);
+                    if(verifyData.planExpiresAt) localStorage.setItem("zyntra-plan-expires", String(verifyData.planExpiresAt));
                     applyPlanToUI(verifyData.plan);
                     showPricingSuccess(verifyData.plan);
                     showToast(`Upgraded to ${planDisplayName(verifyData.plan)}!`);
@@ -10015,6 +10028,11 @@ function renderAdminStats(d){
     if(d.usage.hitLimit > 0){
         html += '<div class="adm-note">💡 <b>' + admFmt(d.usage.hitLimit) + '</b> user' + (d.usage.hitLimit === 1 ? " has" : "s have") +
             ' hit their monthly message limit — your most likely upgrade prospects.</div>';
+    }
+
+    if(d.planHealth && (d.planHealth.expiring7 > 0 || d.planHealth.expired > 0)){
+        html += '<div class="adm-note">🔔 <b>' + admFmt(d.planHealth.expiring7) + '</b> paid plan' + (d.planHealth.expiring7 === 1 ? "" : "s") +
+            ' expire within 7 days · <b>' + admFmt(d.planHealth.expired) + '</b> already expired (good people to remind to renew).</div>';
     }
 
     // Signups chart
