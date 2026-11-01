@@ -246,6 +246,205 @@ async function handleVerify(req, res) {
   return res.status(200).json({ ok: true, plan });
 }
 
+// ================= Admin dashboard =================
+// Read-only owner stats. SECURITY: the real gate is HERE, server-side —
+// the caller's Firebase ID token is verified, then its uid must appear in
+// the ADMIN_UID env var (comma-separated for more than one admin). Hiding
+// the menu item in the UI is only cosmetic. Only aggregate numbers and
+// masked emails are returned — never chat contents or API keys.
+// Lives in this file (action-based) instead of a new api/*.js so the
+// Vercel Hobby 12-function cap isn't touched.
+const ADMIN_PLAN_LIMITS = { free: 50, starter: 150, pro: 500, ultra: 1500 }; // keep in sync with PLAN_LIMITS in api/chat.js
+let adminStatsCache = { at: 0, data: null };
+
+function adminUids() {
+  return (process.env.ADMIN_UID || "").split(",").map((x) => x.trim()).filter(Boolean);
+}
+
+async function handleAdminCheck(req, res) {
+  try {
+    const uid = await requireUser(req);
+    return res.status(200).json({ admin: adminUids().includes(uid) });
+  } catch (e) {
+    return res.status(200).json({ admin: false });
+  }
+}
+
+function maskEmail(user) {
+  const email = user?.email;
+  if (!email) return user?.displayName ? user.displayName.slice(0, 2) + "***" : "user " + (user?.uid || "").slice(0, 4);
+  const [name, domain] = email.split("@");
+  return name.slice(0, 2) + "***@" + domain;
+}
+
+async function safeCount(query) {
+  try {
+    const snap = await query.count().get();
+    return snap.data().count;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function buildAdminStats() {
+  const db = getAdminDb();
+  const auth = getAdminAuth();
+  const DAY = 86400000;
+  const now = Date.now();
+  const month = new Date().toISOString().slice(0, 7);
+  const prevDate = new Date();
+  prevDate.setUTCDate(1);
+  prevDate.setUTCMonth(prevDate.getUTCMonth() - 1);
+  const prevMonth = prevDate.toISOString().slice(0, 7);
+
+  const listAllUsers = async () => {
+    const out = [];
+    let pageToken;
+    let pages = 0;
+    do {
+      const r = await auth.listUsers(1000, pageToken);
+      out.push(...r.users);
+      pageToken = r.pageToken;
+      pages++;
+    } while (pageToken && pages < 10);
+    return { users: out, truncated: !!pageToken };
+  };
+
+  const [usersRes, billingSnap, usageSnap, guestSnap, sharedTotal, sharedPublic, sitesTotal, ratingsTotal, reportsTotal] = await Promise.all([
+    listAllUsers(),
+    db.collection("billing").limit(5000).get(),
+    db.collectionGroup("usage").limit(10000).get(),
+    db.collection("guestUsage").limit(10000).get(),
+    safeCount(db.collection("sharedChats")),
+    safeCount(db.collection("sharedChats").where("public", "==", true)),
+    safeCount(db.collection("publishedSites")),
+    safeCount(db.collection("ratings")),
+    safeCount(db.collection("reports"))
+  ]);
+
+  // ---- users ----
+  const users = usersRes.users;
+  const byUid = new Map(users.map((u) => [u.uid, u]));
+  const signupDays = {};
+  for (let i = 29; i >= 0; i--) signupDays[new Date(now - i * DAY).toISOString().slice(0, 10)] = 0;
+  let new7 = 0, new30 = 0, signedIn7 = 0;
+  const providers = {};
+  for (const u of users) {
+    const created = new Date(u.metadata.creationTime).getTime();
+    if (now - created <= 7 * DAY) new7++;
+    if (now - created <= 30 * DAY) new30++;
+    const day = new Date(created).toISOString().slice(0, 10);
+    if (day in signupDays) signupDays[day]++;
+    const last = u.metadata.lastSignInTime ? new Date(u.metadata.lastSignInTime).getTime() : 0;
+    if (last && now - last <= 7 * DAY) signedIn7++;
+    const pid = u.providerData?.[0]?.providerId || "other";
+    providers[pid] = (providers[pid] || 0) + 1;
+  }
+
+  // ---- plans / revenue ----
+  const planOf = new Map();
+  const planCounts = { free: 0, starter: 0, pro: 0, ultra: 0 };
+  const revenueByMonth = {};
+  let revenueTotal = 0, paidPayments = 0, referralJoins = 0, bonusTotal = 0;
+  for (const d of billingSnap.docs) {
+    const b = d.data();
+    const plan = ADMIN_PLAN_LIMITS[b.plan] ? b.plan : "free";
+    planOf.set(d.id, { plan, bonus: b.bonusMessages || 0 });
+    if (plan !== "free") planCounts[plan]++;
+    referralJoins += b.referralCount || 0;
+    bonusTotal += b.bonusMessages || 0;
+    for (const h of b.history || []) {
+      const price = PLAN_PRICES_INR[h.plan] || 0;
+      if (!price) continue;
+      revenueTotal += price;
+      paidPayments++;
+      const m = new Date(h.at).toISOString().slice(0, 7);
+      revenueByMonth[m] = (revenueByMonth[m] || 0) + price;
+    }
+  }
+  const paidUsers = planCounts.starter + planCounts.pro + planCounts.ultra;
+  planCounts.free = Math.max(0, users.length - paidUsers);
+
+  // ---- usage (this month vs last month) ----
+  const cur = { messages: 0, input: 0, output: 0, groq: 0, searches: 0, research: 0, activeUsers: 0, hitLimit: 0 };
+  let prevMessages = 0;
+  const models = {};
+  const perUser = [];
+  for (const d of usageSnap.docs) {
+    const x = d.data();
+    if (d.id === prevMonth) { prevMessages += x.messages || 0; continue; }
+    if (d.id !== month) continue;
+    const uid = d.ref.parent.parent?.id;
+    const msgs = x.messages || 0;
+    cur.messages += msgs;
+    cur.input += x.inputTokens || 0;
+    cur.output += x.outputTokens || 0;
+    cur.groq += x.groqRequests || 0;
+    cur.searches += x.webSearches || 0;
+    cur.research += x.researchRequests || 0;
+    if (msgs > 0) cur.activeUsers++;
+    // Model counts may be a nested map OR literal "modelCounts.<name>" keys
+    // (set() with merge keeps dotted keys literal) — handle both.
+    for (const [k, v] of Object.entries(x.modelCounts || {})) models[k] = (models[k] || 0) + v;
+    for (const [k, v] of Object.entries(x)) {
+      if (k.startsWith("modelCounts.")) models[k.slice(12)] = (models[k.slice(12)] || 0) + v;
+    }
+    const meta = planOf.get(uid) || { plan: "free", bonus: 0 };
+    if (msgs >= (ADMIN_PLAN_LIMITS[meta.plan] || 50) + meta.bonus) cur.hitLimit++;
+    perUser.push({ uid, msgs });
+  }
+  perUser.sort((a, b) => b.msgs - a.msgs);
+  const topUsers = perUser.slice(0, 5).map((p) => ({
+    user: maskEmail(byUid.get(p.uid) || { uid: p.uid }),
+    plan: planOf.get(p.uid)?.plan || "free",
+    messages: p.msgs
+  }));
+
+  // ---- guests ----
+  let guestMessages = 0, guestVisitors = 0;
+  for (const d of guestSnap.docs) {
+    if (d.id.endsWith("_" + month)) {
+      guestMessages += d.data().messages || 0;
+      guestVisitors++;
+    }
+  }
+
+  return {
+    generatedAt: now,
+    month,
+    razorpayTestMode: (process.env.RAZORPAY_KEY_ID || "").startsWith("rzp_test_"),
+    users: {
+      total: users.length, truncated: usersRes.truncated, new7, new30, signedIn7, providers,
+      signupsByDay: Object.entries(signupDays).map(([date, count]) => ({ date, count }))
+    },
+    plans: planCounts,
+    revenue: {
+      total: revenueTotal, payments: paidPayments,
+      byMonth: Object.entries(revenueByMonth).sort().slice(-6).map(([m, amount]) => ({ month: m, amount }))
+    },
+    referrals: { joins: referralJoins, bonusMessages: bonusTotal },
+    usage: { ...cur, prevMonthMessages: prevMessages, avgPerActive: cur.activeUsers ? Math.round(cur.messages / cur.activeUsers) : 0 },
+    models: Object.entries(models).sort((a, b) => b[1] - a[1]).map(([model, count]) => ({ model, count })),
+    guests: { visitors: guestVisitors, messages: guestMessages },
+    content: { sharedChats: sharedTotal, sharedPublic, publishedSites: sitesTotal, ratings: ratingsTotal, reports: reportsTotal },
+    topUsers
+  };
+}
+
+async function handleAdminStats(req, res) {
+  const uid = await requireUser(req);
+  if (!adminUids().includes(uid)) {
+    return res.status(403).json({ error: "Not authorized." });
+  }
+  // Short cache so refreshing the page doesn't re-read every collection.
+  if (adminStatsCache.data && Date.now() - adminStatsCache.at < 45000 && !req.body?.refresh) {
+    return res.status(200).json(adminStatsCache.data);
+  }
+  const data = await buildAdminStats();
+  adminStatsCache = { at: Date.now(), data };
+  return res.status(200).json(data);
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -260,6 +459,8 @@ export default async function handler(req, res) {
     if (action === "verify") return await handleVerify(req, res);
     if (action === "get-referral-info") return await handleGetReferralInfo(req, res);
     if (action === "claim-referral") return await handleClaimReferral(req, res);
+    if (action === "admin-check") return await handleAdminCheck(req, res);
+    if (action === "admin-stats") return await handleAdminStats(req, res);
     return res.status(400).json({ error: "Unknown action." });
   } catch (err) {
     const status = err.status || 500;
