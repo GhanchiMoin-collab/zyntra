@@ -5425,6 +5425,7 @@ function openChatSession(session){
     if(TOOL_PLACEHOLDERS[activeChatTool]) userInput.placeholder = TOOL_PLACEHOLDERS[activeChatTool];
 
     chatHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
+    activeDocument = null; // a saved chat doesn't carry its document index — attach the file again to keep searching it
     currentSessionId = session.id;
     document.getElementById("chatGreeting").style.display = "none";
     chatMessages.innerHTML = "";
@@ -5539,6 +5540,7 @@ function resetChatView(){
     // Any messages already sent were saved to chat history live as they
     // happened (see logMessageToHistory), so this just clears the view.
     chatHistory = [];
+    activeDocument = null;
     currentSessionId = null;
     chatMessages.innerHTML = "";
     document.getElementById("chatGreeting").style.display = "";
@@ -5868,6 +5870,139 @@ const userInput = document.getElementById("userInput");
 let chatHistory = [];
 let attachedImage = null;
 let attachedDocument = null; // { name, text } — set once client-side extraction finishes
+let activeDocument = null;   // searchable index of the long document this chat is about (see "Chat with long documents")
+// ==========================================================
+// Chat with long documents
+// Short files (<= DOC_INLINE_LIMIT chars) are sent whole, exactly as
+// before. Longer ones are split into chunks and indexed in the browser;
+// for every question only the most relevant chunks are sent (BM25-style
+// keyword scoring, no server or extra library). The document stays
+// "active" for follow-up questions until it's removed or the chat resets.
+// ==========================================================
+const DOC_INLINE_LIMIT = 15000;   // up to this many chars: send the whole document
+const DOC_MAX_CHARS = 600000;     // index at most this much text per document
+const DOC_CHUNK_SIZE = 1500;      // chars per searchable chunk
+const DOC_CONTEXT_BUDGET = 12000; // chars of excerpts sent with each question
+const DOC_EXCERPT_MARK = "[Document excerpts from ";
+const DOC_STOPWORDS = new Set(("the and for are was were with that this these those from have has had not but you your " +
+    "what which who whom how why when where does did can could should would will into out about page pages than then " +
+    "they their them its his her our any all also been being more most some such other over under again").split(" "));
+
+function docTokens(text){
+    return (String(text || "").toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []).filter(t => !DOC_STOPWORDS.has(t));
+}
+
+function chunkDocText(text, size){
+    const chunks = [];
+    let i = 0;
+    while(i < text.length){
+        let end = Math.min(i + size, text.length);
+        if(end < text.length){
+            // Prefer ending at a sentence/line break in the last 40% of the chunk, else at a space.
+            const minCut = i + Math.floor(size * 0.6);
+            const stop = Math.max(text.lastIndexOf(". ", end), text.lastIndexOf("\n", end));
+            const space = text.lastIndexOf(" ", end);
+            if(stop > minCut) end = stop + 1;
+            else if(space > minCut) end = space;
+        }
+        const piece = text.slice(i, end).trim();
+        if(piece) chunks.push(piece);
+        i = end;
+    }
+    return chunks;
+}
+
+function buildDocIndex(name, fullText, capped){
+    const chunks = chunkDocText(fullText, DOC_CHUNK_SIZE).map(text => {
+        const tf = {};
+        const toks = docTokens(text);
+        toks.forEach(t => { tf[t] = (tf[t] || 0) + 1; });
+        return { text, tf, len: toks.length || 1 };
+    });
+    const df = {};
+    chunks.forEach(c => Object.keys(c.tf).forEach(t => { df[t] = (df[t] || 0) + 1; }));
+    const avgLen = chunks.reduce((s, c) => s + c.len, 0) / (chunks.length || 1);
+    const pageMatches = fullText.match(/\[Page \d+\]/g);
+    return {
+        name, chunks, df, avgLen, capped: !!capped,
+        totalChars: fullText.length,
+        words: fullText.split(/\s+/).filter(Boolean).length,
+        pages: pageMatches ? pageMatches.length : 0,
+        lastQuery: ""
+    };
+}
+
+function pickDocExcerpts(doc, question){
+    const N = doc.chunks.length;
+    const maxChunks = Math.max(1, Math.floor(DOC_CONTEXT_BUDGET / DOC_CHUNK_SIZE));
+    const overview = /\b(summar(y|ize|ise|ies)|overview|outline|tl;?dr|key points|main points|gist|recap)\b|what('s| is| does) (this|the) (doc|document|file|pdf|paper|report|book|article)/i.test(question);
+
+    let qTokens = [...new Set(docTokens(question))];
+    // Very short follow-ups ("and the second one?") carry little signal — borrow the previous question's words.
+    if(qTokens.length < 3 && doc.lastQuery) qTokens = [...new Set(qTokens.concat(docTokens(doc.lastQuery)))];
+
+    let chosen = [];
+    const spread = () => {
+        const out = [];
+        for(let k = 0; k < Math.min(maxChunks, N); k++) out.push(Math.floor(k * N / Math.min(maxChunks, N)));
+        return out;
+    };
+
+    if(overview || !qTokens.length){
+        chosen = spread();
+    } else {
+        const k1 = 1.5, b = 0.75;
+        const scored = doc.chunks.map((c, idx) => {
+            let score = 0;
+            qTokens.forEach(t => {
+                const tf = c.tf[t];
+                if(!tf) return;
+                const df = doc.df[t] || 0;
+                const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
+                score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * c.len / doc.avgLen));
+            });
+            return { idx, score };
+        }).filter(s => s.score > 0).sort((a, b2) => b2.score - a.score);
+
+        if(!scored.length){
+            chosen = spread();
+        } else {
+            chosen = scored.slice(0, maxChunks).map(s => s.idx);
+            // Keep the opening of the document (title / intro) in view when there's room.
+            if(N > maxChunks && !chosen.includes(0) && chosen.length === maxChunks) chosen[chosen.length - 1] = 0;
+        }
+    }
+    chosen = [...new Set(chosen)].sort((a, b2) => a - b2);
+    return { chosen, overview, sampled: overview || !qTokens.length };
+}
+
+function buildDocQuestion(doc, question){
+    const pick = pickDocExcerpts(doc, question);
+    doc.lastQuery = question;
+    const parts = pick.chosen.map(i => doc.chunks[i].text);
+    const sizeNote = `${doc.words.toLocaleString()} words${doc.pages ? ", " + doc.pages + " pages" : ""}${doc.capped ? ", only the first part was loaded" : ""}`;
+    const how = pick.sampled
+        ? "Below are samples spread across the document (not all of it)."
+        : "Below are the parts of the document most relevant to the question, in document order (not all of it).";
+    return `${DOC_EXCERPT_MARK}"${doc.name}" — a long document (${sizeNote}). ${how} `
+        + "If the answer isn't in these parts, say so honestly and suggest what the user could ask or which section to look at — never invent details. "
+        + "Markers like [Page 12] show where text came from; mention page numbers when helpful.]\n---\n"
+        + parts.join("\n\n…\n\n")
+        + `\n---\n\nUser's question: ${question}`;
+}
+
+// Only the newest question carries excerpts; older ones keep just the
+// question so the conversation stays small and the model's input fits.
+function compactOldDocExcerpts(){
+    chatHistory.forEach(m => {
+        if(m.role === "user" && typeof m.content === "string" && m.content.startsWith(DOC_EXCERPT_MARK)){
+            const q = m.content.split("\n\nUser's question: ").slice(1).join("\n\nUser's question: ");
+            const nameMatch = m.content.match(/^\[Document excerpts from "([^"]*)"/);
+            m.content = `[Earlier excerpts from "${nameMatch ? nameMatch[1] : "the document"}" omitted to save space]\n\nUser's question: ${q}`;
+        }
+    });
+}
+
 let dataAnalysisDataset = null; // { name, columns, rows } — structured data for the Data Analysis tool, persists across messages in the same chat
 
 // ---------- Centered input on empty chat, moves to the bottom once a
@@ -5916,17 +6051,27 @@ document.getElementById("chatFileInput").addEventListener("change", (e) => {
         return;
     }
 
+    if(file.size > 25 * 1024 * 1024){
+        showToast("⚠️ That file is over 25 MB — try a smaller one or split it up.");
+        document.getElementById("chatFileInput").value = "";
+        return;
+    }
+
     extractDocumentText(file)
         .then(text => {
             attachedImage = null;
-            // Cap what actually gets sent to the AI — long enough for real
-            // documents, short enough to not blow past model context limits
-            // (trimMessages on the backend caps history separately anyway).
-            const MAX_CHARS = 15000;
+            // Short documents go to the AI whole. Long ones are kept in full
+            // (up to DOC_MAX_CHARS) and searched per question instead — see
+            // "Chat with long documents" — so the whole file stays usable,
+            // not just its first few pages.
+            const full = text.length > DOC_MAX_CHARS ? text.slice(0, DOC_MAX_CHARS) : text;
             attachedDocument = {
                 name: file.name,
-                text: text.length > MAX_CHARS ? text.slice(0, MAX_CHARS) + "\n\n[...truncated, document continues beyond this point...]" : text,
-                truncated: text.length > MAX_CHARS
+                text: full.length > DOC_INLINE_LIMIT ? full.slice(0, DOC_INLINE_LIMIT) : full,
+                fullText: full,
+                long: full.length > DOC_INLINE_LIMIT,
+                capped: text.length > DOC_MAX_CHARS,
+                truncated: false
             };
 
             const lower = file.name.toLowerCase();
@@ -5978,11 +6123,12 @@ async function extractDocumentText(file){
         const buffer = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
         let text = "";
-        const pageCount = Math.min(pdf.numPages, 60); // sane cap for very long PDFs
+        const pageCount = Math.min(pdf.numPages, 200); // sane cap for very long PDFs
         for(let i = 1; i <= pageCount; i++){
             const page = await pdf.getPage(i);
             const content = await page.getTextContent();
-            text += content.items.map(item => item.str).join(" ") + "\n\n";
+            const pageText = content.items.map(item => item.str).join(" ").trim();
+            if(pageText) text += `[Page ${i}] ` + pageText + "\n\n";
         }
         if(!text.trim()) throw new Error("This PDF has no selectable text (it may be a scanned image).");
         return text.trim();
@@ -6008,11 +6154,11 @@ async function extractDocumentText(file){
         return text.trim();
     }
 
-    if(name.endsWith(".txt") || name.endsWith(".csv")){
+    if(/\.(txt|csv|md|markdown|json|xml|html?|css|js|mjs|ts|jsx|tsx|py|java|c|h|cpp|cs|go|rs|rb|php|sql|log|ya?ml|ini|toml|tex|srt|vtt)$/.test(name)){
         return await file.text();
     }
 
-    throw new Error("Unsupported file type. Try a PDF, Word doc, Excel sheet, CSV, or plain text file.");
+    throw new Error("Unsupported file type. Try a PDF, Word doc, Excel sheet, CSV, or a text/code file.");
 }
 
 // ==========================================================
@@ -6148,8 +6294,8 @@ function renderAttachPreview(){
         if(dataAnalysisDataset && dataAnalysisDataset.name === attachedDocument.name){
             infoLine = `${dataAnalysisDataset.rows.length.toLocaleString()} rows · ${dataAnalysisDataset.columns.length} columns`;
         } else {
-            const wordCount = attachedDocument.text.split(/\s+/).filter(Boolean).length;
-            infoLine = `${wordCount.toLocaleString()} words extracted${attachedDocument.truncated ? " (truncated)" : ""}`;
+            const wordCount = (attachedDocument.fullText || attachedDocument.text).split(/\s+/).filter(Boolean).length;
+            infoLine = `${wordCount.toLocaleString()} words${attachedDocument.long ? " · long file — searched for each question" : " extracted"}${attachedDocument.capped ? " (first part only)" : ""}`;
         }
         chip.innerHTML = `<span class="attach-doc-icon">${dataAnalysisDataset ? "📊" : "📄"}</span>`
             + `<span class="attach-doc-info"><strong>${attachedDocument.name}</strong>`
@@ -6160,6 +6306,22 @@ function renderAttachPreview(){
             attachedDocument = null;
             dataAnalysisDataset = null;
             document.getElementById("chatFileInput").value = "";
+            renderAttachPreview();
+        });
+        chip.appendChild(removeBtn);
+        preview.appendChild(chip);
+    } else if(activeDocument){
+        // No new file attached, but this chat is still about a long document.
+        const chip = document.createElement("div");
+        chip.className = "attach-doc-chip";
+        chip.innerHTML = `<span class="attach-doc-icon">📄</span>`
+            + `<span class="attach-doc-info"><strong>${escapeHtmlText(activeDocument.name)}</strong>`
+            + `<small>Answering from this document · ${activeDocument.words.toLocaleString()} words</small></span>`;
+        const removeBtn = document.createElement("button");
+        removeBtn.textContent = "✕";
+        removeBtn.title = "Stop using this document";
+        removeBtn.addEventListener("click", () => {
+            activeDocument = null;
             renderAttachPreview();
         });
         chip.appendChild(removeBtn);
@@ -6525,14 +6687,23 @@ async function sendChatMessage(prefill){
         const cols = dataAnalysisDataset.columns.join(", ");
         const sample = JSON.stringify(dataAnalysisDataset.rows.slice(0, 5));
         historyContent = `[Dataset attached: "${dataAnalysisDataset.name}" — ${dataAnalysisDataset.rows.length} rows total, columns: ${cols}]\nFirst 5 rows as a sample: ${sample}\n\n${DATA_ANALYSIS_INSTRUCTIONS}\n\nUser's question: ${msg || "Give me a quick summary of this dataset."}`;
+    } else if(attachedDocument && attachedDocument.long){
+        // Long document: index it, then send only the parts relevant to the question.
+        activeDocument = buildDocIndex(attachedDocument.name, attachedDocument.fullText, attachedDocument.capped);
+        historyContent = buildDocQuestion(activeDocument, msg || "Please summarize this document and list its key points.");
     } else if(attachedDocument){
         // Documents aren't multimodal like images — fold the already-
         // extracted text straight into the text the model reads.
+        activeDocument = null; // a new short document replaces any earlier long one
         historyContent = `[Attached document: "${attachedDocument.name}"]\n---\n${attachedDocument.text}\n---\n\n`
             + (msg || "Please read the attached document and summarize the key points.");
+    } else if(activeDocument && activeChatTool !== "data" && msg){
+        // Follow-up question in a chat about a long document.
+        historyContent = buildDocQuestion(activeDocument, msg);
     } else {
         historyContent = msg;
     }
+    if(typeof historyContent === "string" && historyContent.startsWith(DOC_EXCERPT_MARK)) compactOldDocExcerpts();
 
     if(chatHistory.length === 0){
         const profile = getProfile();
