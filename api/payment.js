@@ -1,4 +1,5 @@
 import { getAdminAuth, getAdminDb } from "./_lib/firebaseAdmin.js";
+import { effectivePlan, PLAN_DURATION_MS } from "./_lib/plan.js";
 
 // Razorpay integration for plan upgrades. Combined into one action-based
 // endpoint (?action=create-order | verify) so this stays a single Vercel
@@ -233,8 +234,17 @@ async function handleVerify(req, res) {
   const snap = await billingRef.get();
   const prevHistory = snap.exists ? (snap.data().history || []) : [];
 
+  // Plans last 30 days from payment. Renewing the SAME plan while it's
+  // still active adds on to the remaining time, so paying early never
+  // loses days; switching plans (or paying after expiry) starts from now.
+  const nowMs = Date.now();
+  const prev = snap.exists ? snap.data() : {};
+  const stillActiveSamePlan = prev.plan === plan && typeof prev.planExpiresAt === "number" && prev.planExpiresAt > nowMs;
+  const planExpiresAt = (stillActiveSamePlan ? prev.planExpiresAt : nowMs) + PLAN_DURATION_MS;
+
   await billingRef.set({
     plan,
+    planExpiresAt,
     updatedAt: Date.now(),
     lastOrderId: razorpay_order_id,
     lastPaymentId: razorpay_payment_id,
@@ -243,7 +253,7 @@ async function handleVerify(req, res) {
     history: [...prevHistory, { plan, orderId: razorpay_order_id, paymentId: razorpay_payment_id, at: Date.now() }].slice(-20)
   }, { merge: true });
 
-  return res.status(200).json({ ok: true, plan });
+  return res.status(200).json({ ok: true, plan, planExpiresAt });
 }
 
 // ================= Admin dashboard =================
@@ -346,11 +356,17 @@ async function buildAdminStats() {
   const planCounts = { free: 0, starter: 0, pro: 0, ultra: 0 };
   const revenueByMonth = {};
   let revenueTotal = 0, paidPayments = 0, referralJoins = 0, bonusTotal = 0;
+  let expiring7 = 0, expiredPlans = 0;
   for (const d of billingSnap.docs) {
     const b = d.data();
-    const plan = ADMIN_PLAN_LIMITS[b.plan] ? b.plan : "free";
+    const plan = ADMIN_PLAN_LIMITS[b.plan] ? effectivePlan(b) : "free";
     planOf.set(d.id, { plan, bonus: b.bonusMessages || 0 });
-    if (plan !== "free") planCounts[plan]++;
+    if (plan !== "free") {
+      planCounts[plan]++;
+      if (typeof b.planExpiresAt === "number" && b.planExpiresAt - now <= 7 * DAY) expiring7++;
+    } else if (b.plan && b.plan !== "free") {
+      expiredPlans++;
+    }
     referralJoins += b.referralCount || 0;
     bonusTotal += b.bonusMessages || 0;
     for (const h of b.history || []) {
@@ -418,6 +434,7 @@ async function buildAdminStats() {
       signupsByDay: Object.entries(signupDays).map(([date, count]) => ({ date, count }))
     },
     plans: planCounts,
+    planHealth: { expiring7, expired: expiredPlans },
     revenue: {
       total: revenueTotal, payments: paidPayments,
       byMonth: Object.entries(revenueByMonth).sort().slice(-6).map(([m, amount]) => ({ month: m, amount }))
