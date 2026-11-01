@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { getAdminAuth, getAdminDb, increment } from "./_lib/firebaseAdmin.js";
+import { effectivePlan } from "./_lib/plan.js";
 import { getAuthorizedClientForUser } from "./_lib/googleOAuth.js";
 import { getGithubAccessTokenForUser } from "./_lib/githubOAuth.js";
 import { getSlackAccessTokenForUser } from "./_lib/slackOAuth.js";
@@ -85,7 +86,8 @@ async function checkPlanLimit(uid) {
     ]);
 
     const billingData = billingSnap.exists ? billingSnap.data() : {};
-    const plan = billingData.plan || "free";
+    // Expired paid plans fall back to Free (see api/_lib/plan.js).
+    const plan = effectivePlan(billingData);
     // Referral bonus messages (granted via api/payment.js's
     // claim-referral action) stack on top of the plan's base limit.
     const limit = (PLAN_LIMITS[plan] || PLAN_LIMITS.free) + (billingData.bonusMessages || 0);
