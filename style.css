@@ -10867,3 +10867,5 @@ body.light-mode .sk-pop{ background:#fff; }
 .adm-table th:last-child,.adm-table td:last-child{text-align:right;}
 .adm-foot{color:var(--text-2);font-size:12px;margin:6px 0 0;}
 @media(max-width:600px){.adm-bar-row{grid-template-columns:70px 1fr 44px;}.adm-card-value{font-size:24px;}}
+
+.pricing-note{color:var(--text-2);font-size:12.5px;text-align:center;margin:14px auto 4px;max-width:520px;}
