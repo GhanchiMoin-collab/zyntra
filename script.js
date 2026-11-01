@@ -3233,6 +3233,55 @@ function showSigninError(message){
 
 function clearSigninError(){
     document.getElementById("signinError").style.display = "none";
+    const notice = document.getElementById("signinNotice");
+    if(notice) notice.style.display = "none";
+}
+
+function showSigninNotice(message){
+    hideAuthLoading(0);
+    const el = document.getElementById("signinNotice");
+    if(!el) return;
+    el.textContent = message;
+    el.style.display = "block";
+}
+
+// "Forgot password?" — sends Firebase's standard reset email. Only works
+// for accounts created with email + password (Google/Microsoft accounts
+// have no password to reset). The reply is deliberately the same whether
+// or not that email has an account, so the form can't be used to check
+// who is registered.
+let lastPasswordResetAt = 0;
+document.getElementById("forgotPasswordLink")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    clearSigninError();
+    const email = document.getElementById("signinEmail").value.trim();
+    if(!email){
+        showSigninError("Type your email in the box above first, then tap \"Forgot password?\" again.");
+        return;
+    }
+    if(Date.now() - lastPasswordResetAt < 30000){
+        showSigninNotice("A reset link was just sent — give it a minute, and check your spam folder.");
+        return;
+    }
+    lastPasswordResetAt = Date.now();
+    activeAuth().sendPasswordResetEmail(email)
+        .then(() => {
+            showSigninNotice("If an account exists for " + email + ", a password reset link is on its way. Check your inbox and spam folder. (Signed up with Google? Use \"Continue with Google\" instead.)");
+        })
+        .catch(err => {
+            if(err.code === "auth/user-not-found"){
+                // Same message as success — don't reveal which emails are registered.
+                showSigninNotice("If an account exists for " + email + ", a password reset link is on its way. Check your inbox and spam folder.");
+                return;
+            }
+            lastPasswordResetAt = 0; // a failed attempt shouldn't lock out a retry
+            showSigninError(firebaseErrorMessage(err.code, err.message) || "Couldn't send the reset email. Please try again.");
+        });
+});
+
+function setForgotPasswordVisible(show){
+    const el = document.getElementById("forgotPasswordLink");
+    if(el) el.style.display = show ? "" : "none";
 }
 
 function firebaseErrorMessage(code, rawMessage){
@@ -4124,6 +4173,7 @@ function resetSigninModalUI(){
     clearSigninError();
     document.getElementById("signinTitle").innerHTML = 'Welcome <span>Back</span>';
     document.getElementById("signinSubmit").textContent = "Sign In";
+    setForgotPasswordVisible(true);
     document.getElementById("signupToggleText").innerHTML = 'Don\'t have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign up</a>';
     document.getElementById("signupToggleLink").addEventListener("click", handleSignupToggleClick);
 }
@@ -4136,6 +4186,7 @@ function handleSignupToggleClick(e){
         ? 'Create <span>Account</span>'
         : 'Welcome <span>Back</span>';
     document.getElementById("signinSubmit").textContent = isSignupMode ? "Sign Up" : "Sign In";
+    setForgotPasswordVisible(!isSignupMode);
     document.getElementById("signupToggleText").innerHTML = isSignupMode
         ? 'Already have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign in</a>'
         : 'Don\'t have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign up</a>';
