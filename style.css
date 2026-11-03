@@ -10872,3 +10872,37 @@ body.light-mode .sk-pop{ background:#fff; }
 
 .forgot-password-link{align-self:flex-end;margin:-4px 2px 2px;font-size:13px;font-weight:600;color:#c9a8ff;text-decoration:none;}
 .forgot-password-link:hover{text-decoration:underline;}
+
+
+/* ================= Welcome screen (first screen for signed-out visitors) ================= */
+.welcome-gate{display:none;position:fixed;inset:0;z-index:190;align-items:center;justify-content:center;padding:24px;overflow-y:auto;
+  background:radial-gradient(900px 520px at 50% -10%,rgba(124,92,255,.28),transparent 60%),radial-gradient(700px 460px at 90% 110%,rgba(255,93,181,.16),transparent 60%),var(--bg-void);}
+.welcome-gate.show{display:flex;}
+body.gate-open{overflow:hidden;}
+.welcome-gate-box{width:100%;max-width:400px;text-align:center;margin:auto;}
+.welcome-gate-logo{border-radius:16px;margin-bottom:14px;}
+.welcome-gate-box h1{font-size:28px;line-height:1.2;margin:0 0 8px;color:var(--text-1);}
+.welcome-gate-box h1 span{background:var(--accent-grad);-webkit-background-clip:text;background-clip:text;color:transparent;}
+.welcome-gate-sub{color:var(--text-2);font-size:14.5px;margin:0 0 22px;}
+.welcome-gate-error{color:#ff8fa8;font-size:13.5px;margin:0 0 14px;}
+.welcome-gate-box .social-signin-btn{width:100%;margin-bottom:10px;}
+.welcome-gate-or{display:flex;align-items:center;gap:12px;margin:8px 0 14px;color:var(--text-2);font-size:13px;}
+.welcome-gate-or span{flex:1;height:1px;background:rgba(255,255,255,.12);}
+.welcome-gate-guest{width:100%;padding:13px;border-radius:12px;border:1px solid var(--glass-border-strong);background:transparent;color:var(--text-1);font-weight:700;font-size:14.5px;cursor:pointer;transition:background .2s ease,transform .15s ease;}
+.welcome-gate-guest:hover{background:var(--glass-strong);transform:translateY(-1px);}
+.welcome-gate-fine{color:var(--text-2);font-size:12.5px;margin:14px 4px 0;line-height:1.5;}
+
+/* ================= Guest messages-left counter ================= */
+.guest-meter{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px 12px;margin:0 auto 8px;padding:6px 14px;max-width:max-content;border-radius:999px;font-size:12.5px;color:var(--text-2);background:var(--glass);border:1px solid var(--glass-border-strong);}
+.guest-meter b{color:var(--text-1);}
+.guest-meter a{color:#c9a8ff;font-weight:600;text-decoration:none;}
+.guest-meter a:hover{text-decoration:underline;}
+.guest-meter.low{border-color:rgba(255,184,76,.55);}
+.guest-meter.out{border-color:rgba(255,120,150,.6);color:#ffb3c4;}
+
+/* OCR progress / language picker (scanned PDFs) */
+.attach-doc-chip.attach-busy{max-width:340px;}
+.attach-doc-chip.ocr-ask{max-width:none;}
+.ocr-lang-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.attach-doc-chip .ocr-lang-btn{position:static;width:auto;height:auto;border-radius:999px;padding:5px 12px;font-size:12.5px;font-weight:600;line-height:1.2;background:var(--glass-strong);color:var(--text-1);border:1px solid var(--glass-border-strong);cursor:pointer;}
+.attach-doc-chip .ocr-lang-btn:hover{background:var(--accent-grad-soft);}
