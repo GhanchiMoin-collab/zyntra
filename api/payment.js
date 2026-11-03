@@ -1,4 +1,4 @@
-import { getAdminAuth, getAdminDb } from "./_lib/firebaseAdmin.js";
+import { getAdminAuth, getAdminDb, arrayRemove } from "./_lib/firebaseAdmin.js";
 import { effectivePlan, PLAN_DURATION_MS } from "./_lib/plan.js";
 
 // Razorpay integration for plan upgrades. Combined into one action-based
@@ -502,6 +502,109 @@ async function handleAdminStats(req, res) {
   return res.status(200).json(data);
 }
 
+// ================= Delete account (everything, not just the login) =================
+// Removes the person's data from every place Zyntra keeps it, THEN deletes
+// their sign-in record. If any step fails the sign-in record is kept and the
+// person is told to retry, so a half-deleted account can't get orphaned.
+// Safety: needs the typed confirmation AND a sign-in from the last 5 minutes
+// (the app re-asks for the password / Google / Microsoft just before calling).
+const ACCOUNT_TOKEN_COLLECTIONS = [
+  "oauth_tokens", "github_oauth_tokens", "slack_oauth_tokens", "discord_oauth_tokens",
+  "notion_oauth_tokens", "trello_oauth_tokens", "outlook_oauth_tokens"
+];
+
+async function deleteByQuery(db, query) {
+  let total = 0;
+  for (;;) {
+    const snap = await query.limit(400).get();
+    if (snap.empty) break;
+    const batch = db.batch();
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    total += snap.size;
+    if (snap.size < 400) break;
+  }
+  return total;
+}
+
+async function handleDeleteAccount(req, res) {
+  const authHeader = req.headers.authorization || "";
+  const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  if (!idToken) return res.status(401).json({ error: "Sign in required." });
+  const decoded = await getAdminAuth().verifyIdToken(idToken);
+  const uid = decoded.uid;
+
+  if ((req.body || {}).confirm !== "DELETE") {
+    return res.status(400).json({ error: "Type DELETE to confirm." });
+  }
+  if (Date.now() / 1000 - (decoded.auth_time || 0) > 300) {
+    return res.status(401).json({ code: "reauth_required", error: "For your security, please confirm it's you again and retry." });
+  }
+
+  const db = getAdminDb();
+  const auth = getAdminAuth();
+  let email = "";
+  try { email = ((await auth.getUser(uid)).email || "").toLowerCase(); } catch (e) { /* phone/other accounts may have no email */ }
+
+  const failures = [];
+  const step = async (name, fn) => {
+    try { await fn(); } catch (e) { console.error(`delete-account step "${name}" failed:`, e && e.message); failures.push(name); }
+  };
+
+  // Their published apps/games, plus the votes, saves and reports attached to them.
+  await step("published creations", async () => {
+    const sites = await db.collection("publishedSites").where("uid", "==", uid).get();
+    for (const d of sites.docs) {
+      const slug = d.id;
+      await db.collection("siteHtml").doc(slug).delete();
+      await deleteByQuery(db, db.collection("ratings").where("slug", "==", slug));
+      await deleteByQuery(db, db.collection("gameSaves").where("slug", "==", slug));
+      await deleteByQuery(db, db.collection("reports").where("slug", "==", slug));
+      await d.ref.delete();
+    }
+  });
+  // Their own votes / saved progress / reports on other people's creations.
+  await step("votes and saves", async () => {
+    await deleteByQuery(db, db.collection("ratings").where("uid", "==", uid));
+    await deleteByQuery(db, db.collection("gameSaves").where("uid", "==", uid));
+    await deleteByQuery(db, db.collection("reports").where("uid", "==", uid));
+  });
+  // Shared chat links (also removes them from the public Discover page).
+  await step("shared chats", () => deleteByQuery(db, db.collection("sharedChats").where("uid", "==", uid)));
+  // Projects: delete the ones they own, leave the ones they were only invited to.
+  await step("projects", async () => {
+    const mine = await db.collection("projects").where("members", "array-contains", uid).get();
+    for (const d of mine.docs) {
+      if (d.data().ownerId === uid) {
+        await db.recursiveDelete(d.ref);
+      } else {
+        const upd = { members: arrayRemove(uid) };
+        if (email) upd.memberEmails = arrayRemove(email);
+        await d.ref.update(upd);
+      }
+    }
+  });
+  // Stored connections (Gmail, GitHub, Slack, …) — our copy of the access tokens.
+  await step("connected apps", async () => {
+    for (const col of ACCOUNT_TOKEN_COLLECTIONS) await db.collection(col).doc(uid).delete();
+  });
+  // Plan, referral code, then the main profile doc (chats, memories, usage, notifications).
+  await step("plan and referral code", async () => {
+    await deleteByQuery(db, db.collection("referralCodes").where("uid", "==", uid));
+    await db.collection("billing").doc(uid).delete();
+  });
+  await step("profile and chats", () => db.recursiveDelete(db.collection("users").doc(uid)));
+
+  if (failures.length) {
+    return res.status(500).json({
+      error: `We couldn't remove everything (${failures.join(", ")}), so your account is still active. Please try again in a minute.`
+    });
+  }
+
+  await auth.deleteUser(uid);
+  return res.status(200).json({ ok: true });
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -516,6 +619,7 @@ export default async function handler(req, res) {
     if (action === "verify") return await handleVerify(req, res);
     if (action === "get-referral-info") return await handleGetReferralInfo(req, res);
     if (action === "claim-referral") return await handleClaimReferral(req, res);
+    if (action === "delete-account") return await handleDeleteAccount(req, res);
     if (action === "admin-check") return await handleAdminCheck(req, res);
     if (action === "admin-stats") return await handleAdminStats(req, res);
     return res.status(400).json({ error: "Unknown action." });
