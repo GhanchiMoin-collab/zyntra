@@ -2465,6 +2465,7 @@ function isLoggedIn(){
 }
 
 function renderAuthNav(){
+    renderGuestMeter();
     const loggedIn = isLoggedIn();
     const nameEl = document.getElementById("sidebarUserName");
     const planEl = document.getElementById("sidebarUserPlan");
@@ -2973,6 +2974,7 @@ function rememberUsage(usage){
             month: new Date().toISOString().slice(0, 7)
         }));
     }catch(e){}
+    renderGuestMeter();
 }
 function readRememberedUsage(plan){
     try{
@@ -3219,6 +3221,8 @@ document.getElementById("signoutConfirm")?.addEventListener("click", () => {
         renderSidebarHistory();
         btn.disabled = false;
         hideAuthLoading(1000);
+        clearGuestChosen();
+        showWelcomeGate();
     });
 });
 document.getElementById("signinModalClose")?.addEventListener("click", () => { closeModal("signinModal"); revertRouteToCurrentTool(); });
@@ -3229,10 +3233,18 @@ function showSigninError(message){
     const errEl = document.getElementById("signinError");
     errEl.textContent = message;
     errEl.style.display = "block";
+    // The welcome screen has its own error line (the sign-in modal's is hidden behind it).
+    const gateErr = document.getElementById("gateError");
+    if(gateErr && welcomeGateActive()){
+        gateErr.textContent = message;
+        gateErr.style.display = "block";
+    }
 }
 
 function clearSigninError(){
     document.getElementById("signinError").style.display = "none";
+    const gateErr = document.getElementById("gateError");
+    if(gateErr) gateErr.style.display = "none";
     const notice = document.getElementById("signinNotice");
     if(notice) notice.style.display = "none";
 }
@@ -3317,6 +3329,8 @@ function firebaseErrorMessage(code, rawMessage){
 }
 
 function finishSignin(email){
+    clearGuestChosen();
+    hideWelcomeGate();
     hideAuthLoading(1000);
     const wasAddingAccount = accountAddPreviousSlot !== null;
 
@@ -4085,6 +4099,9 @@ function activeFirestore(){
 let initialRouteApplied = false;
 function tryApplyInitialRoute(){
     if(initialRouteApplied) return;
+    // While the welcome screen is up, hold the route (a deep link could open
+    // a modal on top of it) — choosing guest or signing in calls this again.
+    if(welcomeGateActive()) return;
     initialRouteApplied = true;
     if(typeof applyRouteFromPath === "function") applyRouteFromPath();
 }
@@ -4104,6 +4121,7 @@ function attachAuthStateListener(authInstance, slot){
             finishSignin(user.email || user.displayName || user.providerData?.[0]?.email || "Account");
         }
         if(user){
+            hideWelcomeGate();
             pullCloudToLocal().then(tryApplyInitialRoute).catch(tryApplyInitialRoute);
             refreshProjectsCache();
             refreshAdminFlag();
@@ -6142,9 +6160,11 @@ document.getElementById("chatFileInput").addEventListener("change", (e) => {
             renderAttachPreview();
         })
         .catch(err => {
+            renderAttachPreview(); // clears any "reading…" progress chip
+            document.getElementById("chatFileInput").value = "";
+            if(err && err.message === "Cancelled") return; // the user backed out — nothing to report
             console.error("Document extraction failed:", err);
             showToast("⚠️ Couldn't read that file: " + (err.message || "unsupported format"));
-            document.getElementById("chatFileInput").value = "";
         });
 });
 
@@ -6166,6 +6186,126 @@ function parseTabularFile(file){
 // Pulls plain text out of a PDF, Word doc, Excel sheet, or plain text/CSV
 // file — entirely in the browser, so an attached document is ready to
 // discuss immediately with no server round-trip. Returns a Promise<string>.
+// ==========================================================
+// OCR for scanned PDFs (Tesseract.js, runs entirely in the browser)
+// A PDF whose pages are mostly pictures of text has nothing for pdf.js to
+// extract, so we draw each such page to a canvas and "read" it instead.
+// Tesseract (~a few MB, plus the language data) is downloaded only the
+// first time someone attaches a scanned PDF — never at page load.
+// ==========================================================
+const OCR_MAX_PAGES = 30;            // pages read per file — OCR takes a few seconds per page
+const OCR_MIN_CHARS_PER_PAGE = 40;   // a page with less real text than this counts as a picture
+const OCR_LANG_CHOICES = [["eng", "English"], ["hin", "Hindi"], ["guj", "Gujarati"], ["ara", "Arabic"]];
+var ocrCancelled = false;
+var tesseractPromise = null;
+
+function loadTesseract(){
+    if(window.Tesseract) return Promise.resolve();
+    if(tesseractPromise) return tesseractPromise;
+    tesseractPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+        script.onload = () => resolve();
+        script.onerror = () => {
+            tesseractPromise = null; // allow retrying later
+            reject(new Error("Couldn't load the text-recognition tool — check your connection and try again."));
+        };
+        document.head.appendChild(script);
+    });
+    return tesseractPromise;
+}
+
+function setAttachBusy(titleHtml, subText, cancellable){
+    const preview = document.getElementById("attachPreview");
+    if(!preview) return null;
+    preview.innerHTML = "";
+    const chip = document.createElement("div");
+    chip.className = "attach-doc-chip attach-busy";
+    chip.innerHTML = `<span class="attach-doc-icon">⏳</span><span class="attach-doc-info"><strong>${titleHtml}</strong><small class="attach-busy-sub"></small></span>`;
+    chip.querySelector(".attach-busy-sub").textContent = subText || "";
+    if(cancellable){
+        const x = document.createElement("button");
+        x.type = "button";
+        x.textContent = "✕";
+        x.title = "Cancel";
+        x.addEventListener("click", () => { ocrCancelled = true; });
+        chip.appendChild(x);
+    }
+    preview.appendChild(chip);
+    return chip;
+}
+
+// Resolves with a language code, or rejects with Error("Cancelled").
+function askOcrLanguage(pageCount){
+    return new Promise((resolve, reject) => {
+        const preview = document.getElementById("attachPreview");
+        preview.innerHTML = "";
+        const chip = document.createElement("div");
+        chip.className = "attach-doc-chip attach-busy ocr-ask";
+        chip.innerHTML = `<span class="attach-doc-icon">🔍</span><span class="attach-doc-info"><strong>Scanned PDF — what language is it in?</strong>`
+            + `<small>${pageCount} page${pageCount === 1 ? "" : "s"} to read</small><span class="ocr-lang-row"></span></span>`;
+        const row = chip.querySelector(".ocr-lang-row");
+        OCR_LANG_CHOICES.forEach(([code, label]) => {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "ocr-lang-btn";
+            b.textContent = label;
+            b.addEventListener("click", () => resolve(code));
+            row.appendChild(b);
+        });
+        const x = document.createElement("button");
+        x.type = "button";
+        x.textContent = "✕";
+        x.title = "Cancel";
+        x.addEventListener("click", () => reject(new Error("Cancelled")));
+        chip.appendChild(x);
+        preview.appendChild(chip);
+    });
+}
+
+// Reads the given page numbers of an already-open pdf.js document.
+// Returns { [pageNumber]: text }.
+async function ocrPdfPages(pdf, pageNumbers, langCode){
+    await loadTesseract();
+    ocrCancelled = false;
+    const chip = setAttachBusy("Reading scanned PDF…", "Starting up…", true);
+    const setStatus = (t) => { const el = chip && chip.querySelector(".attach-busy-sub"); if(el) el.textContent = t; };
+
+    // Non-English scans usually mix in English words/numbers, so always include it.
+    const langs = langCode === "eng" ? "eng" : langCode + "+eng";
+    const worker = await Tesseract.createWorker(langs, 1, {
+        logger: m => {
+            if(m.status === "loading language traineddata"){
+                setStatus("Downloading language data… " + Math.round((m.progress || 0) * 100) + "% (first time only)");
+            }
+        }
+    });
+
+    const out = {};
+    try{
+        for(let k = 0; k < pageNumbers.length; k++){
+            if(ocrCancelled) throw new Error("Cancelled");
+            const n = pageNumbers[k];
+            setStatus(`Reading page ${n} (${k + 1} of ${pageNumbers.length})…`);
+            const page = await pdf.getPage(n);
+            const base = page.getViewport({ scale: 1 });
+            const scale = Math.min(2, 2400 / Math.max(base.width, base.height));
+            const viewport = page.getViewport({ scale });
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.floor(viewport.width);
+            canvas.height = Math.floor(viewport.height);
+            await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+            const { data } = await worker.recognize(canvas);
+            out[n] = (data.text || "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+            canvas.width = canvas.height = 0; // free the bitmap right away
+            if(ocrCancelled) throw new Error("Cancelled");
+        }
+    } finally {
+        try{ await worker.terminate(); }catch(e){}
+    }
+    return out;
+}
+
 async function extractDocumentText(file){
     const name = file.name.toLowerCase();
 
@@ -6175,13 +6315,37 @@ async function extractDocumentText(file){
         const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
         let text = "";
         const pageCount = Math.min(pdf.numPages, 200); // sane cap for very long PDFs
+        const pageTexts = [];
         for(let i = 1; i <= pageCount; i++){
             const page = await pdf.getPage(i);
             const content = await page.getTextContent();
-            const pageText = content.items.map(item => item.str).join(" ").trim();
-            if(pageText) text += `[Page ${i}] ` + pageText + "\n\n";
+            pageTexts[i] = content.items.map(item => item.str).join(" ").trim();
         }
-        if(!text.trim()) throw new Error("This PDF has no selectable text (it may be a scanned image).");
+
+        // Pages with (almost) no selectable text are pictures of text. If most of
+        // the PDF is like that it's a scan, so read those pages with OCR; a few
+        // figure/blank pages inside an otherwise normal PDF are left alone.
+        const picturePages = [];
+        for(let i = 1; i <= pageCount; i++){
+            if((pageTexts[i] || "").length < OCR_MIN_CHARS_PER_PAGE) picturePages.push(i);
+        }
+        let unreadScanned = 0;
+        if(picturePages.length && picturePages.length >= Math.ceil(pageCount * 0.5)){
+            const toRead = picturePages.slice(0, OCR_MAX_PAGES);
+            const lang = await askOcrLanguage(toRead.length);
+            const ocrText = await ocrPdfPages(pdf, toRead, lang);
+            toRead.forEach(n => { pageTexts[n] = ocrText[n] || ""; });
+            unreadScanned = picturePages.length - toRead.length;
+        }
+
+        for(let i = 1; i <= pageCount; i++){
+            if(pageTexts[i]) text += `[Page ${i}] ` + pageTexts[i] + "\n\n";
+        }
+        if(unreadScanned > 0){
+            text += `[Note: ${unreadScanned} more scanned pages were not read — only the first ${OCR_MAX_PAGES} scanned pages are processed per file.]`;
+            showToast(`Read the first ${OCR_MAX_PAGES} scanned pages (the rest were skipped).`);
+        }
+        if(!text.trim()) throw new Error("Couldn't find any readable text in this PDF.");
         return text.trim();
     }
 
@@ -10358,3 +10522,103 @@ document.getElementById("adminBackBtn")?.addEventListener("click", () => {
     navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
 });
 document.getElementById("adminRefreshBtn")?.addEventListener("click", () => loadAdminStats(true));
+
+
+// ==========================================================
+// Welcome screen + guest message counter
+// Visitors who aren't signed in see a sign-in screen first, with
+// "Continue as guest" as the way past it. The guest choice lasts for this
+// browser session only, so the next visit offers sign-in again. Shared
+// links, game/app pages, /login and OAuth return trips skip the screen.
+// Guests also get a small "messages left" counter above the message box
+// (the server already counts guest messages per month).
+// ==========================================================
+function getGuestChosen(){
+    try{ return !!sessionStorage.getItem("zyntra-guest-chosen"); }catch(e){ return false; }
+}
+function setGuestChosen(){
+    try{ sessionStorage.setItem("zyntra-guest-chosen", "1"); }catch(e){}
+}
+function clearGuestChosen(){
+    try{ sessionStorage.removeItem("zyntra-guest-chosen"); }catch(e){}
+}
+
+function welcomeGateActive(){
+    const g = document.getElementById("welcomeGate");
+    return !!g && g.classList.contains("show");
+}
+
+function shouldShowWelcomeGate(){
+    if(isLoggedIn()) return false;
+    if(getGuestChosen()) return false;
+    if(/bot|crawl|spider|slurp|lighthouse|headless/i.test(navigator.userAgent || "")) return false;
+    const params = new URLSearchParams(window.location.search);
+    if(params.has("guest")) return false; // ?guest=1 skips the screen (handy for shared demo links)
+    if([...params.keys()].some(k => /_connected$/.test(k) || k === "error")) return false; // coming back from a connect/OAuth trip
+    const slug = window.location.pathname.replace(/^\/+|\/+$/g, "").split("/")[0];
+    if(["share", "login", "play", "s"].includes(slug)) return false;
+    return true;
+}
+
+function showWelcomeGate(){
+    const g = document.getElementById("welcomeGate");
+    if(!g || isLoggedIn()) return;
+    // Reuse the real sign-in buttons' look so the logos stay in one place.
+    const gb = document.getElementById("gateGoogleBtn"), mb = document.getElementById("gateMicrosoftBtn");
+    if(gb && !gb.innerHTML) gb.innerHTML = document.getElementById("googleSigninBtn")?.innerHTML || "Continue with Google";
+    if(mb && !mb.innerHTML) mb.innerHTML = document.getElementById("microsoftSigninBtn")?.innerHTML || "Continue with Microsoft";
+    const fine = document.getElementById("gateFine");
+    if(fine){
+        fine.textContent = `Guests get ${PROFILE_PLAN_INFO.guest.limit} free messages a month. Sign in free for ${PROFILE_PLAN_INFO.free.limit}, saved chat history and sync across your devices.`;
+    }
+    const err = document.getElementById("gateError");
+    if(err) err.style.display = "none";
+    g.classList.add("show");
+    document.body.classList.add("gate-open");
+    setTimeout(() => document.getElementById("gateGoogleBtn")?.focus({ preventScroll: true }), 50);
+}
+
+function hideWelcomeGate(){
+    const g = document.getElementById("welcomeGate");
+    if(g) g.classList.remove("show");
+    document.body.classList.remove("gate-open");
+}
+
+document.getElementById("gateGoogleBtn")?.addEventListener("click", () => document.getElementById("googleSigninBtn")?.click());
+document.getElementById("gateMicrosoftBtn")?.addEventListener("click", () => document.getElementById("microsoftSigninBtn")?.click());
+document.getElementById("gateEmailBtn")?.addEventListener("click", () => {
+    if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+    openModal("signinModal"); // sits above the welcome screen; closing it returns here
+});
+document.getElementById("gateGuestBtn")?.addEventListener("click", () => {
+    setGuestChosen();
+    hideWelcomeGate();
+    tryApplyInitialRoute();
+    showToast("You're in as a guest — sign in anytime to save your chats.");
+});
+
+// ---- guest messages-left counter ----
+function renderGuestMeter(){
+    const el = document.getElementById("guestMeter");
+    if(!el) return;
+    if(isLoggedIn()){ el.style.display = "none"; return; }
+    const limit = PROFILE_PLAN_INFO.guest.limit;
+    const u = readRememberedUsage("guest");
+    const left = u ? Math.max(0, Math.min(limit, u.remaining)) : limit;
+    el.classList.toggle("low", left <= 3 && left > 0);
+    el.classList.toggle("out", left === 0);
+    const msg = left === 0
+        ? `You've used all ${limit} free guest messages this month.`
+        : `👤 <b>${left}</b> of ${limit} free guest messages left`;
+    el.innerHTML = `<span>${msg}</span> <a href="#" id="guestMeterSignin">Sign in for ${PROFILE_PLAN_INFO.free.limit} a month →</a>`;
+    el.style.display = "";
+    document.getElementById("guestMeterSignin")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+        openModal("signinModal");
+        navigateToRoute("login");
+    });
+}
+
+if(shouldShowWelcomeGate()) showWelcomeGate();
+renderGuestMeter();
