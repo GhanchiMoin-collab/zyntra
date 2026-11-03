@@ -10409,6 +10409,10 @@ function renderAdminStats(d){
     html += admCard("Active users", admFmt(d.usage.activeUsers), "avg " + admFmt(d.usage.avgPerActive) + " msgs each");
     html += admCard("Paid users", admFmt(paid), convPct + "% of all users");
     html += admCard("Revenue", "₹" + admFmt(d.revenue.total), admFmt(d.revenue.payments) + " payment" + (d.revenue.payments === 1 ? "" : "s") + (d.razorpayTestMode ? " · <b>TEST mode</b>" : ""));
+    if(d.daily){
+        html += admCard("Active today", admFmt(d.daily.today.active), admFmt(d.daily.today.messages) + " messages today (UTC)");
+        html += admCard("Active this week", admFmt(d.daily.weeklyActive), "~" + admFmt(d.daily.avgPerDay7) + " messages a day");
+    }
     html += '</div>';
 
     if(d.usage.hitLimit > 0){
@@ -10419,6 +10423,22 @@ function renderAdminStats(d){
     if(d.planHealth && (d.planHealth.expiring7 > 0 || d.planHealth.expired > 0)){
         html += '<div class="adm-note">🔔 <b>' + admFmt(d.planHealth.expiring7) + '</b> paid plan' + (d.planHealth.expiring7 === 1 ? "" : "s") +
             ' expire within 7 days · <b>' + admFmt(d.planHealth.expired) + '</b> already expired (good people to remind to renew).</div>';
+    }
+
+    // Per-day charts (messages + active users)
+    if(d.daily){
+        const mkChart = (rows, key, title) => {
+            const max = Math.max(1, ...rows.map(r => r[key]));
+            return '<div class="adm-panel"><h3>' + title + '</h3><div class="adm-chart">' +
+                rows.map(r => '<div class="adm-chart-col" title="' + admEsc(r.date) + ': ' + r[key] + '"><div class="adm-chart-bar" style="height:' +
+                    Math.max(r[key] ? 6 : 2, Math.round((r[key] / max) * 100)) + '%"></div></div>').join("") + '</div>' +
+                '<div class="adm-chart-axis"><span>' + admEsc(rows[0].date.slice(5)) + '</span><span>' + admEsc(rows[rows.length - 1].date.slice(5)) + '</span></div></div>';
+        };
+        html += '<div class="adm-two">' + mkChart(d.daily.series, "messages", "Messages per day — last 30 days") +
+            mkChart(d.daily.series, "active", "Active users per day — last 30 days") + '</div>';
+        if(!d.daily.hasData){
+            html += '<p class="adm-sub" style="margin:-4px 0 16px;">Per-day data starts from the day this update went live, so these charts fill in over the next few days.</p>';
+        }
     }
 
     // Signups chart
