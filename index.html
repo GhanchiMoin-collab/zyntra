@@ -866,14 +866,26 @@
 </div>
 
 <div class="modal-overlay" id="deleteAccountModal">
-    <div class="modal-box" style="max-width:420px; text-align:center;">
+    <div class="modal-box" style="max-width:440px; text-align:center;">
         <button class="modal-close" id="deleteAccountModalClose">✕</button>
         <span class="tag">DELETE ACCOUNT</span>
         <h1>Delete <span>Account?</span></h1>
-        <p>This permanently deletes your Zyntra AI account. Your chats, memory, and projects on this device will also be cleared. This can't be undone.</p>
-        <div class="modal-input-row" style="margin-top:20px;">
+        <p>This permanently deletes your Zyntra AI account and everything tied to it. It can't be undone.</p>
+        <ul class="delete-account-list">
+            <li>Your chats, memory and settings (on every device)</li>
+            <li>Projects you own, and shared chat links</li>
+            <li>Apps and games you published, and their ratings</li>
+            <li>Connected apps (Gmail, GitHub, Slack…) — we erase our saved access</li>
+            <li>Your plan and referral bonuses — there are no refunds</li>
+        </ul>
+        <div class="modal-input-row modal-input-col" style="margin-top:14px;">
+            <input type="password" id="deleteAccountPassword" placeholder="Your password" autocomplete="current-password" style="display:none;">
+            <input type="text" id="deleteAccountConfirmInput" placeholder="Type DELETE to confirm" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        </div>
+        <p id="deleteAccountError" style="display:none; color:#ff8fa8; font-size:13.5px; margin:10px 0 0;"></p>
+        <div class="modal-input-row" style="margin-top:18px;">
             <button id="deleteAccountCancel" style="flex:1; padding:13px; border:1px solid #2b3154; border-radius:12px; background:#171d3d; color:white; font-weight:600; cursor:pointer;">Cancel</button>
-            <button id="deleteAccountConfirm" style="flex:1; padding:13px; border:none; border-radius:12px; background:linear-gradient(135deg,#e14b6a,#ff5db5); color:white; font-weight:700; cursor:pointer;">Delete Forever</button>
+            <button id="deleteAccountConfirm" disabled style="flex:1; padding:13px; border:none; border-radius:12px; background:linear-gradient(135deg,#e14b6a,#ff5db5); color:white; font-weight:700; cursor:pointer;">Delete Forever</button>
         </div>
     </div>
 </div>
@@ -1116,7 +1128,7 @@
 
                     <div style="margin-top:32px; border-top:1px solid #2b3154; padding-top:24px;">
                         <p class="profile-label" style="margin-top:0; color:#ff8fa8;">Delete account</p>
-                        <p class="settings-section-hint">Permanently delete your Zyntra AI account and everything saved to it. This can't be undone.</p>
+                        <p class="settings-section-hint">Permanently delete your Zyntra AI account and everything saved to it — chats, projects, shared links, published apps and connected apps. This can't be undone.</p>
                         <button id="securityDeleteAccountBtn" type="button" style="margin-top:12px; padding:12px 20px; border:1px solid #5a2334; border-radius:12px; background:#2a1420; color:#ff8fa8; font-weight:700; cursor:pointer;">🗑 Delete my account</button>
                         <p id="securityDeleteMsg" class="settings-section-hint" style="margin-top:10px;"></p>
                     </div>
