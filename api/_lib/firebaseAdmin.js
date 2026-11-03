@@ -48,3 +48,9 @@ export function isAdminConfigured() {
 export function increment(n) {
   return admin.firestore.FieldValue.increment(n);
 }
+
+// Removes a value from an array field without rewriting the whole array
+// (used when someone deletes their account but stays listed on others' projects).
+export function arrayRemove(...values) {
+  return admin.firestore.FieldValue.arrayRemove(...values);
+}
