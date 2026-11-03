@@ -384,13 +384,30 @@ async function buildAdminStats() {
   // ---- usage (this month vs last month) ----
   const cur = { messages: 0, input: 0, output: 0, groq: 0, searches: 0, research: 0, activeUsers: 0, hitLimit: 0 };
   let prevMessages = 0;
+  // Per-day numbers (UTC dates) for the last 30 days — written by api/chat.js
+  // as usage.daily = { "YYYY-MM-DD": count }. Days before that field existed
+  // simply have no data.
+  const dayKey = (t) => new Date(t).toISOString().slice(0, 10);
+  const dailyMsgs = {}, dailyActive = {}, guestDailyMsgs = {};
+  const weeklyUsers = new Set();
+  const addDaily = (x, uid) => {
+    const dd = x.daily;
+    if (!dd || typeof dd !== "object") return;
+    for (const [day, n] of Object.entries(dd)) {
+      if (!(n > 0)) continue;
+      dailyMsgs[day] = (dailyMsgs[day] || 0) + n;
+      dailyActive[day] = (dailyActive[day] || 0) + 1;
+      if (uid && now - new Date(day + "T00:00:00Z").getTime() < 7 * DAY) weeklyUsers.add(uid);
+    }
+  };
   const models = {};
   const perUser = [];
   for (const d of usageSnap.docs) {
     const x = d.data();
-    if (d.id === prevMonth) { prevMessages += x.messages || 0; continue; }
+    if (d.id === prevMonth) { prevMessages += x.messages || 0; addDaily(x, d.ref.parent.parent?.id); continue; }
     if (d.id !== month) continue;
     const uid = d.ref.parent.parent?.id;
+    addDaily(x, uid);
     const msgs = x.messages || 0;
     cur.messages += msgs;
     cur.input += x.inputTokens || 0;
@@ -419,11 +436,33 @@ async function buildAdminStats() {
   // ---- guests ----
   let guestMessages = 0, guestVisitors = 0;
   for (const d of guestSnap.docs) {
+    const gd = d.data();
     if (d.id.endsWith("_" + month)) {
-      guestMessages += d.data().messages || 0;
+      guestMessages += gd.messages || 0;
       guestVisitors++;
     }
+    if (d.id.endsWith("_" + month) || d.id.endsWith("_" + prevMonth)) {
+      for (const [day, n] of Object.entries(gd.daily || {})) {
+        if (n > 0) guestDailyMsgs[day] = (guestDailyMsgs[day] || 0) + n;
+      }
+    }
   }
+
+  // ---- last 30 days, oldest first ----
+  const series = [];
+  for (let i = 29; i >= 0; i--) {
+    const date = dayKey(now - i * DAY);
+    series.push({ date, messages: dailyMsgs[date] || 0, active: dailyActive[date] || 0, guestMessages: guestDailyMsgs[date] || 0 });
+  }
+  const todayRow = series[series.length - 1];
+  const last7 = series.slice(-7);
+  const daily = {
+    series,
+    today: { messages: todayRow.messages, active: todayRow.active },
+    weeklyActive: weeklyUsers.size,
+    avgPerDay7: Math.round(last7.reduce((a, r) => a + r.messages, 0) / 7),
+    hasData: series.some((r) => r.messages > 0 || r.guestMessages > 0)
+  };
 
   return {
     generatedAt: now,
@@ -443,6 +482,7 @@ async function buildAdminStats() {
     usage: { ...cur, prevMonthMessages: prevMessages, avgPerActive: cur.activeUsers ? Math.round(cur.messages / cur.activeUsers) : 0 },
     models: Object.entries(models).sort((a, b) => b[1] - a[1]).map(([model, count]) => ({ model, count })),
     guests: { visitors: guestVisitors, messages: guestMessages },
+    daily,
     content: { sharedChats: sharedTotal, sharedPublic, publishedSites: sitesTotal, ratings: ratingsTotal, reports: reportsTotal },
     topUsers
   };
