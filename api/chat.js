@@ -1727,6 +1727,7 @@ export default async function handler(req, res) {
     async function logUsage() {
       try {
         const month = new Date().toISOString().slice(0, 7); // "2026-09"
+        const day = new Date().toISOString().slice(0, 10);  // "2026-09-14" (UTC) — feeds the admin dashboard's per-day charts
         if (uid) {
           const ref = getAdminDb().collection('users').doc(uid).collection('usage').doc(month);
           const update = {
@@ -1735,6 +1736,9 @@ export default async function handler(req, res) {
             inputTokens: increment(usageStats.inputTokens),
             outputTokens: increment(usageStats.outputTokens),
             totalTokens: increment(usageStats.totalTokens),
+            // Nested object (NOT a "daily.<date>" dotted key — set() with merge
+            // keeps dotted keys literal) so each day's count merges correctly.
+            daily: { [day]: increment(1) },
             lastUpdated: new Date().toISOString()
           };
           if (research) update.researchRequests = increment(1);
@@ -1747,7 +1751,7 @@ export default async function handler(req, res) {
           // Lighter-weight — just the message count that gates the guest
           // quota, not the full token/model breakdown signed-in usage gets.
           const ref = getAdminDb().collection('guestUsage').doc(`${safeDocId(guestIp)}_${month}`);
-          await ref.set({ messages: increment(1), lastUpdated: new Date().toISOString() }, { merge: true });
+          await ref.set({ messages: increment(1), daily: { [day]: increment(1) }, lastUpdated: new Date().toISOString() }, { merge: true });
         }
       } catch (err) {
         console.error('Usage logging failed (non-fatal, response already served):', err.message);
