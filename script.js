@@ -9400,41 +9400,82 @@ document.getElementById("securityChangePasswordBtn")?.addEventListener("click", 
 });
 
 document.getElementById("securityDeleteAccountBtn")?.addEventListener("click", () => {
+    const user = activeAuth().currentUser;
+    const needsPassword = !!user && (user.providerData?.[0]?.providerId || "password") === "password";
+    const pw = document.getElementById("deleteAccountPassword");
+    pw.value = "";
+    pw.style.display = needsPassword ? "" : "none";
+    document.getElementById("deleteAccountConfirmInput").value = "";
+    document.getElementById("deleteAccountError").style.display = "none";
+    document.getElementById("deleteAccountConfirm").disabled = true;
     openModal("deleteAccountModal");
 });
 document.getElementById("deleteAccountModalClose")?.addEventListener("click", () => closeModal("deleteAccountModal"));
 document.getElementById("deleteAccountCancel")?.addEventListener("click", () => closeModal("deleteAccountModal"));
+document.getElementById("deleteAccountConfirmInput")?.addEventListener("input", (e) => {
+    document.getElementById("deleteAccountConfirm").disabled = e.target.value.trim().toUpperCase() !== "DELETE";
+});
 
-document.getElementById("deleteAccountConfirm")?.addEventListener("click", () => {
+// Deletes everything server-side (api/payment.js action=delete-account) and
+// only then the sign-in record. Right before, the person proves it's them
+// again (password / Google / Microsoft popup) — the server insists on a
+// sign-in from the last 5 minutes.
+document.getElementById("deleteAccountConfirm")?.addEventListener("click", async () => {
     const user = activeAuth().currentUser;
     if(!user) return;
     const btn = document.getElementById("deleteAccountConfirm");
+    const errEl = document.getElementById("deleteAccountError");
     const original = btn.textContent;
+    const fail = (msg) => {
+        btn.disabled = false;
+        btn.textContent = original;
+        errEl.textContent = msg;
+        errEl.style.display = "block";
+    };
+    errEl.style.display = "none";
+
+    const providerId = user.providerData?.[0]?.providerId || "password";
+    let reauth;
+    if(providerId === "password"){
+        const pw = document.getElementById("deleteAccountPassword").value;
+        if(!pw) return fail("Enter your password to confirm it's you.");
+        reauth = () => user.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(user.email, pw));
+    } else if(providerId === "google.com"){
+        reauth = () => user.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider());
+    } else if(providerId === "microsoft.com"){
+        reauth = () => user.reauthenticateWithPopup(new firebase.auth.OAuthProvider("microsoft.com"));
+    } else {
+        reauth = () => Promise.resolve(); // other providers: the server will say if a fresh sign-in is needed
+    }
+
     btn.disabled = true;
     btn.textContent = "Deleting…";
-
-    user.delete()
-        .then(() => {
-            localStorage.clear();
-            closeModal("deleteAccountModal");
-            closeModal("profileModal");
-            window.location.reload();
-        })
-        .catch(err => {
-            btn.disabled = false;
-            btn.textContent = original;
-            const dmsg = document.getElementById("securityDeleteMsg");
-            if(err.code === "auth/requires-recent-login"){
-                closeModal("deleteAccountModal");
-                if(dmsg){
-                    dmsg.style.color = "#ff8fa8";
-                    dmsg.textContent = "For your security, please sign out and sign back in, then try deleting your account again.";
-                }
-            } else if(dmsg){
-                dmsg.style.color = "#ff8fa8";
-                dmsg.textContent = firebaseErrorMessage(err.code, err.message);
-            }
+    try{
+        await reauth(); // first await in the click handler, so a popup isn't blocked
+        const idToken = await user.getIdToken(true);
+        const resp = await fetch("/api/payment?action=delete-account", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: JSON.stringify({ confirm: "DELETE" })
         });
+        const data = await resp.json().catch(() => ({}));
+        if(!resp.ok){
+            return fail(data.code === "reauth_required"
+                ? "For your security, please sign out, sign back in, and try again right away."
+                : (data.error || "Couldn't delete your account. Please try again."));
+        }
+        try{ await activeAuth().signOut(); }catch(e){}
+        localStorage.clear();
+        try{ sessionStorage.clear(); }catch(e){}
+        closeModal("deleteAccountModal");
+        closeModal("profileModal");
+        window.location.href = "/?guest=1"; // fresh start (skips the welcome screen once)
+    }catch(err){
+        if(err && (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request")){
+            return fail("Confirmation was cancelled — your account wasn't deleted.");
+        }
+        fail(err && err.code ? firebaseErrorMessage(err.code, err.message) : ((err && err.message) || "Couldn't delete your account."));
+    }
 });
 
 // ==========================================================
