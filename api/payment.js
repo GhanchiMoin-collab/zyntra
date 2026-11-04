@@ -231,52 +231,47 @@ async function handleVerify(req, res) {
 
   const db = getAdminDb();
   const billingRef = db.collection("billing").doc(uid);
-
-  // Idempotency: one Razorpay payment may be applied only ONCE. Without this,
-  // re-sending the same (valid) verify request would add another 30 days each
-  // time. create() fails if the marker already exists, so even two requests
-  // arriving at the same moment can't both be applied.
   const appliedRef = db.collection("paymentsApplied").doc(razorpay_payment_id);
-  try {
-    await appliedRef.create({ uid, plan, orderId: razorpay_order_id, at: Date.now() });
-  } catch (e) {
-    if (e && (e.code === 6 || /already exists/i.test(e.message || ""))) {
-      const cur = await billingRef.get();
-      const d = cur.exists ? cur.data() : {};
-      return res.status(200).json({ ok: true, plan: d.plan || plan, planExpiresAt: d.planExpiresAt || null, alreadyApplied: true });
+
+  // Applying a payment is ONE atomic transaction: the "this payment was used"
+  // marker and the plan update commit together or not at all. That gives:
+  //  - replay protection: a payment id already marked is never applied again
+  //  - concurrency safety: simultaneous requests are serialized by Firestore
+  //    (the loser retries, sees the marker, and does nothing)
+  //  - crash safety: if the function dies before commit, NEITHER write exists,
+  //    so retrying simply applies the payment; there is no state where the
+  //    payment is marked but the plan wasn't given.
+  const result = await db.runTransaction(async (tx) => {
+    const marker = await tx.get(appliedRef);
+    const snap = await tx.get(billingRef);
+    const prev = snap.exists ? snap.data() : {};
+    if (marker.exists) {
+      return { alreadyApplied: true, plan: prev.plan || plan, planExpiresAt: prev.planExpiresAt || null };
     }
-    throw e;
-  }
 
-  try {
-  const snap = await billingRef.get();
-  const prevHistory = snap.exists ? (snap.data().history || []) : [];
+    // Plans last 30 days from payment. Renewing the SAME plan while it's
+    // still active adds on to the remaining time, so paying early never
+    // loses days; switching plans (or paying after expiry) starts from now.
+    const nowMs = Date.now();
+    const prevHistory = prev.history || [];
+    const stillActiveSamePlan = prev.plan === plan && typeof prev.planExpiresAt === "number" && prev.planExpiresAt > nowMs;
+    const planExpiresAt = (stillActiveSamePlan ? prev.planExpiresAt : nowMs) + PLAN_DURATION_MS;
 
-  // Plans last 30 days from payment. Renewing the SAME plan while it's
-  // still active adds on to the remaining time, so paying early never
-  // loses days; switching plans (or paying after expiry) starts from now.
-  const nowMs = Date.now();
-  const prev = snap.exists ? snap.data() : {};
-  const stillActiveSamePlan = prev.plan === plan && typeof prev.planExpiresAt === "number" && prev.planExpiresAt > nowMs;
-  const planExpiresAt = (stillActiveSamePlan ? prev.planExpiresAt : nowMs) + PLAN_DURATION_MS;
+    tx.create(appliedRef, { uid, plan, orderId: razorpay_order_id, at: nowMs });
+    tx.set(billingRef, {
+      plan,
+      planExpiresAt,
+      updatedAt: nowMs,
+      lastOrderId: razorpay_order_id,
+      lastPaymentId: razorpay_payment_id,
+      // Bounded audit trail — same "small capped array on the doc" pattern
+      // already used for notifications, not a full payments subcollection.
+      history: [...prevHistory, { plan, orderId: razorpay_order_id, paymentId: razorpay_payment_id, at: nowMs }].slice(-20)
+    }, { merge: true });
+    return { alreadyApplied: false, plan, planExpiresAt };
+  });
 
-  await billingRef.set({
-    plan,
-    planExpiresAt,
-    updatedAt: Date.now(),
-    lastOrderId: razorpay_order_id,
-    lastPaymentId: razorpay_payment_id,
-    // Bounded audit trail — same "small capped array on the doc" pattern
-    // already used for notifications, not a full payments subcollection.
-    history: [...prevHistory, { plan, orderId: razorpay_order_id, paymentId: razorpay_payment_id, at: Date.now() }].slice(-20)
-  }, { merge: true });
-
-  return res.status(200).json({ ok: true, plan, planExpiresAt });
-  } catch (e) {
-    // The plan wasn't applied, so release the marker — the same payment can then be verified again.
-    try { await appliedRef.delete(); } catch (_) { /* best effort */ }
-    throw e;
-  }
+  return res.status(200).json({ ok: true, ...result });
 }
 
 // ================= Admin dashboard =================
@@ -614,7 +609,12 @@ async function handleDeleteAccount(req, res) {
   // Plan, referral code, then the main profile doc (chats, memories, usage, notifications).
   await step("plan and referral code", async () => {
     await deleteByQuery(db, db.collection("referralCodes").where("uid", "==", uid));
-    await deleteByQuery(db, db.collection("paymentsApplied").where("uid", "==", uid)); // payment markers (Razorpay keeps its own records)
+    // Payment markers are ANONYMISED, not deleted: the payment id stays marked as used
+    // (replay protection) and a minimal record (payment id, order id, plan, time) survives
+    // for accounting, but it no longer points at the person. Confirm any legal retention
+    // rules with an accountant.
+    const pays = await db.collection("paymentsApplied").where("uid", "==", uid).get();
+    for (const d of pays.docs) await d.ref.update({ uid: null, anonymizedAt: Date.now() });
     await db.collection("billing").doc(uid).delete();
   });
   await step("profile and chats", () => db.recursiveDelete(db.collection("users").doc(uid)));
