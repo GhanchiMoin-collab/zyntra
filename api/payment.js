@@ -231,6 +231,24 @@ async function handleVerify(req, res) {
 
   const db = getAdminDb();
   const billingRef = db.collection("billing").doc(uid);
+
+  // Idempotency: one Razorpay payment may be applied only ONCE. Without this,
+  // re-sending the same (valid) verify request would add another 30 days each
+  // time. create() fails if the marker already exists, so even two requests
+  // arriving at the same moment can't both be applied.
+  const appliedRef = db.collection("paymentsApplied").doc(razorpay_payment_id);
+  try {
+    await appliedRef.create({ uid, plan, orderId: razorpay_order_id, at: Date.now() });
+  } catch (e) {
+    if (e && (e.code === 6 || /already exists/i.test(e.message || ""))) {
+      const cur = await billingRef.get();
+      const d = cur.exists ? cur.data() : {};
+      return res.status(200).json({ ok: true, plan: d.plan || plan, planExpiresAt: d.planExpiresAt || null, alreadyApplied: true });
+    }
+    throw e;
+  }
+
+  try {
   const snap = await billingRef.get();
   const prevHistory = snap.exists ? (snap.data().history || []) : [];
 
@@ -254,6 +272,11 @@ async function handleVerify(req, res) {
   }, { merge: true });
 
   return res.status(200).json({ ok: true, plan, planExpiresAt });
+  } catch (e) {
+    // The plan wasn't applied, so release the marker — the same payment can then be verified again.
+    try { await appliedRef.delete(); } catch (_) { /* best effort */ }
+    throw e;
+  }
 }
 
 // ================= Admin dashboard =================
@@ -591,6 +614,7 @@ async function handleDeleteAccount(req, res) {
   // Plan, referral code, then the main profile doc (chats, memories, usage, notifications).
   await step("plan and referral code", async () => {
     await deleteByQuery(db, db.collection("referralCodes").where("uid", "==", uid));
+    await deleteByQuery(db, db.collection("paymentsApplied").where("uid", "==", uid)); // payment markers (Razorpay keeps its own records)
     await db.collection("billing").doc(uid).delete();
   });
   await step("profile and chats", () => db.recursiveDelete(db.collection("users").doc(uid)));
