@@ -609,12 +609,14 @@ async function handleDeleteAccount(req, res) {
   // Plan, referral code, then the main profile doc (chats, memories, usage, notifications).
   await step("plan and referral code", async () => {
     await deleteByQuery(db, db.collection("referralCodes").where("uid", "==", uid));
-    // Payment markers are ANONYMISED, not deleted: the payment id stays marked as used
-    // (replay protection) and a minimal record (payment id, order id, plan, time) survives
-    // for accounting, but it no longer points at the person. Confirm any legal retention
-    // rules with an accountant.
+    // Payment markers are DE-IDENTIFIED, not deleted: the uid is removed from Zyntra's copy,
+    // but the payment id stays marked as used (replay protection) and a minimal record
+    // (payment id, order id, plan, time) is kept for accounting. NOTE: this is not truly
+    // anonymous — anyone with access to Razorpay can look the payment/order up there, and
+    // Razorpay's order notes still contain the old uid. State this in the Privacy Policy and
+    // have an accountant confirm the retention rules.
     const pays = await db.collection("paymentsApplied").where("uid", "==", uid).get();
-    for (const d of pays.docs) await d.ref.update({ uid: null, anonymizedAt: Date.now() });
+    for (const d of pays.docs) await d.ref.update({ uid: null, detachedAt: Date.now() });
     await db.collection("billing").doc(uid).delete();
   });
   await step("profile and chats", () => db.recursiveDelete(db.collection("users").doc(uid)));
