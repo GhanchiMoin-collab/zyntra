@@ -1,5 +1,5 @@
 import { getAdminAuth, getAdminDb, arrayRemove } from "./_lib/firebaseAdmin.js";
-import { effectivePlan, PLAN_DURATION_MS } from "./_lib/plan.js";
+import { effectivePlan, computeNextPlan, PLAN_DURATION_MS } from "./_lib/plan.js";
 
 // Razorpay integration for plan upgrades. Combined into one action-based
 // endpoint (?action=create-order | verify) so this stays a single Vercel
@@ -146,7 +146,14 @@ async function requireUser(req) {
   const authHeader = req.headers.authorization || "";
   const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
   if (!idToken) throw { status: 401, message: "Sign in required." };
-  const decoded = await getAdminAuth().verifyIdToken(idToken);
+  let decoded;
+  try {
+    // checkRevoked = true also rejects tokens of deleted or disabled accounts,
+    // which would otherwise stay valid for up to an hour after deletion.
+    decoded = await getAdminAuth().verifyIdToken(idToken, true);
+  } catch (e) {
+    throw { status: 401, message: "Your session has ended — please sign in again." };
+  }
   return decoded.uid;
 }
 
@@ -229,6 +236,27 @@ async function handleVerify(req, res) {
     return res.status(400).json({ error: "Order details don't match this request." });
   }
 
+  // Check the PAYMENT itself, not just the order: it must belong to this order,
+  // be for exactly this plan's price in INR, and actually be captured (money
+  // really taken, not merely authorized) and not refunded.
+  const expectedPaise = PLAN_PRICES_INR[plan] * 100;
+  const payRes = await fetch(`https://api.razorpay.com/v1/payments/${razorpay_payment_id}`, {
+    headers: { "Authorization": razorpayAuthHeader() }
+  });
+  const payment = await payRes.json();
+  if (!payRes.ok || payment.id !== razorpay_payment_id || payment.order_id !== razorpay_order_id) {
+    return res.status(400).json({ error: "Payment details don't match this order." });
+  }
+  if (order.amount !== expectedPaise || order.currency !== "INR" || payment.amount !== expectedPaise || payment.currency !== "INR") {
+    return res.status(400).json({ error: "The amount paid doesn't match this plan's price." });
+  }
+  if ((payment.amount_refunded || 0) > 0 || payment.status === "refunded") {
+    return res.status(400).json({ error: "This payment was refunded, so it can't activate a plan." });
+  }
+  if (payment.status !== "captured") {
+    return res.status(409).json({ error: "Your payment was received but isn't confirmed yet. If your plan doesn't activate within a few minutes, contact support with your payment ID." });
+  }
+
   const db = getAdminDb();
   const billingRef = db.collection("billing").doc(uid);
   const appliedRef = db.collection("paymentsApplied").doc(razorpay_payment_id);
@@ -246,29 +274,30 @@ async function handleVerify(req, res) {
     const snap = await tx.get(billingRef);
     const prev = snap.exists ? snap.data() : {};
     if (marker.exists) {
-      return { alreadyApplied: true, plan: prev.plan || plan, planExpiresAt: prev.planExpiresAt || null };
+      // Already applied (or the account was deleted since): change nothing. If there
+      // is no billing record any more, report Free rather than echoing the request.
+      return { alreadyApplied: true, plan: prev.plan ? effectivePlan(prev) : "free", planExpiresAt: prev.planExpiresAt || null };
     }
 
-    // Plans last 30 days from payment. Renewing the SAME plan while it's
-    // still active adds on to the remaining time, so paying early never
-    // loses days; switching plans (or paying after expiry) starts from now.
+    // The plan policy (upgrade / renew / lower-plan-while-higher-is-active) lives
+    // in api/_lib/plan.js and doesn't depend on the order payments arrive in.
     const nowMs = Date.now();
     const prevHistory = prev.history || [];
-    const stillActiveSamePlan = prev.plan === plan && typeof prev.planExpiresAt === "number" && prev.planExpiresAt > nowMs;
-    const planExpiresAt = (stillActiveSamePlan ? prev.planExpiresAt : nowMs) + PLAN_DURATION_MS;
+    const next = computeNextPlan(prev, plan, nowMs, PLAN_PRICES_INR);
 
     tx.create(appliedRef, { uid, plan, orderId: razorpay_order_id, at: nowMs });
     tx.set(billingRef, {
-      plan,
-      planExpiresAt,
+      plan: next.plan,
+      planExpiresAt: next.planExpiresAt,
       updatedAt: nowMs,
       lastOrderId: razorpay_order_id,
       lastPaymentId: razorpay_payment_id,
       // Bounded audit trail — same "small capped array on the doc" pattern
       // already used for notifications, not a full payments subcollection.
-      history: [...prevHistory, { plan, orderId: razorpay_order_id, paymentId: razorpay_payment_id, at: nowMs }].slice(-20)
+      // `plan` = what was PAID FOR (revenue); `appliedAs` says what it did.
+      history: [...prevHistory, { plan, orderId: razorpay_order_id, paymentId: razorpay_payment_id, at: nowMs, appliedAs: next.kind, activePlan: next.plan }].slice(-20)
     }, { merge: true });
-    return { alreadyApplied: false, plan, planExpiresAt };
+    return { alreadyApplied: false, plan: next.plan, planExpiresAt: next.planExpiresAt, appliedAs: next.kind };
   });
 
   return res.status(200).json({ ok: true, ...result });
