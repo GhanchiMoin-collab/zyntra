@@ -6101,6 +6101,52 @@ function updateInputBarLayout(){
 new MutationObserver(updateInputBarLayout).observe(chatMessages, { childList: true });
 updateInputBarLayout();
 
+// Phone photos are often 3–8 MB; encoded for upload they exceed the host's ~4.5 MB
+// request limit and the AI provider's own image limit, so they'd fail before the AI
+// ever saw them. Big images are shrunk here (longest side 1600 px, JPEG) to stay well
+// under ~3 MB; small PNG/JPG/WebP files are sent exactly as they are.
+const IMAGE_MAX_SIDE = 1600;
+const IMAGE_KEEP_ORIGINAL_BYTES = 1.5 * 1024 * 1024;
+const IMAGE_MAX_DATAURL_CHARS = 3000000;
+function prepareImageForUpload(file){
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Couldn't read that image file."));
+        reader.onload = () => {
+            const original = reader.result;
+            const img = new Image();
+            img.onerror = () => reject(new Error("That image format isn't supported here — try a PNG or JPG."));
+            img.onload = () => {
+                const w0 = img.naturalWidth, h0 = img.naturalHeight;
+                const longest = Math.max(w0, h0);
+                if(!w0 || !h0) return reject(new Error("That image looks empty or damaged."));
+                if(longest <= IMAGE_MAX_SIDE && file.size <= IMAGE_KEEP_ORIGINAL_BYTES && /^image\/(png|jpe?g|webp)$/.test(file.type)){
+                    return resolve(original);
+                }
+                const scale = Math.min(1, IMAGE_MAX_SIDE / longest);
+                const w = Math.max(1, Math.round(w0 * scale)), h = Math.max(1, Math.round(h0 * scale));
+                const canvas = document.createElement("canvas");
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext("2d");
+                ctx.fillStyle = "#ffffff"; // JPEG has no transparency — flatten onto white, not black
+                ctx.fillRect(0, 0, w, h);
+                ctx.drawImage(img, 0, 0, w, h);
+                let quality = 0.85;
+                let out = canvas.toDataURL("image/jpeg", quality);
+                while(out.length > IMAGE_MAX_DATAURL_CHARS && quality > 0.4){
+                    quality -= 0.15;
+                    out = canvas.toDataURL("image/jpeg", quality);
+                }
+                if(out.length > IMAGE_MAX_DATAURL_CHARS) return reject(new Error("That image is too large to send — try a smaller one."));
+                resolve(out);
+            };
+            img.src = original;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
 document.getElementById("attachBtn").addEventListener("click", () => {
     document.getElementById("chatFileInput").click();
 });
@@ -6111,12 +6157,15 @@ document.getElementById("chatFileInput").addEventListener("change", (e) => {
 
     if(file.type.startsWith("image/")){
         attachedDocument = null;
-        const reader = new FileReader();
-        reader.onload = () => {
-            attachedImage = reader.result;
-            renderAttachPreview();
-        };
-        reader.readAsDataURL(file);
+        prepareImageForUpload(file)
+            .then(dataUrl => {
+                attachedImage = dataUrl;
+                renderAttachPreview();
+            })
+            .catch(err => {
+                showToast("⚠️ " + ((err && err.message) || "Couldn't use that image."));
+                document.getElementById("chatFileInput").value = "";
+            });
         return;
     }
 
