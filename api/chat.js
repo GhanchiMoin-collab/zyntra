@@ -1,6 +1,22 @@
 import { google } from "googleapis";
 import { getAdminAuth, getAdminDb, increment } from "./_lib/firebaseAdmin.js";
 import { effectivePlan } from "./_lib/plan.js";
+
+// Models tried, in order, when a message contains an image. Groq lists both Qwen
+// models below as vision-capable. If one is unavailable to this Groq account (404 /
+// model_not_found / decommissioned) the next is used automatically. To change the
+// order or swap models without editing code, set VISION_MODELS in Vercel to a
+// comma-separated list and redeploy.
+const VISION_MODEL_CHAIN = (process.env.VISION_MODELS || "qwen/qwen3.6-27b,qwen/qwen3.8-27b,meta-llama/llama-4-scout-17b-16e-instruct")
+  .split(",").map((m) => m.trim()).filter(Boolean);
+
+// True when Groq says THIS MODEL can't be used (doesn't exist, no access for this
+// account, or was decommissioned) — as opposed to a problem with the request itself.
+function isModelUnavailableError(result) {
+  const err = (result && result.data && result.data.error) || {};
+  const text = `${err.code || ""} ${err.message || ""}`;
+  return /model_not_found|model_decommissioned|does not exist or you do not have access|decommissioned/i.test(text);
+}
 import { getAuthorizedClientForUser } from "./_lib/googleOAuth.js";
 import { getGithubAccessTokenForUser } from "./_lib/githubOAuth.js";
 import { getSlackAccessTokenForUser } from "./_lib/slackOAuth.js";
@@ -2096,7 +2112,9 @@ Rules:
     // request shape) is NOT retryable — trying another model won't fix it,
     // it'll just waste time before falling through to the real error.
     function isRetryableFailure(result) {
-      return result.status === 429 || result.status >= 500;
+      // Also move on when THIS model is unavailable to the account (404 model_not_found,
+      // decommissioned…): another model in the chain may still work.
+      return result.status === 429 || result.status >= 500 || isModelUnavailableError(result);
     }
 
     // Tries each model in modelChain in order, moving to the next one only
@@ -2108,9 +2126,14 @@ Rules:
     async function callGroqWithFallback(modelChain, body, timeBudget, streaming, onDelta) {
       let lastResult = null;
       for (const model of modelChain) {
+        // reasoning_format is a Qwen/gpt-oss option; other models (e.g. Llama) reject
+        // the request with a 400 if it's present, so only send it to Qwen models.
+        const modelBody = (body.reasoning_format && !/^qwen\//.test(model))
+          ? (({ reasoning_format, ...rest }) => rest)(body)
+          : body;
         const result = streaming
-          ? await callGroqStreaming(model, body, timeBudget, onDelta)
-          : await callGroq(model, body, timeBudget);
+          ? await callGroqStreaming(model, modelBody, timeBudget, onDelta)
+          : await callGroq(model, modelBody, timeBudget);
         result.modelUsed = model;
         lastResult = result;
         if (result.ok) return result;
@@ -2217,7 +2240,7 @@ Rules:
     // Priority AI (Pro) and Highest priority (Ultra): the larger, stronger
     // model answers first; everyone else tries the faster one first.
     const primaryModelChain = hasImage
-      ? ['qwen/qwen3.6-27b']
+      ? VISION_MODEL_CHAIN
       : ((features.priority >= 1 || website)
           // building a whole app/game is the hardest thing we ask of the AI,
           // so builds always start with the strongest model
@@ -2445,6 +2468,11 @@ function userFacingError(result) {
   if (/too large|reduce your message size/i.test(rawMessage)) {
     console.error('Groq payload-too-large error:', result.status, rawMessage);
     return "That message (or this conversation) is too long for me to process in one go. Try shortening it, pasting less at once, or starting a new chat.";
+  }
+
+  if (isModelUnavailableError(result)) {
+    console.error('Every model in the chain was unavailable:', result.status, rawMessage);
+    return "Zyntra AI couldn't reach its AI model just now. Please try again in a few minutes.";
   }
 
   if (result.status === 429 || /rate limit|tokens per minute/i.test(rawMessage)) {
