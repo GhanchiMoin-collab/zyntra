@@ -2126,6 +2126,7 @@ Rules:
     async function callGroqWithFallback(modelChain, body, timeBudget, streaming, onDelta) {
       let lastResult = null;
       for (const model of modelChain) {
+        const startedAt = Date.now();
         // reasoning_format is a Qwen/gpt-oss option; other models (e.g. Llama) reject
         // the request with a 400 if it's present, so only send it to Qwen models.
         const modelBody = (body.reasoning_format && !/^qwen\//.test(model))
@@ -2136,7 +2137,14 @@ Rules:
           : await callGroq(model, modelBody, timeBudget);
         result.modelUsed = model;
         lastResult = result;
-        if (result.ok) return result;
+        // One structured line per attempt (no user content) so unreliable models show up
+        // in the Vercel logs: filter on "model_ok" / "model_fail".
+        const logRow = { model, ms: Date.now() - startedAt, stream: !!streaming, vision: typeof hasImage !== "undefined" && !!hasImage };
+        if (result.ok) {
+          console.log(JSON.stringify({ evt: "model_ok", ...logRow }));
+          return result;
+        }
+        console.error(JSON.stringify({ evt: "model_fail", ...logRow, status: result.status, code: result.data?.error?.code || null, retry: isRetryableFailure(result) }));
         if (!isRetryableFailure(result)) return result;
         console.error(`Model ${model} failed (${result.status}), trying next in chain...`);
       }
@@ -2464,6 +2472,13 @@ function trimMessages(messages, maxTurns = 16) {
 
 function userFacingError(result) {
   const rawMessage = result.data?.error?.message || '';
+
+  // Image problems (unsupported format, too big, too many) are the user's to fix, so
+  // say so plainly — and note they are never retried on other models (same image, same result).
+  if ((result.status === 400 || result.status === 413) && /image|base64|media type|payload/i.test(rawMessage) && !/does not exist or you do not have access/i.test(rawMessage)) {
+    console.error('Image rejected by provider:', result.status, rawMessage.slice(0, 200));
+    return "I couldn't process that image. Please try a PNG or JPG (a smaller one if it's very large), and send no more than 3 images at a time.";
+  }
 
   if (/too large|reduce your message size/i.test(rawMessage)) {
     console.error('Groq payload-too-large error:', result.status, rawMessage);
