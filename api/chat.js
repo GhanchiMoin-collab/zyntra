@@ -1727,6 +1727,9 @@ export default async function handler(req, res) {
     // real, server-side source of truth for plan limits and pricing —
     // never trust anything the client claims about its own usage.
     const usageStats = { groqRequests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, modelCounts: {} };
+    // Every model attempt in this request (success or failure), saved once at the end by
+    // recordModelStats() so the admin dashboard can show a per-model success rate over time.
+    const modelAttempts = [];
     function trackUsage(model, usage) {
       usageStats.groqRequests += 1;
       usageStats.modelCounts[model] = (usageStats.modelCounts[model] || 0) + 1;
@@ -1740,7 +1743,42 @@ export default async function handler(req, res) {
     // users/{uid}/usage/{YYYY-MM}. Fire-and-forget-safe: any failure here
     // (Firestore down, admin not configured, etc.) is logged and swallowed
     // — it must never break the actual chat response the user is waiting on.
+    // One small Firestore write per reply: per-model counters for today, feeding the
+    // "Model reliability" panel (success %, avg time, why failures happened). Counts only —
+    // no message text, no user ids. Non-fatal if it fails.
+    async function recordModelStats() {
+      if (!modelAttempts.length) return;
+      try {
+        const day = new Date().toISOString().slice(0, 10);
+        const models = {};
+        for (const a of modelAttempts) {
+          const key = String(a.model).replace(/[^a-zA-Z0-9_-]/g, "_");
+          const m = models[key] || (models[key] = { name: a.model, ok: 0, fail: 0, okMs: 0, visionOk: 0, visionFail: 0, rateLimited: 0, unavailable: 0, serverError: 0, other: 0 });
+          if (a.ok) {
+            m.ok += 1; m.okMs += a.ms; if (a.vision) m.visionOk += 1;
+          } else {
+            m.fail += 1; if (a.vision) m.visionFail += 1;
+            if (a.status === 429) m.rateLimited += 1;
+            else if (a.unavailable) m.unavailable += 1;
+            else if (a.status >= 500) m.serverError += 1;
+            else m.other += 1;
+          }
+        }
+        const nested = {};
+        for (const [key, m] of Object.entries(models)) {
+          nested[key] = { name: m.name };
+          for (const f of ["ok", "fail", "okMs", "visionOk", "visionFail", "rateLimited", "unavailable", "serverError", "other"]) {
+            if (m[f]) nested[key][f] = increment(m[f]);
+          }
+        }
+        await getAdminDb().collection('modelStats').doc(day).set({ models: nested, updatedAt: new Date().toISOString() }, { merge: true });
+      } catch (err) {
+        console.error('Model stats logging failed (non-fatal):', err.message);
+      }
+    }
+
     async function logUsage() {
+      await recordModelStats();
       try {
         const month = new Date().toISOString().slice(0, 7); // "2026-09"
         const day = new Date().toISOString().slice(0, 10);  // "2026-09-14" (UTC) — feeds the admin dashboard's per-day charts
@@ -2140,6 +2178,7 @@ Rules:
         // One structured line per attempt (no user content) so unreliable models show up
         // in the Vercel logs: filter on "model_ok" / "model_fail".
         const logRow = { model, ms: Date.now() - startedAt, stream: !!streaming, vision: typeof hasImage !== "undefined" && !!hasImage };
+        modelAttempts.push({ ...logRow, ok: !!result.ok, status: result.status, unavailable: !result.ok && isModelUnavailableError(result) });
         if (result.ok) {
           console.log(JSON.stringify({ evt: "model_ok", ...logRow }));
           return result;
