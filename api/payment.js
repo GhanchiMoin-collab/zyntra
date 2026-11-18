@@ -367,7 +367,7 @@ async function buildAdminStats() {
     return { users: out, truncated: !!pageToken };
   };
 
-  const [usersRes, billingSnap, usageSnap, guestSnap, sharedTotal, sharedPublic, sitesTotal, ratingsTotal, reportsTotal] = await Promise.all([
+  const [usersRes, billingSnap, usageSnap, guestSnap, sharedTotal, sharedPublic, sitesTotal, ratingsTotal, reportsTotal, modelStatsSnap] = await Promise.all([
     listAllUsers(),
     db.collection("billing").limit(5000).get(),
     db.collectionGroup("usage").limit(10000).get(),
@@ -376,7 +376,8 @@ async function buildAdminStats() {
     safeCount(db.collection("sharedChats").where("public", "==", true)),
     safeCount(db.collection("publishedSites")),
     safeCount(db.collection("ratings")),
-    safeCount(db.collection("reports"))
+    safeCount(db.collection("reports")),
+    db.collection("modelStats").orderBy("__name__", "desc").limit(30).get().catch(() => ({ docs: [] }))
   ]);
 
   // ---- users ----
@@ -511,8 +512,31 @@ async function buildAdminStats() {
     hasData: series.some((r) => r.messages > 0 || r.guestMessages > 0)
   };
 
+  // ---- per-model reliability (written by api/chat.js recordModelStats, one doc per day) ----
+  const health = {};
+  for (const d of modelStatsSnap.docs) {
+    const recent = now - new Date(d.id + "T00:00:00Z").getTime() < 7 * DAY;
+    for (const m of Object.values(d.data().models || {})) {
+      const h = health[m.name] || (health[m.name] = { name: m.name, ok: 0, fail: 0, okMs: 0, visionOk: 0, visionFail: 0, rateLimited: 0, unavailable: 0, serverError: 0, other: 0, ok7: 0, fail7: 0 });
+      for (const f of ["ok", "fail", "okMs", "visionOk", "visionFail", "rateLimited", "unavailable", "serverError", "other"]) h[f] += m[f] || 0;
+      if (recent) { h.ok7 += m.ok || 0; h.fail7 += m.fail || 0; }
+    }
+  }
+  const modelHealth = Object.values(health).map((h) => {
+    const attempts = h.ok + h.fail;
+    return {
+      name: h.name, attempts, ok: h.ok, fail: h.fail,
+      successPct: attempts ? Math.round((h.ok / attempts) * 1000) / 10 : 0,
+      successPct7: (h.ok7 + h.fail7) ? Math.round((h.ok7 / (h.ok7 + h.fail7)) * 1000) / 10 : null,
+      avgMs: h.ok ? Math.round(h.okMs / h.ok) : 0,
+      visionAttempts: h.visionOk + h.visionFail,
+      rateLimited: h.rateLimited, unavailable: h.unavailable, serverError: h.serverError, other: h.other
+    };
+  }).sort((a, b) => b.attempts - a.attempts);
+
   return {
     generatedAt: now,
+    modelHealth,
     month,
     razorpayTestMode: (process.env.RAZORPAY_KEY_ID || "").startsWith("rzp_test_"),
     users: {
