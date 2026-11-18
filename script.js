@@ -1964,7 +1964,7 @@ document.addEventListener("click", () => {
 
 async function callChatAPI(messages, options){
     const opts = options || {};
-    const payload = { messages };
+    const payload = { messages: fitMessagesForRequest(messages) };
     if(opts.forceSearch) payload.forceSearch = true;
     if(opts.lite) payload.lite = true;
 
@@ -2031,7 +2031,7 @@ async function streamChatAPI(messages, onDelta, options, onStep){
         }
     }
 
-    const payload = { messages, stream: true };
+    const payload = { messages: fitMessagesForRequest(messages), stream: true };
     if(opts.research) payload.research = true;
     if(opts.website) payload.website = true;
     if(opts.agent) payload.agent = true;
@@ -6101,13 +6101,56 @@ function updateInputBarLayout(){
 new MutationObserver(updateInputBarLayout).observe(chatMessages, { childList: true });
 updateInputBarLayout();
 
-// Phone photos are often 3–8 MB; encoded for upload they exceed the host's ~4.5 MB
-// request limit and the AI provider's own image limit, so they'd fail before the AI
-// ever saw them. Big images are shrunk here (longest side 1600 px, JPEG) to stay well
-// under ~3 MB; small PNG/JPG/WebP files are sent exactly as they are.
-const IMAGE_MAX_SIDE = 1600;
+// ---------------------------------------------------------------------------
+// Preparing a picked image for sending.
+// Why: phone photos are often 3–8 MB; encoded for upload they exceed the host's
+// ~4.5 MB request limit and the AI provider's image limit, so they'd fail before the
+// AI ever saw them. What happens:
+//  - A plain (non-transparent) PNG that is already small is sent exactly as picked.
+//  - Everything else is redrawn on a canvas and re-encoded: this applies the photo's
+//    rotation (iPhone photos carry the orientation in hidden EXIF data), converts
+//    WebP/GIF/HEIC-that-the-browser-can-open into a format the AI accepts, and drops
+//    hidden metadata such as GPS location before the image leaves the device.
+//  - Size is capped by pixels (~3 MP, 3000 px longest side), not only the long side,
+//    so tall receipts and screenshots keep readable text.
+//  - Transparent images are painted on a background that contrasts with them (white
+//    for dark logos, dark for light/white logos) so they never vanish.
+//  - PNG sources (screenshots, logos, documents) stay lossless PNG when that fits;
+//    photos become JPEG, with quality lowered — then the picture shrunk — until the
+//    result fits comfortably under the request limit.
+// ---------------------------------------------------------------------------
+const IMAGE_MAX_SIDE = 3000;
+const IMAGE_MAX_PIXELS = 3000000;
 const IMAGE_KEEP_ORIGINAL_BYTES = 1.5 * 1024 * 1024;
 const IMAGE_MAX_DATAURL_CHARS = 3000000;
+
+function analyzeImageAlpha(img){
+    try{
+        const k = Math.min(1, 64 / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(img.naturalWidth * k));
+        c.height = Math.max(1, Math.round(img.naturalHeight * k));
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        const d = ctx.getImageData(0, 0, c.width, c.height).data;
+        let seeThrough = 0, lum = 0, solid = 0;
+        for(let i = 0; i < d.length; i += 4){
+            const a = d[i + 3];
+            if(a < 250) seeThrough++;
+            if(a >= 128){
+                lum += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+                solid++;
+            }
+        }
+        return {
+            transparent: seeThrough / (d.length / 4) > 0.01,
+            light: solid > 0 && (lum / solid) > 0.6
+        };
+    }catch(e){
+        return { transparent: false, light: false };
+    }
+}
+
 function prepareImageForUpload(file){
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -6118,33 +6161,68 @@ function prepareImageForUpload(file){
             img.onerror = () => reject(new Error("That image format isn't supported here — try a PNG or JPG."));
             img.onload = () => {
                 const w0 = img.naturalWidth, h0 = img.naturalHeight;
-                const longest = Math.max(w0, h0);
                 if(!w0 || !h0) return reject(new Error("That image looks empty or damaged."));
-                if(longest <= IMAGE_MAX_SIDE && file.size <= IMAGE_KEEP_ORIGINAL_BYTES && /^image\/(png|jpe?g|webp)$/.test(file.type)){
+                const longest = Math.max(w0, h0);
+                const mayHaveAlpha = /^image\/(png|webp|gif)$/.test(file.type);
+                const alpha = mayHaveAlpha ? analyzeImageAlpha(img) : { transparent: false, light: false };
+
+                if(file.type === "image/png" && !alpha.transparent
+                    && longest <= IMAGE_MAX_SIDE && w0 * h0 <= IMAGE_MAX_PIXELS && file.size <= IMAGE_KEEP_ORIGINAL_BYTES){
                     return resolve(original);
                 }
-                const scale = Math.min(1, IMAGE_MAX_SIDE / longest);
-                const w = Math.max(1, Math.round(w0 * scale)), h = Math.max(1, Math.round(h0 * scale));
-                const canvas = document.createElement("canvas");
-                canvas.width = w;
-                canvas.height = h;
-                const ctx = canvas.getContext("2d");
-                ctx.fillStyle = "#ffffff"; // JPEG has no transparency — flatten onto white, not black
-                ctx.fillRect(0, 0, w, h);
-                ctx.drawImage(img, 0, 0, w, h);
-                let quality = 0.85;
-                let out = canvas.toDataURL("image/jpeg", quality);
-                while(out.length > IMAGE_MAX_DATAURL_CHARS && quality > 0.4){
-                    quality -= 0.15;
-                    out = canvas.toDataURL("image/jpeg", quality);
+
+                let scale = Math.min(1, IMAGE_MAX_SIDE / longest, Math.sqrt(IMAGE_MAX_PIXELS / (w0 * h0)));
+                const background = (alpha.transparent && alpha.light) ? "#1f1f1f" : "#ffffff";
+                const tryPng = file.type === "image/png";
+                for(let attempt = 0; attempt < 4; attempt++){
+                    const w = Math.max(1, Math.round(w0 * scale)), h = Math.max(1, Math.round(h0 * scale));
+                    const canvas = document.createElement("canvas");
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext("2d");
+                    ctx.fillStyle = background;
+                    ctx.fillRect(0, 0, w, h);
+                    ctx.drawImage(img, 0, 0, w, h);
+                    if(tryPng){
+                        const png = canvas.toDataURL("image/png");
+                        if(png.length <= IMAGE_MAX_DATAURL_CHARS) return resolve(png);
+                    }
+                    let quality = 0.9;
+                    let out = canvas.toDataURL("image/jpeg", quality);
+                    while(out.length > IMAGE_MAX_DATAURL_CHARS && quality > 0.5){
+                        quality -= 0.1;
+                        out = canvas.toDataURL("image/jpeg", quality);
+                    }
+                    if(out.length <= IMAGE_MAX_DATAURL_CHARS) return resolve(out);
+                    scale *= 0.75; // still too big at the lowest quality — shrink the picture and retry
                 }
-                if(out.length > IMAGE_MAX_DATAURL_CHARS) return reject(new Error("That image is too large to send — try a smaller one."));
-                resolve(out);
+                reject(new Error("That image is too large to send — try a smaller one."));
             };
             img.src = original;
         };
         reader.readAsDataURL(file);
     });
+}
+
+// The whole request (text history + images) must fit the host's ~4.5 MB limit — the
+// image's own size isn't enough, because earlier messages are re-sent every time.
+// So: only the newest image is kept in the conversation (older ones become a short
+// note), and if it's STILL too big the oldest messages are dropped, never the last two.
+const REQUEST_MAX_CHARS = 4000000;
+function fitMessagesForRequest(messages){
+    const hasImage = (m) => Array.isArray(m.content) && m.content.some(part => part.type === "image_url");
+    let lastImage = -1;
+    messages.forEach((m, i) => { if(hasImage(m)) lastImage = i; });
+    let out = messages.map((m, i) => {
+        if(i === lastImage || !hasImage(m)) return m;
+        return { ...m, content: m.content.filter(part => part.type !== "image_url")
+            .concat([{ type: "text", text: "[An earlier image was attached here and has been left out to save space.]" }]) };
+    });
+    while(JSON.stringify(out).length > REQUEST_MAX_CHARS && out.length > 2) out = out.slice(1);
+    if(JSON.stringify(out).length > REQUEST_MAX_CHARS){
+        throw new Error("This message is too large to send. Try a smaller image, or start a new chat.");
+    }
+    return out;
 }
 
 document.getElementById("attachBtn").addEventListener("click", () => {
@@ -10556,6 +10634,15 @@ function renderAdminStats(d){
     html += '<div class="adm-panel"><h3>Model usage</h3>' +
         (d.models.length ? admBars(d.models.slice(0, 6).map(m => ({ label: m.model.replace(/^.*\//, ""), value: m.count })), "adm-fill-alt") : '<p class="adm-sub">No data yet.</p>') + '</div>';
     html += '</div>';
+
+    if(d.modelHealth && d.modelHealth.length){
+        html += '<div class="adm-panel"><h3>Model reliability — last 30 days</h3><table class="adm-table"><tr><th>Model</th><th>Success</th><th>Last 7d</th><th>Attempts</th><th>Avg time</th><th>Failures (why)</th></tr>' +
+            d.modelHealth.map(m => {
+                const why = [m.rateLimited ? m.rateLimited + " rate-limited" : "", m.unavailable ? m.unavailable + " unavailable" : "", m.serverError ? m.serverError + " server" : "", m.other ? m.other + " other" : ""].filter(Boolean).join(", ") || "none";
+                return '<tr><td>' + admEsc(m.name) + (m.visionAttempts ? ' <small>(' + admFmt(m.visionAttempts) + ' with images)</small>' : '') + '</td><td>' + m.successPct + '%</td><td>' +
+                    (m.successPct7 == null ? "—" : m.successPct7 + "%") + '</td><td>' + admFmt(m.attempts) + '</td><td>' + (m.avgMs ? admFmt(m.avgMs) + ' ms' : "—") + '</td><td>' + admEsc(why) + '</td></tr>';
+            }).join("") + '</table></div>';
+    }
 
     html += '<div class="adm-two">';
     html += '<div class="adm-panel"><h3>Top users this month</h3>' +
