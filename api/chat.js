@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import { getAdminAuth, getAdminDb, increment } from "./_lib/firebaseAdmin.js";
 import { effectivePlan } from "./_lib/plan.js";
+import { isRetryableFailure, failureReason, userFacingError } from "./_lib/modelErrors.js";
 
 // Models tried, in order, when a message contains an image. Groq lists both Qwen
 // models below as vision-capable. If one is unavailable to this Groq account (404 /
@@ -10,13 +11,6 @@ import { effectivePlan } from "./_lib/plan.js";
 const VISION_MODEL_CHAIN = (process.env.VISION_MODELS || "qwen/qwen3.6-27b,qwen/qwen3.8-27b,meta-llama/llama-4-scout-17b-16e-instruct")
   .split(",").map((m) => m.trim()).filter(Boolean);
 
-// True when Groq says THIS MODEL can't be used (doesn't exist, no access for this
-// account, or was decommissioned) — as opposed to a problem with the request itself.
-function isModelUnavailableError(result) {
-  const err = (result && result.data && result.data.error) || {};
-  const text = `${err.code || ""} ${err.message || ""}`;
-  return /model_not_found|model_decommissioned|does not exist or you do not have access|decommissioned/i.test(text);
-}
 import { getAuthorizedClientForUser } from "./_lib/googleOAuth.js";
 import { getGithubAccessTokenForUser } from "./_lib/githubOAuth.js";
 import { getSlackAccessTokenForUser } from "./_lib/slackOAuth.js";
@@ -1758,10 +1752,7 @@ export default async function handler(req, res) {
             m.ok += 1; m.okMs += a.ms; if (a.vision) m.visionOk += 1;
           } else {
             m.fail += 1; if (a.vision) m.visionFail += 1;
-            if (a.status === 429) m.rateLimited += 1;
-            else if (a.unavailable) m.unavailable += 1;
-            else if (a.status >= 500) m.serverError += 1;
-            else m.other += 1;
+            m[a.reason] += 1; // rateLimited | unavailable | serverError | other
           }
         }
         const nested = {};
@@ -2149,11 +2140,6 @@ Rules:
     // moment, not that the request itself was invalid. A 400 (e.g. bad
     // request shape) is NOT retryable — trying another model won't fix it,
     // it'll just waste time before falling through to the real error.
-    function isRetryableFailure(result) {
-      // Also move on when THIS model is unavailable to the account (404 model_not_found,
-      // decommissioned…): another model in the chain may still work.
-      return result.status === 429 || result.status >= 500 || isModelUnavailableError(result);
-    }
 
     // Tries each model in modelChain in order, moving to the next one only
     // on a retryable failure (rate limit / daily quota / upstream error).
@@ -2178,7 +2164,7 @@ Rules:
         // One structured line per attempt (no user content) so unreliable models show up
         // in the Vercel logs: filter on "model_ok" / "model_fail".
         const logRow = { model, ms: Date.now() - startedAt, stream: !!streaming, vision: typeof hasImage !== "undefined" && !!hasImage };
-        modelAttempts.push({ ...logRow, ok: !!result.ok, status: result.status, unavailable: !result.ok && isModelUnavailableError(result) });
+        modelAttempts.push({ ...logRow, ok: !!result.ok, status: result.status, reason: result.ok ? null : failureReason(result) });
         if (result.ok) {
           console.log(JSON.stringify({ evt: "model_ok", ...logRow }));
           return result;
@@ -2396,6 +2382,7 @@ Rules:
     const zyntra_memory_writes = extractMemoryWrites(result.finalMessages || []);
 
     await logUsage();
+    if (result.modelUsed) res.setHeader('X-Zyntra-Model', result.modelUsed); // lets tests/monitoring see which model answered
     return res.status(200).json({ ...result.data, zyntra_sources, zyntra_memory_writes, zyntra_usage: planUsageInfo });
   } catch (error) {
     console.error('Unhandled /api/chat error:', error);
@@ -2507,32 +2494,4 @@ function trimMessages(messages, maxTurns = 16) {
     : conversation;
 
   return [...leadingSystem, ...trimmedConversation];
-}
-
-function userFacingError(result) {
-  const rawMessage = result.data?.error?.message || '';
-
-  // Image problems (unsupported format, too big, too many) are the user's to fix, so
-  // say so plainly — and note they are never retried on other models (same image, same result).
-  if ((result.status === 400 || result.status === 413) && /image|base64|media type|payload/i.test(rawMessage) && !/does not exist or you do not have access/i.test(rawMessage)) {
-    console.error('Image rejected by provider:', result.status, rawMessage.slice(0, 200));
-    return "I couldn't process that image. Please try a PNG or JPG (a smaller one if it's very large), and send no more than 3 images at a time.";
-  }
-
-  if (/too large|reduce your message size/i.test(rawMessage)) {
-    console.error('Groq payload-too-large error:', result.status, rawMessage);
-    return "That message (or this conversation) is too long for me to process in one go. Try shortening it, pasting less at once, or starting a new chat.";
-  }
-
-  if (isModelUnavailableError(result)) {
-    console.error('Every model in the chain was unavailable:', result.status, rawMessage);
-    return "Zyntra AI couldn't reach its AI model just now. Please try again in a few minutes.";
-  }
-
-  if (result.status === 429 || /rate limit|tokens per minute/i.test(rawMessage)) {
-    console.error('Rate limited:', result.status, rawMessage);
-    return "Zyntra AI is handling a lot of requests right now — please wait a few seconds and try again.";
-  }
-
-  return rawMessage || 'The AI service returned an error. Please try again.';
 }
