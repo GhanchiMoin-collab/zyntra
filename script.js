@@ -10635,6 +10635,11 @@ function renderAdminStats(d){
         (d.models.length ? admBars(d.models.slice(0, 6).map(m => ({ label: m.model.replace(/^.*\//, ""), value: m.count })), "adm-fill-alt") : '<p class="adm-sub">No data yet.</p>') + '</div>';
     html += '</div>';
 
+    if(d.modelHealth && !d.modelHealth.length){
+        const info = d.modelStatsInfo || {};
+        html += '<div class="adm-panel"><h3>Model reliability — last 30 days</h3><p class="adm-sub">No model data yet. ' +
+            (info.error ? 'Reading it failed: ' + admEsc(info.error) : (info.days ? admFmt(info.days) + ' day record(s) found but none had model counts.' : 'It fills in after the next few chat messages.')) + '</p></div>';
+    }
     if(d.modelHealth && d.modelHealth.length){
         html += '<div class="adm-panel"><h3>Model reliability — last 30 days</h3><table class="adm-table"><tr><th>Model</th><th>Success</th><th>Last 7d</th><th>Attempts</th><th>Avg time</th><th>Failures (why)</th></tr>' +
             d.modelHealth.map(m => {
