@@ -377,7 +377,10 @@ async function buildAdminStats() {
     safeCount(db.collection("publishedSites")),
     safeCount(db.collection("ratings")),
     safeCount(db.collection("reports")),
-    db.collection("modelStats").orderBy("__name__", "desc").limit(30).get().catch(() => ({ docs: [] }))
+    // One small doc per day. Read them unordered (a few hundred at most) and sort in code —
+    // no special query needed — and keep the error text so the dashboard can show it
+    // instead of the panel silently disappearing.
+    db.collection("modelStats").limit(400).get().catch((e) => { console.error("modelStats read failed:", e && e.message); return { docs: [], error: (e && e.message) || "read failed" }; })
   ]);
 
   // ---- users ----
@@ -514,7 +517,8 @@ async function buildAdminStats() {
 
   // ---- per-model reliability (written by api/chat.js recordModelStats, one doc per day) ----
   const health = {};
-  for (const d of modelStatsSnap.docs) {
+  const recentStatDocs = [...modelStatsSnap.docs].sort((a, b) => (a.id < b.id ? 1 : -1)).slice(0, 30); // newest 30 days
+  for (const d of recentStatDocs) {
     const recent = now - new Date(d.id + "T00:00:00Z").getTime() < 7 * DAY;
     for (const m of Object.values(d.data().models || {})) {
       const h = health[m.name] || (health[m.name] = { name: m.name, ok: 0, fail: 0, okMs: 0, visionOk: 0, visionFail: 0, rateLimited: 0, unavailable: 0, serverError: 0, other: 0, ok7: 0, fail7: 0 });
@@ -537,6 +541,7 @@ async function buildAdminStats() {
   return {
     generatedAt: now,
     modelHealth,
+    modelStatsInfo: { days: modelStatsSnap.docs.length, error: modelStatsSnap.error || null },
     month,
     razorpayTestMode: (process.env.RAZORPAY_KEY_ID || "").startsWith("rzp_test_"),
     users: {
