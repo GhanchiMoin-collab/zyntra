@@ -10982,7 +10982,7 @@ body.light-mode .mo-root,body.light-mode .mo-dialog-bg{--mo-bg:rgba(20,20,40,.04
 .mo-dialog-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9000;display:flex;align-items:center;justify-content:center;padding:16px}
 .mo-dialog{background:var(--bg-void-2,#0a0a10);color:var(--mo-text);border:1px solid var(--mo-line);border-radius:20px;padding:20px;max-width:640px;width:100%;max-height:90vh;overflow:auto}
 body.light-mode .mo-dialog{background:#fff}
-.mo-chart{width:100%;height:200px}.mo-chart rect{fill:var(--mo-acc)}.mo-chart text{fill:var(--mo-dim);font-size:10px}
+.mo-chart{width:100%;height:200px}.mo-chart rect{fill:url(#mog)}.mo-chart text{fill:var(--mo-dim);font-size:10px}
 .mo-split{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
 @media(prefers-reduced-motion:reduce){.mo-root *{animation:none!important;transition:none!important}}
 
@@ -11011,4 +11011,32 @@ body.light-mode .mo-root select option,body.light-mode .mo-dialog select option{
 .mo-root textarea{font-family:inherit;line-height:1.45}
 .mo-root video::-webkit-media-controls-panel{background-image:linear-gradient(transparent,rgba(0,0,0,.6))}
 .mo-root ::-webkit-scrollbar{height:8px;width:8px}.mo-root ::-webkit-scrollbar-thumb{background:var(--mo-line);border-radius:99px}
+
+/* ---- Moments v2: hero, video manager, toasts, danger zone, mobile ---- */
+.mo-hero{position:relative;overflow:hidden;border-radius:24px;padding:34px 28px;margin:0 0 22px;border:1px solid var(--mo-line);background:radial-gradient(900px 260px at 85% -20%,rgba(180,92,255,.35),transparent 60%),radial-gradient(700px 240px at 0% 120%,rgba(110,92,255,.3),transparent 60%),var(--mo-bg)}
+.mo-hero h1{margin:0 0 8px;font-size:clamp(26px,4.5vw,40px);line-height:1.1;letter-spacing:-.02em}
+.mo-hero h1 span{background:var(--mo-grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.mo-hero p{margin:0 0 18px;max-width:560px;color:var(--mo-dim);font-size:15px;line-height:1.55}
+.mo-card{transition:transform .2s}.mo-card:hover{transform:translateY(-3px)}
+.mo-thumb{box-shadow:0 6px 22px rgba(0,0,0,.25)}
+.mo-vlist{display:grid;gap:14px}
+.mo-vrow{display:grid;grid-template-columns:220px minmax(0,1fr) auto;gap:16px;align-items:start;background:var(--mo-bg);border:1px solid var(--mo-line);border-radius:18px;padding:14px;transition:border-color .15s}
+.mo-vrow:hover{border-color:var(--mo-acc)}
+.mo-vthumb{position:relative;display:block;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:var(--mo-bg2)}
+.mo-vthumb img{width:100%;height:100%;object-fit:cover;display:block}
+.mo-vnothumb{display:flex;height:100%;align-items:center;justify-content:center;font-size:30px}
+.mo-vtitle{font-weight:650;font-size:15.5px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
+.mo-vstats{display:flex;flex-wrap:wrap;gap:14px;color:var(--mo-dim);font-size:13px;margin-top:6px}
+.mo-vact{display:flex;flex-direction:column;gap:8px;align-items:stretch}.mo-vact .mo-btn{justify-content:center;padding:7px 14px;font-size:13px}
+@media(max-width:900px){.mo-vrow{grid-template-columns:150px minmax(0,1fr)}.mo-vact{grid-column:1/-1;flex-direction:row;flex-wrap:wrap}}
+@media(max-width:560px){.mo-vrow{grid-template-columns:1fr}.mo-vthumb{max-width:360px}}
+.mo-start ol{margin:0 0 14px 20px;padding:0;line-height:1.8}
+.mo-danger{border-color:rgba(255,107,129,.45)}.mo-danger h3{color:var(--mo-bad)}
+.mo-toasts{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:9600;display:grid;gap:8px;justify-items:center;pointer-events:none}
+.mo-toast{background:#1d1d27;color:#fff;border:1px solid rgba(255,255,255,.12);padding:10px 18px;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.45);font-size:14px;animation:motin .2s ease;transition:opacity .3s,transform .3s}
+.mo-toast.bad{background:#3a1520;border-color:rgba(255,107,129,.5)}.mo-toast.out{opacity:0;transform:translateY(8px)}
+@keyframes motin{from{opacity:0;transform:translateY(8px)}}
+.mo-confirm-yes.danger{background:var(--mo-bad);border-color:transparent;color:#fff;font-weight:600}
+.mo-confirm-yes[disabled]{opacity:.45}
+@media(max-width:760px){.mo-lbl{display:none}.mo-top{gap:8px}.mo-brand{font-size:16px}.mo-search{order:5;flex:1 1 100%;max-width:none}.mo-top .mo-btn{padding:8px 12px}.mo-hero{padding:24px 18px}}
 /* ===== ZYNTRA MOMENTS END ===== */
