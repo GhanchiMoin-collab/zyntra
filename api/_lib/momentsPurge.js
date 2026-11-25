@@ -8,8 +8,9 @@
 // De-identified, not deleted: reports they filed about other content (reporter
 // id removed). Kept: moderation-decision log entries (internal ids + decision +
 // reason, used for abuse prevention) and anonymous aggregate counters.
-export async function purgeMomentsUser(deps, uid) {
-  const { db, inc, getBucket } = deps;
+// Helpers shared by the two exported functions.
+function makeHelpers(deps) {
+  const { db, getBucket } = deps;
   const col = (n) => db.collection(n);
   let bucketCache;
   const bucket = () => (bucketCache = bucketCache || getBucket());
@@ -26,8 +27,16 @@ export async function purgeMomentsUser(deps, uid) {
     }
   };
   const del = (q) => each(q, (d) => d.ref.delete());
+  return { db, col, rmFiles, each, del };
+}
 
-  // 1) my videos (and everything hanging off them)
+// Deletes ONLY the user's channel and everything attached to it (videos + files,
+// comments/likes on them, subscribers, statistics, reward claims). The account,
+// comments/likes they made on other people's videos, and notifications stay;
+// their old comments are re-labelled "Zyntra user" because the channel name is gone.
+export async function purgeMomentsChannel(deps, uid) {
+  const { db, col, rmFiles, each, del } = makeHelpers(deps);
+
   await each(col("videos").where("channelId", "==", uid), async (d) => {
     const vid = d.id;
     await rmFiles(`videos/${vid}/`);
@@ -41,7 +50,6 @@ export async function purgeMomentsUser(deps, uid) {
     await db.recursiveDelete(d.ref); // comments + likes sub-collections
   });
 
-  // 2) my channel
   const cs = await col("channels").doc(uid).get();
   if (cs.exists) {
     const ch = cs.data();
@@ -49,12 +57,27 @@ export async function purgeMomentsUser(deps, uid) {
     await del(col("suspicious").where("channelId", "==", uid));
     await del(col("rewardClaims").where("channelId", "==", uid));
     await del(col("subscriptions").where("channelId", "==", uid));
+    await del(col("momentsReports").where("targetId", "==", uid));
     if (ch.handle) await col("handles").doc(ch.handle).delete();
     await col("channels").doc(uid).delete();
     await rmFiles(`channels/${uid}/`);
   }
+  // comments they wrote elsewhere carried the channel name: anonymise them
+  await each(col("momentsMyComments").where("uid", "==", uid), async (d) => {
+    const { videoId } = d.data();
+    const cref = col("videos").doc(videoId).collection("comments").doc(d.id);
+    if ((await cref.get()).exists) await cref.update({ authorName: "Zyntra user", authorHandle: null });
+  });
+}
 
-  // 3) comments I made on other people's videos
+// Deletes everything Zyntra Moments holds about the user (account deletion).
+export async function purgeMomentsUser(deps, uid) {
+  const { inc } = deps;
+  const { db, col, rmFiles, each, del } = makeHelpers(deps);
+
+  await purgeMomentsChannel(deps, uid);
+
+  // comments I made on other people's videos
   await each(col("momentsMyComments").where("uid", "==", uid), async (d) => {
     const { videoId } = d.data();
     const cref = col("videos").doc(videoId).collection("comments").doc(d.id);
@@ -65,7 +88,7 @@ export async function purgeMomentsUser(deps, uid) {
     await d.ref.delete();
   });
 
-  // 4) likes I gave
+  // likes I gave
   await each(col("momentsMyLikes").where("uid", "==", uid), async (d) => {
     const { videoId } = d.data();
     const lref = col("videos").doc(videoId).collection("likes").doc(uid);
@@ -81,27 +104,27 @@ export async function purgeMomentsUser(deps, uid) {
     await d.ref.delete();
   });
 
-  // 5) channels I subscribed to
+  // channels I subscribed to
   await each(col("subscriptions").where("uid", "==", uid), async (d) => {
     const c = await col("channels").doc(d.data().channelId).get();
     if (c.exists) await col("channels").doc(d.data().channelId).update({ subscribers: inc(-1) });
     await d.ref.delete();
   });
 
-  // 6) raw view records, notifications, preferences
+  // raw view records, notifications, preferences
   await del(col("viewEvents").where("uid", "==", uid));
   await db.recursiveDelete(col("notifications").doc(uid));
   await col("momentsPrefs").doc(uid).delete();
 
-  // 7) my bug reports (+ recordings)
+  // my bug reports (+ recordings)
   await each(col("bugReports").where("uid", "==", uid), async (d) => {
     await rmFiles(`bugs/${d.id}/`);
     await d.ref.delete();
   });
 
-  // 8) reports I filed: keep the report, drop who filed it
+  // reports I filed: keep the report, drop who filed it
   await each(col("momentsReports").where("reporter", "==", uid), (d) => d.ref.update({ reporter: null }));
 
-  // 9) per-user rate-limit counters
+  // per-user rate-limit counters
   for (const p of ["chan_", "vid_", "upinit_", "cmt_", "rep_", "bug_"]) await col("rateLimits").doc(p + uid).delete();
 }
