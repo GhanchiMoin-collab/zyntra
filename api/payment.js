@@ -1,4 +1,5 @@
-import { getAdminAuth, getAdminDb, arrayRemove } from "./_lib/firebaseAdmin.js";
+import { getAdminAuth, getAdminDb, arrayRemove, increment, getAdminBucket } from "./_lib/firebaseAdmin.js";
+import { purgeMomentsUser } from "./_lib/momentsPurge.js";
 import { effectivePlan, computeNextPlan, PLAN_DURATION_MS } from "./_lib/plan.js";
 
 // Razorpay integration for plan upgrades. Combined into one action-based
@@ -647,6 +648,8 @@ async function handleDeleteAccount(req, res) {
   });
   // Shared chat links (also removes them from the public Discover page).
   await step("shared chats", () => deleteByQuery(db, db.collection("sharedChats").where("uid", "==", uid)));
+  // Zyntra Moments: channel, videos + files, comments, likes, subscriptions, bug reports, notifications.
+  await step("moments", () => purgeMomentsUser({ db, inc: increment, getBucket: getAdminBucket }, uid));
   // Projects: delete the ones they own, leave the ones they were only invited to.
   await step("projects", async () => {
     const mine = await db.collection("projects").where("members", "array-contains", uid).get();
