@@ -10840,6 +10840,7 @@ renderGuestMeter();
 "use strict";
 
 const API = "/api/moments";
+const DISCORD_URL = "https://discord.gg/x6DAeYc9XY";
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -10940,7 +10941,7 @@ async function copyText(t){ try { await navigator.clipboard.writeText(t); toast(
 function heroHTML(){
     const ch = me && me.channel;
     return `<section class="mo-hero"><div><h1>Create. <span>Share.</span> Discover.</h1><p>Watch what people are building with Zyntra AI — and share your own creations, tutorials and discoveries with the community.</p>
-      <div class="mo-row">${ch ? '<a class="mo-btn pri" href="/moments/upload" data-go>⬆ Upload a video</a><a class="mo-btn" href="/moments/studio" data-go>Open Studio</a>' : '<a class="mo-btn pri" href="/moments/create-channel" data-go>✨ Create your channel</a>'}</div></div></section>`;
+      <div class="mo-row">${ch ? '<a class="mo-btn pri" href="/moments/upload" data-go>⬆ Upload a video</a><a class="mo-btn" href="/moments/studio" data-go>Open Studio</a>' : '<a class="mo-btn pri" href="/moments/create-channel" data-go>✨ Create your channel</a>'}<a class="mo-btn" href="${DISCORD_URL}" target="_blank" rel="noopener noreferrer">💬 Join our Discord</a></div></div></section>`;
 }
 function gettingStarted(){
     return `<div class="mo-panel mo-start"><h3>👋 Welcome to your Studio</h3><p class="mo-sub" style="margin:0 0 12px">Three steps to your first video:</p><ol><li><b>Upload</b> a short video (MP4, WebM or MOV).</li><li>We <b>review</b> it before it goes public — you'll get a notification.</li><li>Once approved, <b>share</b> the link and watch your analytics grow.</li></ol><a class="mo-btn pri" href="/moments/upload" data-go>⬆ Upload your first video</a></div>`;
@@ -11381,6 +11382,7 @@ async function viewBugs(){
     const L = me.limits;
     const dev = { userAgent: navigator.userAgent, platform: navigator.platform || "", language: navigator.language || "", screen: screen.width + "x" + screen.height, viewport: innerWidth + "x" + innerHeight, online: navigator.onLine, page: location.pathname };
     $("moMain").innerHTML = `<div class="mo-split"><div class="mo-panel mo-form"><h2 style="margin-top:0">Report a bug</h2>
+      <div class="mo-note">Need quick help or want to chat with the community? <a href="${DISCORD_URL}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline">Join our Discord</a> — but send bugs here, not there, so private details stay private.</div>
       <div class="mo-note mo-warn">Bug reports are <b>private</b> — only you and Zyntra administrators can see them. Still, <b>never include passwords, API keys, tokens or other people's private info</b> in the text or the recording. Reports that look like they contain credentials are blocked.</div>
       <label for="bgT">What went wrong? (short title)</label><input type="text" id="bgT" maxlength="120">
       <label for="bgD">Description</label><textarea id="bgD" maxlength="3000"></textarea>
