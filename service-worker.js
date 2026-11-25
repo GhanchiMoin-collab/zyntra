@@ -1,4 +1,4 @@
-const CACHE_NAME = "zyntra-ai-v6";
+const CACHE_NAME = "zyntra-ai-v8";
 const APP_SHELL = [
     "/",
     "/index.html",
