@@ -1,3 +1,10834 @@
+// ==========================
+// Zyntra AI — main script
+// ==========================
+
+// ---------- Helpers ----------
+
+const CODE_FILE_MAP = {
+    html: { filename: "index.html", label: "HTML" },
+    css: { filename: "style.css", label: "CSS" },
+    js: { filename: "script.js", label: "JS" },
+    javascript: { filename: "script.js", label: "JavaScript" },
+    jsx: { filename: "component.jsx", label: "JSX" },
+    ts: { filename: "script.ts", label: "TypeScript" },
+    tsx: { filename: "component.tsx", label: "TSX" },
+    python: { filename: "script.py", label: "Python" },
+    py: { filename: "script.py", label: "Python" },
+    json: { filename: "data.json", label: "JSON" },
+    java: { filename: "Main.java", label: "Java" },
+    cpp: { filename: "main.cpp", label: "C++" },
+    c: { filename: "main.c", label: "C" },
+    sql: { filename: "query.sql", label: "SQL" },
+    php: { filename: "index.php", label: "PHP" },
+    bash: { filename: "script.sh", label: "Bash" },
+    sh: { filename: "script.sh", label: "Shell" },
+    yaml: { filename: "config.yaml", label: "YAML" },
+    xml: { filename: "data.xml", label: "XML" }
+};
+
+function encodeCodeForCard(code){
+    return btoa(unescape(encodeURIComponent(code)));
+}
+
+function extractCodeBlocks(text){
+    const blocks = [];
+    let index = 0;
+    const withPlaceholders = text.replace(/```(\w+)?\n?([\s\S]*?)```/g, (match, lang, code) => {
+        const key = (lang || "").toLowerCase();
+        const meta = CODE_FILE_MAP[key] || { filename: "code.txt", label: key ? key.toUpperCase() : "TEXT" };
+        const id = "codeblock-" + Date.now() + "-" + (index++);
+        blocks.push({ id, filename: meta.filename, label: meta.label, code: code.trim() });
+        return "\n%%" + id + "%%\n";
+    });
+    return { withPlaceholders, blocks };
+}
+
+function escapeHtmlText(t){
+    return String(t == null ? "" : t).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function escapeForDisplay(code){
+    return code
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
+
+function buildFileCardHTML(block){
+    const encoded = encodeCodeForCard(block.code);
+    return `
+        <div class="file-card">
+            <div class="file-card-header">
+                <div class="file-card-icon">&lt;/&gt;</div>
+                <div class="file-card-info">
+                    <p class="file-card-title">${block.filename}</p>
+                    <p class="file-card-sub">Code · ${block.label}</p>
+                </div>
+                <span class="file-card-chevron">▾</span>
+                ${isPreviewableCode(block) ? `<button class="filecard-play-btn" data-code="${encoded}" title="Run preview">▶</button>` : ""}
+                <button class="filecard-download-btn" data-filename="${block.filename}" data-code="${encoded}">Download</button>
+            </div>
+            <div class="file-card-preview">
+                <div class="file-card-preview-top">
+                    <span>${block.filename}</span>
+                    <button class="filecard-copy-btn" data-code="${encoded}">📋 Copy</button>
+                    ${isPreviewableCode(block) ? `<button class="filecard-publish-btn" data-code="${encoded}">🚀 Publish</button>` : ""}
+                </div>
+                <pre><code>${escapeForDisplay(block.code)}</code></pre>
+            </div>
+        </div>
+    `;
+}
+
+function isPreviewableCode(block){
+    return block.filename === "index.html" || block.label === "HTML";
+}
+
+function ensureCodePreviewModal(){
+    let modal = document.getElementById("codePreviewModal");
+    if(modal) return modal;
+
+    modal = document.createElement("div");
+    modal.id = "codePreviewModal";
+    modal.className = "modal-overlay code-preview-overlay";
+    modal.innerHTML = `
+        <div class="modal-box code-preview-box">
+            <div class="code-preview-header">
+                <span class="tag" style="margin:0;">LIVE PREVIEW</span>
+                <div class="code-preview-header-actions">
+                    <button type="button" class="code-preview-fullscreen" title="Try it fullscreen">⛶ <span>Fullscreen</span></button>
+                    <button type="button" class="code-preview-newtab" title="Open in a new browser tab — temporary, just for you, not published">↗ <span>Open in tab</span></button>
+                    <button type="button" class="code-preview-publish" title="Publish a live public link">🚀 <span>Publish</span></button>
+                    <button type="button" class="code-preview-close" title="Close">✕</button>
+                </div>
+            </div>
+            <div class="code-preview-publish-result" id="codePreviewPublishResult" style="display:none;"></div>
+            <div class="code-preview-frame-wrap">
+                <div class="code-preview-glow-border">
+                    <div class="code-preview-frame-inner">
+                        <iframe class="code-preview-iframe" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-pointer-lock" allow="fullscreen; gamepad; autoplay"></iframe>
+                        <div class="code-preview-loading" id="codePreviewLoading">
+                            <div class="code-preview-loading-dots">
+                                <span></span><span></span><span></span>
+                            </div>
+                            <p>Loading preview...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    modal.querySelector(".code-preview-close").addEventListener("click", () => closeModal("codePreviewModal"));
+    modal.addEventListener("click", (e) => {
+        if(e.target === modal) closeModal("codePreviewModal");
+    });
+
+    return modal;
+}
+
+function openCodePreview(code){
+    const modal = ensureCodePreviewModal();
+    const iframe = modal.querySelector(".code-preview-iframe");
+    const loading = modal.querySelector("#codePreviewLoading");
+    const glowBorder = modal.querySelector(".code-preview-glow-border");
+
+    glowBorder.classList.add("loading");
+    loading.classList.add("show");
+
+    iframe.onload = () => {
+        loading.classList.remove("show");
+        glowBorder.classList.remove("loading");
+    };
+    // The preview behaves exactly like a published game: sandboxed (it
+    // can't touch Zyntra's own data) with working saves + the Zyntra player kit.
+    iframe.srcdoc = window.ZyntraCreations ? ZyntraCreations.previewDoc(code, iframe) : code;
+
+    const fullscreenBtn = modal.querySelector(".code-preview-fullscreen");
+    fullscreenBtn.onclick = () => {
+        if(iframe.requestFullscreen) iframe.requestFullscreen();
+        else if(iframe.webkitRequestFullscreen) iframe.webkitRequestFullscreen();
+        else alert("Fullscreen isn't supported in this browser.");
+    };
+
+    const newTabBtn = modal.querySelector(".code-preview-newtab");
+    newTabBtn.onclick = () => {
+        if(window.ZyntraCreations) ZyntraCreations.openInNewTab(code);
+    };
+
+    const publishResult = modal.querySelector("#codePreviewPublishResult");
+    publishResult.style.display = "none";
+    publishResult.innerHTML = "";
+
+    // Publish → choose "app or game" (goes to Discover) or "this chat".
+    // Once a creation is live, this button becomes "Update".
+    const publishBtn = modal.querySelector(".code-preview-publish");
+    publishBtn.onclick = () => { if(window.ZyntraCreations) ZyntraCreations.startPublish(code); };
+    if(window.ZyntraCreations) ZyntraCreations.refreshPublishButton(publishBtn);
+
+    openModal("codePreviewModal");
+}
+
+document.addEventListener("click", (e) => {
+    const playBtn = e.target.closest(".filecard-play-btn");
+    if(playBtn){
+        try{
+            const code = decodeURIComponent(escape(atob(playBtn.dataset.code)));
+            openCodePreview(code);
+        }catch(err){
+            alert("Could not open the preview.");
+        }
+        return;
+    }
+
+    const downloadBtn = e.target.closest(".filecard-download-btn");
+    if(downloadBtn){
+        try{
+            const code = decodeURIComponent(escape(atob(downloadBtn.dataset.code)));
+            const blob = new Blob([code], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = downloadBtn.dataset.filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }catch(err){
+            alert("Could not download the file.");
+        }
+        return;
+    }
+
+    const copyBtn = e.target.closest(".filecard-copy-btn");
+    if(copyBtn){
+        try{
+            const code = decodeURIComponent(escape(atob(copyBtn.dataset.code)));
+            navigator.clipboard.writeText(code).then(() => {
+                const original = copyBtn.textContent;
+                copyBtn.textContent = "✅ Copied";
+                setTimeout(() => { copyBtn.textContent = original; }, 1500);
+            });
+        }catch(err){}
+        return;
+    }
+
+    const publishBtn = e.target.closest(".filecard-publish-btn");
+    if(publishBtn){
+        try{
+            const code = decodeURIComponent(escape(atob(publishBtn.dataset.code)));
+            openCodePreview(code);
+            // Same modal, same flow — just also reachable from the inline
+            // card view, not only from the ▶ live-preview popup.
+            document.querySelector("#codePreviewModal .code-preview-publish")?.click();
+        }catch(err){
+            alert("Could not open publishing.");
+        }
+        return;
+    }
+
+    const header = e.target.closest(".file-card-header");
+    if(header){
+        header.closest(".file-card").classList.toggle("open");
+    }
+});
+
+function extractImageBlocks(text){
+    const images = [];
+    let index = 0;
+    const withPlaceholders = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (match, alt, url) => {
+        const id = "imgblock-" + Date.now() + "-" + (index++);
+        images.push({ id, alt: alt || "Generated image", url });
+        return "\n%%" + id + "%%\n";
+    });
+    return { withPlaceholders, images };
+}
+
+function escapeAttr(str){
+    return escapeForDisplay(str).replace(/"/g, "&quot;");
+}
+
+// ---------- Generated image URLs ----------
+// The free image host stamps its own small logo in the bottom-right corner.
+// Images are requested a little taller (1024×1088) and the bottom strip is
+// cropped off for display, download, share and editing, so the finished
+// picture is a clean 1024×1024. "zc=1" marks URLs made this way.
+const IMG_GEN_W = 1024, IMG_GEN_H = 1088, IMG_FINAL_H = 1024;
+function buildImageUrl(prompt, seed){
+    return "https://image.pollinations.ai/prompt/" + encodeURIComponent(prompt) +
+        "?model=flux&enhance=true&nologo=true&width=" + IMG_GEN_W + "&height=" + IMG_GEN_H + "&zc=1&seed=" + seed;
+}
+function isCroppedImageUrl(url){ return /[?&]zc=1(&|$)/.test(url || ""); }
+function cropLogoStrip(blob){
+    return createImageBitmap(blob).then(bmp => {
+        const keep = Math.round(bmp.height * (IMG_FINAL_H / IMG_GEN_H));
+        const c = document.createElement("canvas");
+        c.width = bmp.width; c.height = keep;
+        c.getContext("2d").drawImage(bmp, 0, 0, bmp.width, keep, 0, 0, bmp.width, keep);
+        return new Promise((resolve, reject) => c.toBlob(b => b ? resolve(b) : reject(new Error("crop failed")), "image/png"));
+    });
+}
+
+function buildImageBlockHTML(image){
+    return `
+        <div class="ai-image-block">
+            <div class="generated-img-wrap${isCroppedImageUrl(image.url) ? ' zc' : ''}">
+                <img class="generated-img" src="${image.url}" alt="${escapeAttr(image.alt)}">
+            </div>
+            <div class="ai-image-actions">
+                <button class="copy-btn ai-image-download" data-url="${image.url}">⬇ Download</button>
+            </div>
+        </div>
+    `;
+}
+
+// Downloads the generated image exactly as it is — no logo or watermark
+// is added. The image is fetched as a blob first so the browser saves a
+// real file (the image host is a different origin, where the plain
+// download attribute is ignored). Falls back to opening the image.
+// (Name kept so every existing "download" button keeps working.)
+function downloadWatermarkedImage(url, filename){
+    return fetch(url)
+        .then(res => { if(!res.ok) throw new Error("fetch failed"); return res.blob(); })
+        .then(blob => isCroppedImageUrl(url) ? cropLogoStrip(blob) : blob)
+        .then(blob => {
+            const dlUrl = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = dlUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(dlUrl), 4000);
+        })
+        .catch(() => {
+            window.open(url, "_blank");
+        });
+}
+
+// ==========================================================
+// Full-screen image viewer + editor
+// Opens when someone clicks a generated image. Zoom / pan, Markup,
+// Comment pins, Remove BG, Erase, Resize, Share, Download, Undo, and a
+// "Describe edits" bar that asks the AI to change the picture.
+// ==========================================================
+function openImageViewer(src, alt){
+    if(window.ZyntraImageViewer) window.ZyntraImageViewer.open(src, alt);
+}
+document.getElementById("imageViewerClose")?.addEventListener("click", () => closeModal("imageViewerModal"));
+
+window.ZyntraImageViewer = (function(){
+    const $ = id => document.getElementById(id);
+    const modal = $("imageViewerModal");
+    if(!modal) return { open(){} };
+
+    const stage = $("ivStage"), wrap = $("ivWrap");
+    const cvs = $("ivCanvas"), ov = $("ivOverlay"), mk = $("ivMask");
+    const ctx = cvs.getContext("2d", { willReadFrequently: true });
+    const octx = ov.getContext("2d");
+    const mctx = mk.getContext("2d", { willReadFrequently: true });
+    const subbar = $("ivSubbar"), pinsEl = $("ivPins");
+
+    let srcUrl = "", altText = "", remoteUrl = null;
+    let scale = 1, tx = 0, ty = 0, fitScale = 1;
+    let tool = null, history = [], dirty = false, busy = false, editable = true;
+    let strokes = [], strokeColor = "#ff3b6b", strokeSize = 6, brushSize = 40;
+    let pins = [], loadToken = 0, spaceDown = false, currentPrompt = "";
+
+    // ---------- small helpers ----------
+    function toast(msg){
+        const t = $("ivToast");
+        t.textContent = msg;
+        t.classList.add("show");
+        clearTimeout(t._h);
+        t._h = setTimeout(() => t.classList.remove("show"), 2800);
+    }
+    function setBusy(on, text){
+        busy = on;
+        $("ivBusy").classList.toggle("show", !!on);
+        if(text) $("ivBusyText").textContent = text;
+    }
+    function el(tag, cls, html){
+        const e = document.createElement(tag);
+        if(cls) e.className = cls;
+        if(html !== undefined) e.innerHTML = html;
+        return e;
+    }
+
+    // ---------- canvas size + zoom/pan ----------
+    function setCanvasSize(w, h){
+        [cvs, ov, mk].forEach(c => { c.width = w; c.height = h; });
+        wrap.style.width = w + "px";
+        wrap.style.height = h + "px";
+    }
+    function applyTransform(){
+        wrap.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+        $("ivZoomLabel").textContent = Math.round(scale * 100) + "%";
+    }
+    function fit(){
+        const sw = stage.clientWidth, sh = stage.clientHeight;
+        if(!cvs.width || !sw) return;
+        // leave room for the edit bar at the bottom
+        const availH = sh - 104;
+        fitScale = Math.min(sw * 0.96 / cvs.width, availH / cvs.height, 1.5);
+        scale = fitScale;
+        tx = (sw - cvs.width * scale) / 2;
+        ty = Math.max(8, (availH - cvs.height * scale) / 2 + 6);
+        applyTransform();
+    }
+    function zoomTo(newScale, cx, cy){
+        newScale = Math.min(8, Math.max(0.05, newScale));
+        if(cx === undefined){ cx = stage.clientWidth / 2; cy = stage.clientHeight / 2; }
+        tx = cx - (cx - tx) * (newScale / scale);
+        ty = cy - (cy - ty) * (newScale / scale);
+        scale = newScale;
+        applyTransform();
+    }
+
+    // screen point -> image pixel
+    function toImg(e){
+        const r = cvs.getBoundingClientRect();
+        return { x: (e.clientX - r.left) * (cvs.width / r.width), y: (e.clientY - r.top) * (cvs.height / r.height) };
+    }
+
+    // ---------- history ----------
+    function snapshot(){
+        const c = document.createElement("canvas");
+        c.width = cvs.width; c.height = cvs.height;
+        c.getContext("2d").drawImage(cvs, 0, 0);
+        return c;
+    }
+    function pushHistory(){
+        history.push({ canvas: snapshot(), remoteUrl, dirty });
+        if(history.length > 12) history.shift();
+        $("ivUndo").disabled = false;
+    }
+    function undo(){
+        if(busy) return;
+        if(tool === "markup" && strokes.length){ strokes.pop(); redrawStrokes(); return; }
+        const h = history.pop();
+        if(!h){ $("ivUndo").disabled = true; return; }
+        setCanvasSize(h.canvas.width, h.canvas.height);
+        ctx.clearRect(0, 0, cvs.width, cvs.height);
+        ctx.drawImage(h.canvas, 0, 0);
+        strokes = []; octx.clearRect(0, 0, ov.width, ov.height);
+        mctx.clearRect(0, 0, mk.width, mk.height);
+        remoteUrl = h.remoteUrl; dirty = h.dirty;
+        $("ivUndo").disabled = history.length === 0;
+        fit();
+    }
+    // Bake any markup strokes into the picture itself.
+    function flatten(){
+        if(!strokes.length) return;
+        dirty = true;
+        ctx.drawImage(ov, 0, 0);
+        strokes = [];
+        octx.clearRect(0, 0, ov.width, ov.height);
+    }
+    function exportBlob(){
+        return new Promise((resolve, reject) => {
+            const c = document.createElement("canvas");
+            c.width = cvs.width; c.height = cvs.height;
+            const cx = c.getContext("2d");
+            cx.drawImage(cvs, 0, 0);
+            cx.drawImage(ov, 0, 0);
+            try{ c.toBlob(b => b ? resolve(b) : reject(new Error("export failed")), "image/png"); }
+            catch(err){ reject(err); }
+        });
+    }
+
+    // ---------- loading ----------
+    function imgFromBlob(blob){
+        return new Promise((resolve, reject) => {
+            const u = URL.createObjectURL(blob);
+            const im = new Image();
+            im.onload = () => { URL.revokeObjectURL(u); resolve(im); };
+            im.onerror = () => { URL.revokeObjectURL(u); reject(new Error("decode failed")); };
+            im.src = u;
+        });
+    }
+    async function drawFromBlob(blob){
+        const im = await imgFromBlob(blob);
+        setCanvasSize(im.naturalWidth, im.naturalHeight);
+        ctx.clearRect(0, 0, cvs.width, cvs.height);
+        ctx.drawImage(im, 0, 0);
+        strokes = []; octx.clearRect(0, 0, ov.width, ov.height);
+        mctx.clearRect(0, 0, mk.width, mk.height);
+    }
+    async function loadFromUrl(url){
+        const token = ++loadToken;
+        const res = await fetch(url);
+        if(!res.ok) throw new Error("load failed");
+        let blob = await res.blob();
+        if(isCroppedImageUrl(url)) blob = await cropLogoStrip(blob);
+        if(token !== loadToken) return false;
+        await drawFromBlob(blob);
+        return true;
+    }
+
+    // ---------- tools ----------
+    const TOOL_HINTS = {
+        markup: "", comment: "Click anywhere on the image to add a comment",
+        erase: "Paint over what you want to remove, then press Erase", resize: ""
+    };
+
+    function setTool(name){
+        if(name && !editable){ toast("This image can't be edited here (its host blocks editing). You can still view and open it."); return; }
+        if(name === tool) name = null;
+        if(tool === "addimage" && name !== "addimage") removeLayer();
+        // leaving erase with unfinished paint just clears it
+        if(tool === "erase") mctx.clearRect(0, 0, mk.width, mk.height);
+        tool = name;
+        modal.querySelectorAll(".iv-tool").forEach(b => b.classList.toggle("active", b.dataset.tool === tool));
+        stage.dataset.tool = tool || "";
+        renderSubbar();
+        renderPins();
+        if(tool === "removebg"){ tool = null; modal.querySelectorAll(".iv-tool").forEach(b => b.classList.remove("active")); stage.dataset.tool = ""; renderSubbar(); removeBackground(); }
+    }
+
+    function renderSubbar(){
+        subbar.innerHTML = "";
+        subbar.classList.toggle("show", !!tool);
+        if(!tool) return;
+
+        if(tool === "markup"){
+            ["#ff3b6b", "#ffd60a", "#34d399", "#38bdf8", "#a78bfa", "#ffffff", "#111111"].forEach(c => {
+                const dot = el("button", "iv-color" + (c === strokeColor ? " active" : ""));
+                dot.type = "button"; dot.style.background = c; dot.title = c;
+                dot.onclick = () => { strokeColor = c; renderSubbar(); };
+                subbar.appendChild(dot);
+            });
+            const size = el("input"); size.type = "range"; size.min = 2; size.max = 40; size.value = strokeSize; size.className = "iv-range"; size.title = "Brush size";
+            size.oninput = () => { strokeSize = +size.value; };
+            subbar.appendChild(size);
+            subbar.appendChild(btn("Undo stroke", () => { strokes.pop(); redrawStrokes(); }));
+            subbar.appendChild(btn("Clear", () => { strokes = []; redrawStrokes(); }));
+            subbar.appendChild(btn("Done", () => setTool(null), true));
+        } else if(tool === "addimage"){
+            subbar.appendChild(el("span", "iv-hint", "Drag to move · drag the corner dot to resize"));
+            subbar.appendChild(btn("Cancel", cancelLayer));
+            subbar.appendChild(btn("Add to image", applyLayer, true));
+        } else if(tool === "comment"){
+            subbar.appendChild(el("span", "iv-hint", TOOL_HINTS.comment));
+            subbar.appendChild(btn("Clear all", () => { pins = []; renderPins(); }));
+            subbar.appendChild(btn("Done", () => setTool(null), true));
+        } else if(tool === "erase"){
+            subbar.appendChild(el("span", "iv-hint", "Brush"));
+            const size = el("input"); size.type = "range"; size.min = 8; size.max = 140; size.value = brushSize; size.className = "iv-range";
+            size.oninput = () => { brushSize = +size.value; };
+            subbar.appendChild(size);
+            subbar.appendChild(btn("Clear paint", () => mctx.clearRect(0, 0, mk.width, mk.height)));
+            subbar.appendChild(btn("Erase", applyErase, true));
+            subbar.appendChild(el("span", "iv-hint iv-hint-small", "Works best on small objects"));
+        } else if(tool === "resize"){
+            const ratio = cvs.width / cvs.height;
+            let locked = true;
+            const w = el("input", "iv-num"); w.type = "number"; w.min = 16; w.max = 8192; w.value = cvs.width;
+            const h = el("input", "iv-num"); h.type = "number"; h.min = 16; h.max = 8192; h.value = cvs.height;
+            const lock = el("button", "iv-lock active", "🔗"); lock.type = "button"; lock.title = "Keep proportions";
+            lock.onclick = () => { locked = !locked; lock.classList.toggle("active", locked); };
+            w.oninput = () => { if(locked && w.value) h.value = Math.round(w.value / ratio); };
+            h.oninput = () => { if(locked && h.value) w.value = Math.round(h.value * ratio); };
+            const presets = el("select", "iv-select");
+            [["", "Presets"], ["0.75", "75%"], ["0.5", "50%"], ["0.25", "25%"], ["1024x1024", "1024 × 1024"], ["1080x1080", "1080 × 1080 (post)"],
+             ["1080x1920", "1080 × 1920 (story)"], ["1920x1080", "1920 × 1080 (wide)"]].forEach(([v, t]) => {
+                const o = el("option"); o.value = v; o.textContent = t; presets.appendChild(o);
+            });
+            presets.onchange = () => {
+                const v = presets.value; if(!v) return;
+                if(v.includes("x")){ const [pw, ph] = v.split("x"); w.value = pw; h.value = ph; lock.classList.remove("active"); locked = false; }
+                else { w.value = Math.round(cvs.width * +v); h.value = Math.round(cvs.height * +v); }
+            };
+            subbar.appendChild(el("span", "iv-hint", "Size"));
+            subbar.appendChild(w); subbar.appendChild(el("span", "iv-hint", "×")); subbar.appendChild(h);
+            subbar.appendChild(lock); subbar.appendChild(presets);
+            subbar.appendChild(btn("Apply", () => applyResize(+w.value, +h.value), true));
+        }
+    }
+    function btn(label, fn, primary){
+        const b = el("button", "iv-sub-btn" + (primary ? " primary" : ""), label);
+        b.type = "button"; b.onclick = fn;
+        return b;
+    }
+
+    // ----- Markup -----
+    function redrawStrokes(){
+        octx.clearRect(0, 0, ov.width, ov.height);
+        octx.lineCap = "round"; octx.lineJoin = "round";
+        strokes.forEach(st => {
+            octx.strokeStyle = st.color; octx.lineWidth = st.size;
+            octx.beginPath();
+            st.pts.forEach((p, i) => i ? octx.lineTo(p.x, p.y) : octx.moveTo(p.x, p.y));
+            if(st.pts.length === 1) octx.lineTo(st.pts[0].x + 0.1, st.pts[0].y + 0.1);
+            octx.stroke();
+        });
+    }
+
+    // ----- Comment pins -----
+    function regionWords(p){
+        const v = p.y < 0.34 ? "top" : p.y > 0.66 ? "bottom" : "middle";
+        const hz = p.x < 0.34 ? "left" : p.x > 0.66 ? "right" : "center";
+        return v === "middle" && hz === "center" ? "the center" : `the ${v === "middle" ? "" : v + " "}${hz}`.replace("  ", " ");
+    }
+    function renderPins(){
+        pinsEl.innerHTML = "";
+        pins.forEach((p, i) => {
+            const pin = el("button", "iv-pin", String(i + 1));
+            pin.type = "button";
+            pin.style.left = (p.x * 100) + "%"; pin.style.top = (p.y * 100) + "%";
+            pin.style.transform = `translate(-50%, -50%) scale(${1 / scale})`;
+            pin.title = p.text;
+            pin.onclick = ev => { ev.stopPropagation(); openPinEditor(i); };
+            pinsEl.appendChild(pin);
+        });
+        pinsEl.style.pointerEvents = tool === "comment" ? "auto" : "none";
+        pinsEl.querySelectorAll(".iv-pin").forEach(p => p.style.pointerEvents = "auto");
+    }
+    function openPinEditor(i){
+        document.querySelector(".iv-pin-editor")?.remove();
+        const p = pins[i];
+        const box = el("div", "iv-pin-editor");
+        const r = stage.getBoundingClientRect();
+        const cr = cvs.getBoundingClientRect();
+        box.style.left = Math.min(r.width - 260, Math.max(8, cr.left - r.left + p.x * cr.width - 120)) + "px";
+        box.style.top = Math.min(r.height - 150, cr.top - r.top + p.y * cr.height + 18) + "px";
+        const ta = el("textarea"); ta.placeholder = "What should change here?"; ta.value = p.text || ""; ta.maxLength = 200;
+        const row = el("div", "iv-pin-row");
+        const save = btn("Save", () => { p.text = ta.value.trim(); if(!p.text){ pins.splice(i, 1); } renderPins(); box.remove(); }, true);
+        const del = btn("Delete", () => { pins.splice(i, 1); renderPins(); box.remove(); });
+        row.appendChild(del); row.appendChild(save);
+        box.appendChild(ta); box.appendChild(row);
+        stage.appendChild(box);
+        setTimeout(() => ta.focus(), 20);
+        ta.addEventListener("keydown", ev => { if(ev.key === "Enter" && !ev.shiftKey){ ev.preventDefault(); save.click(); } ev.stopPropagation(); });
+    }
+
+    // ----- Erase (fills the painted area from its surroundings) -----
+    function applyErase(){
+        const w = cvs.width, h = cvs.height;
+        const m = mctx.getImageData(0, 0, w, h).data;
+        let minX = w, minY = h, maxX = -1, maxY = -1;
+        for(let y = 0; y < h; y++) for(let x = 0; x < w; x++){
+            if(m[(y * w + x) * 4 + 3] > 20){ if(x < minX) minX = x; if(x > maxX) maxX = x; if(y < minY) minY = y; if(y > maxY) maxY = y; }
+        }
+        if(maxX < 0){ toast("Paint over the part you want to remove first."); return; }
+        pushHistory(); flatten();
+        const pad = 10;
+        const bx = Math.max(0, minX - pad), by = Math.max(0, minY - pad);
+        const bw = Math.min(w, maxX + pad + 1) - bx, bh = Math.min(h, maxY + pad + 1) - by;
+        const img = ctx.getImageData(bx, by, bw, bh), d = img.data;
+        const unknown = new Uint8Array(bw * bh);
+        for(let y = 0; y < bh; y++) for(let x = 0; x < bw; x++){
+            if(m[((by + y) * w + (bx + x)) * 4 + 3] > 20) unknown[y * bw + x] = 1;
+        }
+        // grow the mask by 2px so soft brush edges are covered too
+        for(let pass = 0; pass < 2; pass++){
+            const copy = unknown.slice();
+            for(let y = 1; y < bh - 1; y++) for(let x = 1; x < bw - 1; x++){
+                if(!copy[y * bw + x] && (copy[y * bw + x - 1] || copy[y * bw + x + 1] || copy[(y - 1) * bw + x] || copy[(y + 1) * bw + x])) unknown[y * bw + x] = 1;
+            }
+        }
+        // peel the hole from the outside in, averaging known neighbours
+        let remaining = [];
+        for(let i = 0; i < unknown.length; i++) if(unknown[i]) remaining.push(i);
+        const filled = [];
+        let guard = 0;
+        while(remaining.length && guard++ < 600){
+            const next = [], done = [];
+            for(const i of remaining){
+                const x = i % bw, y = (i / bw) | 0;
+                let r = 0, g = 0, b = 0, a = 0, n = 0;
+                for(let dy = -1; dy <= 1; dy++) for(let dx = -1; dx <= 1; dx++){
+                    if(!dx && !dy) continue;
+                    const nx = x + dx, ny = y + dy;
+                    if(nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
+                    const j = ny * bw + nx;
+                    if(unknown[j]) continue;
+                    r += d[j * 4]; g += d[j * 4 + 1]; b += d[j * 4 + 2]; a += d[j * 4 + 3]; n++;
+                }
+                if(n){ d[i * 4] = r / n; d[i * 4 + 1] = g / n; d[i * 4 + 2] = b / n; d[i * 4 + 3] = a / n; done.push(i); }
+                else next.push(i);
+            }
+            done.forEach(i => { unknown[i] = 0; filled.push(i); });
+            remaining = next;
+        }
+        // a few smoothing passes over the filled pixels so it blends in
+        for(let it = 0; it < 24; it++){
+            for(const i of filled){
+                const x = i % bw, y = (i / bw) | 0;
+                if(x < 1 || y < 1 || x >= bw - 1 || y >= bh - 1) continue;
+                for(let c = 0; c < 4; c++){
+                    d[i * 4 + c] = (d[(i - 1) * 4 + c] + d[(i + 1) * 4 + c] + d[(i - bw) * 4 + c] + d[(i + bw) * 4 + c]) / 4;
+                }
+            }
+        }
+        ctx.putImageData(img, bx, by);
+        mctx.clearRect(0, 0, w, h);
+        dirty = true;
+        toast("Erased");
+    }
+
+    // ----- Resize -----
+    function applyResize(nw, nh){
+        nw = Math.round(nw); nh = Math.round(nh);
+        if(!(nw >= 16 && nh >= 16) || nw > 8192 || nh > 8192){ toast("Pick a size between 16 and 8192 pixels."); return; }
+        if(nw === cvs.width && nh === cvs.height){ toast("That's already the current size."); return; }
+        pushHistory(); flatten();
+        const src = snapshot();
+        setCanvasSize(nw, nh);
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+        ctx.clearRect(0, 0, nw, nh);
+        ctx.drawImage(src, 0, 0, nw, nh);
+        dirty = true;
+        fit();
+        toast(`Resized to ${nw} × ${nh}`);
+        setTool(null);
+    }
+
+    // ----- Remove background -----
+    function withTimeout(promise, ms){
+        return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+    }
+    // Plain-background fallback: floods in from the edges over pixels that
+    // look like the corner colour, and makes them transparent.
+    function floodRemoveBackground(){
+        const w = cvs.width, h = cvs.height;
+        const img = ctx.getImageData(0, 0, w, h), d = img.data;
+        const corners = [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]].map(([x, y]) => { const i = (y * w + x) * 4; return [d[i], d[i + 1], d[i + 2]]; });
+        const bg = [0, 1, 2].map(c => corners.reduce((s, p) => s + p[c], 0) / 4);
+        const tol = 46;
+        const near = i => { const dr = d[i] - bg[0], dg = d[i + 1] - bg[1], db = d[i + 2] - bg[2]; return Math.sqrt(dr * dr + dg * dg + db * db) < tol; };
+        const seen = new Uint8Array(w * h);
+        const stack = [];
+        const push = (x, y) => { const p = y * w + x; if(!seen[p] && near(p * 4)){ seen[p] = 1; stack.push(p); } };
+        for(let x = 0; x < w; x++){ push(x, 0); push(x, h - 1); }
+        for(let y = 0; y < h; y++){ push(0, y); push(w - 1, y); }
+        while(stack.length){
+            const p = stack.pop(), x = p % w, y = (p / w) | 0;
+            if(x > 0) push(x - 1, y); if(x < w - 1) push(x + 1, y);
+            if(y > 0) push(x, y - 1); if(y < h - 1) push(x, y + 1);
+        }
+        let cleared = 0;
+        for(let p = 0; p < seen.length; p++) if(seen[p]){ d[p * 4 + 3] = 0; cleared++; }
+        // soften the cut-out edge by one pixel
+        for(let y = 1; y < h - 1; y++) for(let x = 1; x < w - 1; x++){
+            const p = y * w + x;
+            if(!seen[p] && (seen[p - 1] || seen[p + 1] || seen[p - w] || seen[p + w])) d[p * 4 + 3] = 150;
+        }
+        ctx.putImageData(img, 0, 0);
+        return cleared / (w * h);
+    }
+    async function removeBackground(){
+        if(busy) return;
+        pushHistory(); flatten();
+        setBusy(true, "Removing background… the first time can take a little while");
+        let usedAI = false;
+        try{
+            const blob = await exportBlobFromWork();
+            const mod = await withTimeout(import("https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.5/+esm"), 25000);
+            const out = await withTimeout(mod.removeBackground(blob, { output: { format: "image/png" } }), 120000);
+            await drawFromBlob(out);
+            usedAI = true;
+        }catch(err){
+            // AI model unavailable — try the simple plain-background method
+            try{
+                const share = floodRemoveBackground();
+                if(share < 0.04){
+                    history.pop(); $("ivUndo").disabled = history.length === 0;
+                    toast("Couldn't find a clear background to remove on this image.");
+                    setBusy(false);
+                    return;
+                }
+            }catch(e2){
+                history.pop(); toast("Couldn't remove the background."); setBusy(false); return;
+            }
+        }
+        dirty = true;
+        setBusy(false);
+        toast(usedAI ? "Background removed" : "Background removed (works best on plain backgrounds)");
+    }
+    function exportBlobFromWork(){
+        return new Promise((resolve, reject) => cvs.toBlob(b => b ? resolve(b) : reject(new Error("blob")), "image/png"));
+    }
+
+    // ---------- Describe edits (AI) ----------
+    // The image host's edit model is unreliable, so an edit redraws the
+    // picture from its original prompt plus your change, keeping the same
+    // seed so the composition stays as close as possible.
+    function seedFromUrl(u){ const m = /[?&]seed=(\d+)/.exec(u || ""); return m ? m[1] : String(Math.floor(Math.random() * 1000000)); }
+    async function aiEdit(text){
+        if(busy) return;
+        if(!remoteUrl){ toast("AI edits work on images that were just generated."); return; }
+        if(dirty || strokes.length){ toast("Undo or download your Markup / Erase / Resize / Add-image changes first — AI edits redraw the original image."); return; }
+        let change = text.trim();
+        if(!change && !pins.length) return;
+        if(pins.length){
+            change += (change ? ". " : "") + pins.map(p => `In ${regionWords(p)}: ${p.text}`).join(". ");
+        }
+        const basePrompt = currentPrompt || altText || "";
+        const newPrompt = (basePrompt ? basePrompt.replace(/[.\s]+$/, "") + ". " : "") + "Change: " + change;
+        pushHistory();
+        setBusy(true, "Editing your image…");
+        const url = buildImageUrl(newPrompt, seedFromUrl(remoteUrl));
+        try{
+            await withTimeout(loadFromUrl(url), 90000);
+            remoteUrl = url; currentPrompt = newPrompt; dirty = false; pins = []; renderPins();
+            $("ivEditInput").value = "";
+            fit();
+            toast("Edit applied — redrawn with your change");
+        }catch(err){
+            console.warn("[Zyntra] image edit failed:", err);
+            history.pop(); $("ivUndo").disabled = history.length === 0;
+            toast("Couldn't apply that edit right now. Please try again.");
+        }
+        setBusy(false);
+    }
+
+    // ---------- "+" : add your own picture on top ----------
+    let layer = null; // { el, x, y, w, h, ratio }
+    function removeLayer(){ if(layer){ layer.el.remove(); layer = null; } }
+    function addImageLayer(file){
+        if(!file) return;
+        if(!/^image\//.test(file.type)){ toast("Only pictures can be added here (PNG, JPG, WebP…)."); return; }
+        if(!editable){ toast("This image can't be edited here."); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+            const im = new Image();
+            im.onload = () => {
+                removeLayer();
+                if(tool !== "addimage"){ tool = "addimage"; modal.querySelectorAll(".iv-tool").forEach(b => b.classList.remove("active")); stage.dataset.tool = "layer"; }
+                const ratio = im.naturalWidth / im.naturalHeight;
+                let w = cvs.width * 0.4, h = w / ratio;
+                if(h > cvs.height * 0.8){ h = cvs.height * 0.8; w = h * ratio; }
+                const el2 = el("div", "iv-layer-box");
+                const pic = new Image(); pic.src = reader.result; pic.draggable = false;
+                const handle = el("div", "iv-layer-handle");
+                el2.appendChild(pic); el2.appendChild(handle);
+                layer = { el: el2, img: im, x: (cvs.width - w) / 2, y: (cvs.height - h) / 2, w, h, ratio };
+                placeLayer();
+                wrap.appendChild(el2);
+                el2.addEventListener("pointerdown", e => {
+                    e.stopPropagation(); e.preventDefault();
+                    const isResize = e.target === handle;
+                    drag = { type: isResize ? "layer-resize" : "layer-move", x: e.clientX, y: e.clientY, lx: layer.x, ly: layer.y, lw: layer.w };
+                    stage.setPointerCapture(e.pointerId);
+                });
+                renderSubbar();
+            };
+            im.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+    }
+    function placeLayer(){
+        if(!layer) return;
+        const s2 = layer.el.style;
+        s2.left = layer.x + "px"; s2.top = layer.y + "px"; s2.width = layer.w + "px"; s2.height = layer.h + "px";
+    }
+    function applyLayer(){
+        if(!layer) return;
+        pushHistory(); flatten();
+        ctx.drawImage(layer.img, layer.x, layer.y, layer.w, layer.h);
+        dirty = true;
+        removeLayer();
+        toast("Picture added");
+        setTool(null);
+    }
+    function cancelLayer(){ removeLayer(); setTool(null); }
+
+    // ---------- share / download ----------
+    async function download(){
+        try{
+            const blob = await exportBlob();
+            const u = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = u; a.download = "zyntra-ai-image.png";
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(u), 4000);
+        }catch(err){
+            if(/^https?:/.test(srcUrl)) window.open(srcUrl, "_blank");
+        }
+    }
+    async function share(){
+        let blob = null;
+        try{ blob = await exportBlob(); }catch(err){}
+        try{
+            if(blob){
+                const file = new File([blob], "zyntra-ai-image.png", { type: "image/png" });
+                if(navigator.canShare && navigator.canShare({ files: [file] })){
+                    await navigator.share({ files: [file], title: "Made with Zyntra AI" });
+                    return;
+                }
+            }
+        }catch(err){ if(err && err.name === "AbortError") return; }
+        try{
+            if(blob && window.ClipboardItem && navigator.clipboard && navigator.clipboard.write){
+                await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+                toast("Image copied — paste it anywhere");
+                return;
+            }
+        }catch(err){}
+        const link = remoteUrl || (/^https?:/.test(srcUrl) ? srcUrl : "");
+        if(link){
+            try{ await navigator.clipboard.writeText(link); toast("Image link copied"); return; }catch(err){ fallbackCopyText(link); toast("Image link copied"); return; }
+        }
+        toast("Couldn't share this image.");
+    }
+
+    // ---------- pointer interaction ----------
+    let drag = null;
+    stage.addEventListener("pointerdown", e => {
+        if(e.target.closest(".iv-pin-editor, .iv-edit-bar, .iv-pin")) return;
+        if(e.button === 2) return;
+        const panning = !tool || e.button === 1 || spaceDown || (tool === "addimage" && !e.target.closest(".iv-layer-box"));
+        if(panning){
+            drag = { type: "pan", x: e.clientX, y: e.clientY, tx, ty };
+            stage.setPointerCapture(e.pointerId);
+            stage.classList.add("panning");
+            return;
+        }
+        if(busy || tool === "addimage") return;
+        const p = toImg(e);
+        if(tool === "markup"){
+            const st = { color: strokeColor, size: strokeSize * (cvs.width / 1024 > 1 ? cvs.width / 1024 : 1), pts: [p] };
+            strokes.push(st);
+            drag = { type: "markup", st };
+            stage.setPointerCapture(e.pointerId);
+            redrawStrokes();
+        } else if(tool === "erase"){
+            drag = { type: "erase", last: p, size: brushSize * (cvs.width / 1024 > 1 ? cvs.width / 1024 : 1) };
+            stage.setPointerCapture(e.pointerId);
+            paintMask(p, p, drag.size);
+        } else if(tool === "comment"){
+            drag = { type: "comment", x: e.clientX, y: e.clientY, p };
+        }
+    });
+    function paintMask(a, b, size){
+        mctx.strokeStyle = "rgba(255,59,107,0.65)"; mctx.fillStyle = "rgba(255,59,107,0.65)";
+        mctx.lineWidth = size; mctx.lineCap = "round"; mctx.lineJoin = "round";
+        mctx.beginPath(); mctx.moveTo(a.x, a.y); mctx.lineTo(b.x + 0.01, b.y + 0.01); mctx.stroke();
+    }
+    stage.addEventListener("pointermove", e => {
+        if(!drag) return;
+        if(drag.type === "pan"){ tx = drag.tx + (e.clientX - drag.x); ty = drag.ty + (e.clientY - drag.y); applyTransform(); }
+        else if(drag.type === "layer-move" && layer){ layer.x = drag.lx + (e.clientX - drag.x) / scale; layer.y = drag.ly + (e.clientY - drag.y) / scale; placeLayer(); }
+        else if(drag.type === "layer-resize" && layer){ layer.w = Math.max(24, drag.lw + (e.clientX - drag.x) / scale); layer.h = layer.w / layer.ratio; placeLayer(); }
+        else if(drag.type === "markup"){ drag.st.pts.push(toImg(e)); redrawStrokes(); }
+        else if(drag.type === "erase"){ const p = toImg(e); paintMask(drag.last, p, drag.size); drag.last = p; }
+    });
+    function endDrag(e){
+        if(!drag) return;
+        if(drag.type === "comment" && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 6){
+            const p = drag.p;
+            if(p.x >= 0 && p.y >= 0 && p.x <= cvs.width && p.y <= cvs.height){
+                pins.push({ x: p.x / cvs.width, y: p.y / cvs.height, text: "" });
+                renderPins();
+                openPinEditor(pins.length - 1);
+            }
+        }
+        stage.classList.remove("panning");
+        drag = null;
+    }
+    stage.addEventListener("pointerup", endDrag);
+    stage.addEventListener("pointercancel", endDrag);
+    stage.addEventListener("wheel", e => {
+        e.preventDefault();
+        const r = stage.getBoundingClientRect();
+        zoomTo(scale * Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
+        renderPins();
+    }, { passive: false });
+    stage.addEventListener("dblclick", e => {
+        if(tool) return;
+        const r = stage.getBoundingClientRect();
+        if(Math.abs(scale - fitScale) < 0.02) zoomTo(Math.max(1, fitScale * 2), e.clientX - r.left, e.clientY - r.top);
+        else fit();
+        renderPins();
+    });
+
+    // ---------- wiring ----------
+    modal.querySelectorAll(".iv-tool").forEach(b => b.addEventListener("click", () => { if(!busy) setTool(b.dataset.tool); }));
+    $("ivUndo").addEventListener("click", undo);
+    $("ivShare").addEventListener("click", share);
+    $("imageViewerDownload").addEventListener("click", download);
+    $("ivEditForm").addEventListener("submit", e => { e.preventDefault(); aiEdit($("ivEditInput").value); });
+    $("ivAddBtn").addEventListener("click", () => { if(!busy) $("ivFileInput").click(); });
+    $("ivFileInput").addEventListener("change", e => { addImageLayer(e.target.files[0]); e.target.value = ""; });
+    $("ivEditInput").addEventListener("keydown", e => e.stopPropagation());
+
+    const zoomMenu = $("ivZoomMenu");
+    $("ivZoomBtn").addEventListener("click", e => { e.stopPropagation(); zoomMenu.classList.toggle("show"); });
+    zoomMenu.addEventListener("click", e => {
+        const b = e.target.closest("button"); if(!b) return;
+        const z = b.dataset.zoom;
+        if(z === "fit") fit();
+        else if(z === "in") zoomTo(scale * 1.25);
+        else if(z === "out") zoomTo(scale / 1.25);
+        else zoomTo(+z);
+        zoomMenu.classList.remove("show");
+        renderPins();
+    });
+    modal.addEventListener("click", e => { if(!e.target.closest(".iv-zoom")) zoomMenu.classList.remove("show"); });
+
+    document.addEventListener("keydown", e => {
+        if(!modal.classList.contains("show")) return;
+        if(e.code === "Space" && !/input|textarea/i.test(e.target.tagName)){ spaceDown = true; e.preventDefault(); }
+        if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !/input|textarea/i.test(e.target.tagName)){ e.preventDefault(); undo(); }
+        else if(!/input|textarea/i.test(e.target.tagName)){
+            if(e.key === "+" || e.key === "=") { zoomTo(scale * 1.25); renderPins(); }
+            else if(e.key === "-") { zoomTo(scale / 1.25); renderPins(); }
+            else if(e.key === "0") { fit(); renderPins(); }
+        }
+    });
+    document.addEventListener("keyup", e => { if(e.code === "Space") spaceDown = false; });
+    window.addEventListener("resize", () => { if(modal.classList.contains("show")) { fit(); renderPins(); } });
+
+    // ---------- open ----------
+    async function open(src, alt){
+        srcUrl = src; altText = alt || "Generated image";
+        remoteUrl = /^https?:/.test(src) ? src : null;
+        removeLayer();
+        currentPrompt = altText;
+        history = []; strokes = []; pins = []; dirty = false; editable = true; tool = null;
+        $("ivUndo").disabled = true;
+        $("ivTitle").textContent = altText.length > 70 ? altText.slice(0, 67) + "…" : altText;
+        $("ivEditInput").value = "";
+        $("ivEditInput").placeholder = remoteUrl ? "Describe edits" : "Describe edits (available for newly generated images)";
+        stage.dataset.tool = ""; subbar.classList.remove("show"); subbar.innerHTML = "";
+        modal.querySelectorAll(".iv-tool").forEach(b => b.classList.remove("active"));
+        document.querySelector(".iv-pin-editor")?.remove();
+        pinsEl.innerHTML = "";
+        openModal("imageViewerModal");
+        setBusy(true, "Loading…");
+        try{
+            await loadFromUrl(src);
+        }catch(err){
+            // Host doesn't allow reading the pixels — still show the picture.
+            try{
+                const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+                setCanvasSize(im.naturalWidth, im.naturalHeight);
+                ctx.drawImage(im, 0, 0);
+                editable = false;
+            }catch(e2){
+                setBusy(false); toast("Couldn't load this image."); return;
+            }
+        }
+        setBusy(false);
+        requestAnimationFrame(() => { fit(); renderPins(); });
+    }
+
+    return { open };
+})();
+
+
+// Clicking a generated image anywhere in chat opens the full-screen editor.
+document.addEventListener("click", (e) => {
+    const img = e.target.closest(".ai-image-block .generated-img");
+    if(img) openImageViewer(img.src, img.alt);
+});
+
+document.addEventListener("click", (e) => {
+    const downloadBtn = e.target.closest(".ai-image-download");
+    if(downloadBtn){
+        const url = downloadBtn.dataset.url;
+        const original = downloadBtn.textContent;
+        downloadBtn.textContent = "Downloading...";
+        downloadWatermarkedImage(url, "zyntra-ai-image.png").then(() => {
+            downloadBtn.textContent = original;
+        });
+    }
+});
+
+// Turns markdown links [text](url) and bare https:// URLs into real,
+// clickable <a> tags. Runs on already HTML-escaped text, so it's safe to
+// insert raw <a> markup without re-escaping it.
+function linkifyText(escapedText){
+    let out = escapedText.replace(
+        /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+        (m, label, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer" class="ai-link">${label}</a>`
+    );
+    // Bare URLs — only ones not already sitting inside an href="" we just
+    // added (those are preceded by a quote or ">", neither of which this
+    // pattern's required leading context [\s(] matches).
+    out = out.replace(
+        /(^|[\s(])(https?:\/\/[^\s<]+[^\s<.,;:'")\]])/g,
+        (m, pre, url) => `${pre}<a href="${url}" target="_blank" rel="noopener noreferrer" class="ai-link">${url}</a>`
+    );
+    return out;
+}
+
+function formatAIText(text){
+    // action blocks are for Zyntra, not for reading — hide them (even half-streamed)
+    if(typeof text === "string" && text.indexOf("zyntra-action") !== -1) text = text.replace(/```zyntra-action[\s\S]*?(```|$)/g, "").replace(/\n{3,}/g, "\n\n").trimEnd();
+    const { withPlaceholders: withCodePlaceholders, blocks } = extractCodeBlocks(text);
+    const { withPlaceholders, images } = extractImageBlocks(withCodePlaceholders);
+
+    let safe = withPlaceholders
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;");
+
+    safe = safe.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    safe = linkifyText(safe);
+
+    const lines = safe.split(/\n+/).filter(l => l.trim() !== "");
+    let html = "";
+    let inList = false;
+    let listType = null; // "ul" or "ol"
+
+    function closeList(){
+        if(inList){
+            html += listType === "ol" ? "</ol>" : "</ul>";
+            inList = false;
+            listType = null;
+        }
+    }
+
+    function isTableRow(line){
+        return /^\|.*\|$/.test(line.trim());
+    }
+    function isTableSeparator(line){
+        return /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?$/.test(line.trim());
+    }
+    function parseTableRow(line){
+        return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+    }
+
+    let i = 0;
+    while(i < lines.length){
+        const trimmed = lines[i].trim();
+
+        // Horizontal rule (---)
+        if(/^-{3,}$/.test(trimmed)){
+            closeList();
+            html += "<hr>";
+            i++;
+            continue;
+        }
+
+        // Markdown table
+        if(isTableRow(trimmed) && i + 1 < lines.length && isTableSeparator(lines[i + 1])){
+            closeList();
+            const headerCells = parseTableRow(trimmed);
+            let tableHtml = "<div class=\"table-card\"><div class=\"table-card-head\"><span class=\"table-card-label\">Table</span><button type=\"button\" class=\"table-copy-btn\">Copy</button></div><div class=\"table-wrap\"><table><thead><tr>"
+                + headerCells.map(c => "<th>" + c + "</th>").join("")
+                + "</tr></thead><tbody>";
+            i += 2;
+            while(i < lines.length && isTableRow(lines[i].trim())){
+                const rowCells = parseTableRow(lines[i].trim());
+                tableHtml += "<tr>" + rowCells.map(c => "<td>" + c + "</td>").join("") + "</tr>";
+                i++;
+            }
+            tableHtml += "</tbody></table></div></div>";
+            html += tableHtml;
+            continue;
+        }
+
+        const headerMatch = trimmed.match(/^#{1,6}\s+(.*)$/);
+        const numberedMatch = trimmed.match(/^(\d+)[.)]\s+(.*)$/);
+        const bulletMatch = /^[-*•]\s+/.test(trimmed);
+
+        if(headerMatch){
+            closeList();
+            html += "<h4>" + headerMatch[1] + "</h4>";
+        } else if(numberedMatch){
+            if(inList && listType !== "ol") closeList();
+            if(!inList){ html += "<ol>"; inList = true; listType = "ol"; }
+            html += "<li>" + numberedMatch[2] + "</li>";
+        } else if(bulletMatch){
+            if(inList && listType !== "ul") closeList();
+            if(!inList){ html += "<ul>"; inList = true; listType = "ul"; }
+            html += "<li>" + trimmed.replace(/^[-*•]\s+/, "") + "</li>";
+        } else {
+            closeList();
+            html += "<p>" + trimmed + "</p>";
+        }
+        i++;
+    }
+    closeList();
+    if(!html) html = "<p>" + safe + "</p>";
+
+    blocks.forEach(block => {
+        const placeholder = "%%" + block.id + "%%";
+        html = html.replace("<p>" + placeholder + "</p>", buildFileCardHTML(block));
+        html = html.replace(placeholder, buildFileCardHTML(block));
+    });
+
+    images.forEach(image => {
+        const placeholder = "%%" + image.id + "%%";
+        html = html.replace("<p>" + placeholder + "</p>", buildImageBlockHTML(image));
+        html = html.replace(placeholder, buildImageBlockHTML(image));
+    });
+
+    return html;
+}
+
+const FREE_MESSAGE_LIMIT = 10;
+const LOCKOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+function getChatUsage(){
+    return JSON.parse(localStorage.getItem("zyntra-chat-usage") || '{"count":0,"lockoutUntil":0}');
+}
+
+function saveChatUsage(usage){
+    localStorage.setItem("zyntra-chat-usage", JSON.stringify(usage));
+}
+
+function isLockedOut(){
+    return getChatUsage().lockoutUntil > Date.now();
+}
+
+function recordFreeMessage(){
+    const usage = getChatUsage();
+    usage.count = (usage.count || 0) + 1;
+    if(usage.count >= FREE_MESSAGE_LIMIT){
+        usage.lockoutUntil = Date.now() + LOCKOUT_MS;
+        usage.count = 0;
+    }
+    saveChatUsage(usage);
+}
+
+let lockCountdownInterval = null;
+
+function formatCountdown(ms){
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const h = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
+    const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");
+    const s = String(totalSeconds % 60).padStart(2, "0");
+    return `${h}:${m}:${s}`;
+}
+
+function showChatLockedModal(){
+    openModal("chatLockedModal");
+
+    const countdownEl = document.getElementById("lockCountdown");
+
+    function tick(){
+        const usage = getChatUsage();
+        const remaining = usage.lockoutUntil - Date.now();
+        if(remaining <= 0){
+            countdownEl.textContent = "00:00:00";
+            clearInterval(lockCountdownInterval);
+            saveChatUsage({ count: 0, lockoutUntil: 0 });
+            closeModal("chatLockedModal");
+            return;
+        }
+        countdownEl.textContent = formatCountdown(remaining);
+    }
+
+    tick();
+    clearInterval(lockCountdownInterval);
+    lockCountdownInterval = setInterval(tick, 1000);
+}
+
+document.getElementById("lockWatchAdBtn")?.addEventListener("click", () => {
+    const btn = document.getElementById("lockWatchAdBtn");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "🎬 Watching ad...";
+    setTimeout(() => {
+        saveChatUsage({ count: 0, lockoutUntil: 0 });
+        clearInterval(lockCountdownInterval);
+        closeModal("chatLockedModal");
+        btn.textContent = original;
+        btn.disabled = false;
+    }, 3000);
+});
+
+function typeOutText(el, fullText, scrollContainer, onDone){
+    const words = fullText.split(" ");
+    const speed = 8;
+    let i = 0;
+
+    function step(){
+        i++;
+        const isLast = i >= words.length;
+        el.innerHTML = formatAIText(isLast ? fullText : words.slice(0, i).join(" "));
+        if(scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        if(!isLast){
+            setTimeout(step, speed);
+        } else if(onDone){
+            onDone();
+        }
+    }
+    step();
+}
+
+function addCopyButton(container, textToCopy){
+    const btn = document.createElement("button");
+    btn.className = "copy-btn";
+    btn.textContent = "📋 Copy";
+    btn.addEventListener("click", () => {
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            btn.textContent = "✅ Copied";
+            setTimeout(() => { btn.textContent = "📋 Copy"; }, 1500);
+        });
+    });
+    container.appendChild(btn);
+}
+
+function addReportButton(container, contentToReport){
+    const btn = document.createElement("button");
+    btn.className = "copy-btn report-btn";
+    btn.textContent = "🚩 Report";
+    btn.addEventListener("click", () => {
+        openModal("contactModal");
+        const msgBox = document.getElementById("contactMsg");
+        msgBox.value = 'Reporting AI-generated content:\n\n"' + contentToReport + '"\n\nReason: ';
+        msgBox.focus();
+    });
+    container.appendChild(btn);
+}
+
+// ---------- Web search sources (rendered under AI messages when a real search happened) ----------
+
+function faviconUrl(pageUrl){
+    try{
+        const host = new URL(pageUrl).hostname;
+        return "https://www.google.com/s2/favicons?domain=" + host + "&sz=64";
+    }catch(err){
+        return "";
+    }
+}
+
+function hostFromUrl(pageUrl){
+    try{
+        return new URL(pageUrl).hostname.replace(/^www\./, "");
+    }catch(err){
+        return pageUrl;
+    }
+}
+
+function buildSourcesRow(sources){
+    const wrap = document.createElement("div");
+    wrap.className = "message-sources";
+
+    // ---- Collapsed pill: overlapping favicons + "Searched N sites" ----
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "sources-toggle";
+
+    const faviconStack = document.createElement("span");
+    faviconStack.className = "sources-favicons";
+    sources.slice(0, 4).forEach(src => {
+        const icon = document.createElement("img");
+        icon.src = faviconUrl(src.url);
+        icon.alt = "";
+        icon.loading = "lazy";
+        faviconStack.appendChild(icon);
+    });
+    toggle.appendChild(faviconStack);
+
+    const label = document.createElement("span");
+    label.className = "sources-toggle-label";
+    label.textContent = "Searched " + sources.length + (sources.length === 1 ? " site" : " sites");
+    toggle.appendChild(label);
+
+    const chevron = document.createElement("span");
+    chevron.className = "sources-chevron";
+    chevron.textContent = "▾";
+    toggle.appendChild(chevron);
+
+    toggle.addEventListener("click", () => {
+        wrap.classList.toggle("open");
+    });
+
+    // ---- Expanded list: one row per source with favicon + title ----
+    const list = document.createElement("div");
+    list.className = "sources-list";
+
+    sources.forEach(src => {
+        const a = document.createElement("a");
+        a.className = "source-chip";
+        a.href = src.url;
+        a.rel = "noopener noreferrer";
+        a.title = src.url;
+
+        const icon = document.createElement("img");
+        icon.className = "source-chip-favicon";
+        icon.src = faviconUrl(src.url);
+        icon.alt = "";
+        icon.loading = "lazy";
+        a.appendChild(icon);
+
+        const textWrap = document.createElement("span");
+        textWrap.className = "source-chip-text";
+
+        const title = document.createElement("span");
+        title.className = "source-chip-title";
+        title.textContent = (src.title && src.title.length < 70) ? src.title : hostFromUrl(src.url);
+        textWrap.appendChild(title);
+
+        const host = document.createElement("span");
+        host.className = "source-chip-host";
+        host.textContent = hostFromUrl(src.url);
+        textWrap.appendChild(host);
+
+        a.appendChild(textWrap);
+        a.addEventListener("click", (e) => {
+            e.preventDefault();
+            toggleSourcePreview(a, src);
+        });
+        list.appendChild(a);
+    });
+
+    wrap.appendChild(toggle);
+    wrap.appendChild(list);
+    return wrap;
+}
+
+function ensureSourcePreviewCard(){
+    let card = document.getElementById("sourcePreviewCard");
+    if(card) return card;
+    card = document.createElement("div");
+    card.id = "sourcePreviewCard";
+    card.className = "source-preview-card";
+    document.body.appendChild(card);
+    document.addEventListener("click", (e) => {
+        if(!card.classList.contains("open")) return;
+        if(!e.target.closest("#sourcePreviewCard") && !e.target.closest(".source-chip")){
+            card.classList.remove("open");
+        }
+    });
+    return card;
+}
+
+let sourcePreviewOpenFor = null;
+
+function toggleSourcePreview(chipEl, src){
+    const card = ensureSourcePreviewCard();
+
+    if(sourcePreviewOpenFor === chipEl && card.classList.contains("open")){
+        card.classList.remove("open");
+        sourcePreviewOpenFor = null;
+        return;
+    }
+
+    card.innerHTML = `
+        <div class="source-preview-head">
+            <img src="${faviconUrl(src.url)}" alt="" loading="lazy">
+            <span class="source-preview-host">${hostFromUrl(src.url)}</span>
+        </div>
+        <p class="source-preview-title">${src.title || hostFromUrl(src.url)}</p>
+        ${src.snippet ? `<p class="source-preview-snippet">${src.snippet}</p>` : ""}
+        <a href="${src.url}" target="_blank" rel="noopener noreferrer" class="source-preview-open">Open ↗</a>
+    `;
+
+    const rect = chipEl.getBoundingClientRect();
+    card.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 336)) + "px";
+    const spaceBelow = window.innerHeight - rect.bottom;
+    if(spaceBelow < 220){
+        card.style.top = "auto";
+        card.style.bottom = (window.innerHeight - rect.top + 8) + "px";
+    } else {
+        card.style.bottom = "auto";
+        card.style.top = (rect.bottom + 8) + "px";
+    }
+
+    card.classList.add("open");
+    sourcePreviewOpenFor = chipEl;
+}
+
+function stripForSpeech(text){
+    return text
+        .replace(/```[\s\S]*?```/g, " ")
+        .replace(/\*\*(.*?)\*\*/g, "$1")
+        .replace(/\*(.*?)\*/g, "$1")
+        .replace(/`([^`]*)`/g, "$1")
+        .replace(/^#{1,6}\s*/gm, "")
+        .replace(/^[-*•]\s+/gm, "")
+        .replace(/\|/g, " ")
+        // Strip emoji and symbol pictographs so the voice doesn't try to read them aloud
+        .replace(/[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+// Detects the likely spoken language from the text's script/characters so
+// the voice assistant can speak many languages, not just the browser's
+// default. Falls back to the browser/system language for Latin-script text
+// (English, Spanish, French, etc. can't be told apart by characters alone).
+// Language Whisper heard the person speak (set after every voice-call
+// utterance). Used as a hint for Latin-script languages, where the reply's
+// letters alone can't tell Spanish from French from English.
+let lastUserSpeechLang = null;
+
+const WHISPER_LANG_CODES = {
+    english:"en-US", hindi:"hi-IN", gujarati:"gu-IN", marathi:"mr-IN", bengali:"bn-IN", tamil:"ta-IN",
+    telugu:"te-IN", kannada:"kn-IN", malayalam:"ml-IN", punjabi:"pa-IN", urdu:"ur-PK", nepali:"ne-NP",
+    spanish:"es-ES", french:"fr-FR", german:"de-DE", portuguese:"pt-BR", italian:"it-IT", dutch:"nl-NL",
+    russian:"ru-RU", ukrainian:"uk-UA", polish:"pl-PL", turkish:"tr-TR", indonesian:"id-ID", malay:"ms-MY",
+    vietnamese:"vi-VN", thai:"th-TH", japanese:"ja-JP", korean:"ko-KR", chinese:"zh-CN", arabic:"ar-SA",
+    hebrew:"he-IL", persian:"fa-IR", greek:"el-GR", swedish:"sv-SE", norwegian:"nb-NO", danish:"da-DK",
+    finnish:"fi-FI", czech:"cs-CZ", romanian:"ro-RO", hungarian:"hu-HU", swahili:"sw-KE"
+};
+function whisperLangToBcp47(name){
+    return WHISPER_LANG_CODES[(name || "").toLowerCase().trim()] || null;
+}
+
+// Common words per Latin-script language — enough to tell them apart.
+const LATIN_STOPWORDS = {
+    en: "the and is are to of in that it you for with on this be as have not but what can your do will was they we".split(" "),
+    es: "de la que el en y los se del las un por con no una su para es al lo como más pero sus le ya este sí porque esta entre cuando muy sin sobre también me hasta hay donde quien desde todo nos".split(" "),
+    fr: "le la les des un une et est en que qui dans pour pas sur au avec ce il elle nous vous je ne se plus par mais ou où son sa ses du très être avoir fait comme".split(" "),
+    de: "der die das und ist nicht ein eine zu den mit sich auf für von dem im ich es auch dass sie wir aber wie oder wenn noch nur wird bei".split(" "),
+    pt: "de a o que e do da em um para é com não uma os no se na por mais as dos como mas foi ao ele das tem seu sua ou ser quando muito há nos já está eu também só pelo pela".split(" "),
+    it: "di e il la che è per un in una sono mi si lo ha le non con ma come più ci da del della questo anche io al".split(" "),
+    nl: "de het een en van ik te dat die in is niet op aan met als voor zijn er maar om ook dan je".split(" "),
+    id: "yang dan di ini itu dengan untuk tidak dari dalam akan pada juga saya ke karena ada mereka kamu bisa atau sudah".split(" "),
+    tr: "ve bir bu için ile da de çok ne var mı ben sen o gibi daha değil ama".split(" ")
+};
+const LATIN_REGION = { en:"en-US", es:"es-ES", fr:"fr-FR", de:"de-DE", pt:"pt-BR", it:"it-IT", nl:"nl-NL", id:"id-ID", tr:"tr-TR" };
+
+function detectLatinLang(text, hint){
+    const lower = text.toLowerCase();
+    const words = lower.match(/[\p{L}']+/gu) || [];
+    const scores = {};
+    for(const code in LATIN_STOPWORDS){
+        const set = new Set(LATIN_STOPWORDS[code]);
+        scores[code] = words.reduce((n, w) => n + (set.has(w) ? 1 : 0), 0);
+    }
+    if(/[¿¡ñ]/.test(lower)) scores.es += 3;
+    if(/[ãõ]/.test(lower)) scores.pt += 3;
+    if(/[ß]/.test(lower)) scores.de += 3;
+    if(/[àâêèîôûçœ]/.test(lower)) scores.fr += 1;
+    if(/[ğışİ]/.test(lower)) scores.tr += 3;
+
+    let best = "en", bestScore = scores.en;
+    for(const code in scores){
+        if(scores[code] > bestScore){ best = code; bestScore = scores[code]; }
+    }
+    // Not enough evidence in the text itself → trust what the person spoke.
+    const hintPrefix = hint ? hint.split("-")[0].toLowerCase() : null;
+    if(bestScore < 2 && hintPrefix && LATIN_REGION[hintPrefix]) return hint;
+    if(bestScore >= 2 || words.length >= 4) return best === "en"
+        ? ((navigator.language || "").toLowerCase().startsWith("en") ? navigator.language : "en-US")
+        : LATIN_REGION[best];
+    return hint || ((navigator.language || "").toLowerCase().startsWith("en") ? navigator.language : "en-US");
+}
+
+function detectSpeechLang(text, hint){
+    const h = hint || null;
+    const hp = h ? h.split("-")[0].toLowerCase() : "";
+    if(/[\u0900-\u097F]/.test(text)) return (hp === "mr" || hp === "ne") ? h : "hi-IN";   // Devanagari (Hindi, Marathi, Nepali)
+    if(/[\u0600-\u06FF]/.test(text)) return (hp === "ur" || hp === "fa") ? h : "ar-SA";   // Arabic script
+    if(/[\u3040-\u30FF]/.test(text)) return "ja-JP";                                      // Japanese kana
+    if(/[\u4E00-\u9FFF]/.test(text)) return "zh-CN";                                      // Chinese
+    if(/[\uAC00-\uD7AF]/.test(text)) return "ko-KR";                                      // Korean (Hangul)
+    if(/[\u0400-\u04FF]/.test(text)) return (hp === "uk" || hp === "bg") ? h : "ru-RU";   // Cyrillic
+    if(/[\u0E00-\u0E7F]/.test(text)) return "th-TH";   // Thai
+    if(/[\u0980-\u09FF]/.test(text)) return "bn-IN";   // Bengali
+    if(/[\u0A80-\u0AFF]/.test(text)) return "gu-IN";   // Gujarati
+    if(/[\u0A00-\u0A7F]/.test(text)) return "pa-IN";   // Gurmukhi (Punjabi)
+    if(/[\u0B80-\u0BFF]/.test(text)) return "ta-IN";   // Tamil
+    if(/[\u0C00-\u0C7F]/.test(text)) return "te-IN";   // Telugu
+    if(/[\u0C80-\u0CFF]/.test(text)) return "kn-IN";   // Kannada
+    if(/[\u0D00-\u0D7F]/.test(text)) return "ml-IN";   // Malayalam
+    if(/[\u0590-\u05FF]/.test(text)) return "he-IL";   // Hebrew
+    if(/[\u0370-\u03FF]/.test(text)) return "el-GR";   // Greek
+    return detectLatinLang(text, h);
+}
+
+// Picks the closest available system voice for a language, since setting
+// .lang alone doesn't always pick a good voice if the browser has several.
+// The user's chosen voice from Settings (if any) always wins over
+// automatic per-language matching — mirrors how most voice assistants let
+// you pick a persona voice once, used everywhere afterward.
+function getPreferredVoice(){
+    const uri = localStorage.getItem("zyntra-voice-uri");
+    if(!uri) return null;
+    const voices = speechSynthesis.getVoices();
+    return voices.find(v => v.voiceURI === uri) || null;
+}
+
+function langPrefix(lang){ return (lang || "").split("-")[0].toLowerCase(); }
+function voiceMatchesLang(voice, lang){
+    if(!voice || !lang) return true;
+    return langPrefix(voice.lang) === langPrefix(lang);
+}
+
+// Prefers natural / neural voices, then exact region matches.
+function scoreVoice(v, lang){
+    let score = 0;
+    if(/natural|neural|online|premium|enhanced/i.test(v.name)) score += 3;
+    if(/compact|espeak/i.test(v.name)) score -= 2;
+    if(v.lang && lang && v.lang.toLowerCase().replace("_", "-") === lang.toLowerCase()) score += 2;
+    if(v.default) score += 1;
+    return score;
+}
+
+function pickVoiceForLang(lang){
+    const voices = speechSynthesis.getVoices();
+    if(!voices || !voices.length) return null;
+    const matches = voices.filter(v => voiceMatchesLang(v, lang));
+    if(!matches.length) return null;
+    return matches.sort((a, b) => scoreVoice(b, lang) - scoreVoice(a, lang))[0];
+}
+
+// The person's chosen voice is used whenever it can actually speak the
+// language of the text. If the text is in another language (they spoke
+// Hindi, so the reply is Hindi), a voice for THAT language is used instead
+// — an English voice reading Hindi just sounds wrong.
+function chooseVoice(lang){
+    const preferred = getPreferredVoice();
+    if(preferred && voiceMatchesLang(preferred, lang)) return preferred;
+    const match = pickVoiceForLang(lang);
+    if(match) return match;
+    if(lang && !preferred) warnNoVoiceForLang(lang);
+    else if(lang && preferred) warnNoVoiceForLang(lang);
+    return preferred || null;
+}
+
+const warnedNoVoiceLangs = new Set();
+function warnNoVoiceForLang(lang){
+    const p = langPrefix(lang);
+    if(!p || p === "en" || warnedNoVoiceLangs.has(p)) return;
+    warnedNoVoiceLangs.add(p);
+    const name = voiceLangLabel(lang);
+    if(typeof showToast === "function"){
+        showToast(`No ${name} voice is installed on this device, so it may not sound right. Add one in your system's speech settings.`);
+    }
+}
+
+function browserSpeakText(text, lang, onEnd){
+    speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+
+    const voice = chooseVoice(lang);
+    if(voice){
+        utter.voice = voice;
+        // Always the voice's own language: pairing a voice with a mismatched
+        // lang makes some browsers silently reject it and stay quiet.
+        utter.lang = voice.lang;
+    } else {
+        utter.lang = lang;
+    }
+
+    if(onEnd) utter.onend = onEnd;
+    speechSynthesis.speak(utter);
+}
+
+let currentJarvisAudio = null;
+
+// Tries Groq's natural TTS first (sounds like a real voice, not a robot);
+// falls back to the browser's built-in speechSynthesis if that ever fails
+// — e.g. the Groq account hasn't accepted the playai-tts model terms yet,
+// a network hiccup, or a language playai-tts doesn't cover well. Either
+// way the call keeps going instead of going silent.
+async function speakText(text, lang, onEnd){
+    // Someone who's explicitly picked a voice in Settings gets exactly
+    // that voice whenever it speaks the language of the text — never
+    // silently swapped for the neural one. (Another language gets a voice
+    // for that language instead.)
+    const chosen = getPreferredVoice();
+    if(chosen && voiceMatchesLang(chosen, lang)){
+        browserSpeakText(text, lang, onEnd);
+        return;
+    }
+    // Groq's TTS voice used here only covers English well — every other
+    // language already has real per-language system voices via the
+    // browser, so only English gets routed to the neural voice.
+    if(!lang || !lang.startsWith("en")){
+        browserSpeakText(text, lang, onEnd);
+        return;
+    }
+
+    try{
+        const res = await fetch("/api/speak", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text })
+        });
+        if(!res.ok) throw new Error("TTS request failed");
+        const audioBlob = await res.blob();
+        const url = URL.createObjectURL(audioBlob);
+
+        if(currentJarvisAudio){ currentJarvisAudio.pause(); }
+        const audio = new Audio(url);
+        currentJarvisAudio = audio;
+        audio.onended = () => { URL.revokeObjectURL(url); if(onEnd) onEnd(); };
+        audio.onerror = () => { URL.revokeObjectURL(url); browserSpeakText(text, lang, onEnd); };
+        await audio.play();
+    }catch(err){
+        browserSpeakText(text, lang, onEnd);
+    }
+}
+
+// ---------- Voice settings (in Settings modal) ----------
+
+let voiceCarouselIndex = 0;
+
+// "Microsoft David - English (United States)" → "David".
+function cleanVoiceName(raw){
+    let n = String(raw || "");
+    n = n.replace(/\s*[-–]\s*[^-–]*\([^)]*\)\s*$/, "");          // " - English (United States)"
+    n = n.replace(/^(Microsoft|Google|Apple|Android)\s+/i, "");     // vendor prefix
+    n = n.replace(/\s*(Online\s*)?\((Natural|Neural)\)/ig, "");     // "Online (Natural)"
+    n = n.replace(/\s*\((Enhanced|Premium|Compact)\)\s*/ig, " ");
+    n = n.replace(/\s+(Online|Desktop|Mobile)\b/ig, "");
+    n = n.replace(/\s{2,}/g, " ").trim();
+    return n || String(raw || "");
+}
+
+// "en-US" → "English (United States)"
+function voiceLangLabel(code){
+    if(!code) return "";
+    try{
+        const dn = new Intl.DisplayNames(["en"], { type: "language", languageDisplay: "standard" });
+        return dn.of(code.replace("_", "-")) || code;
+    }catch(e){
+        return code;
+    }
+}
+
+function getVoiceCarouselOptions(){
+    const voices = speechSynthesis.getVoices();
+    const cleaned = voices.map(v => ({ uri: v.voiceURI, name: cleanVoiceName(v.name), lang: v.lang, desc: "" }));
+
+    // Two voices can shorten to the same name (same voice, different
+    // languages) — tell those apart by language code, then by number.
+    const langsByName = {};
+    cleaned.forEach(o => { (langsByName[o.name] = langsByName[o.name] || new Set()).add(o.lang); });
+    cleaned.forEach(o => { if(langsByName[o.name].size > 1 && o.lang) o.name = `${o.name} (${o.lang})`; });
+    const seen2 = {};
+    cleaned.forEach(o => {
+        seen2[o.name] = (seen2[o.name] || 0) + 1;
+        if(seen2[o.name] > 1) o.name = `${o.name} ${seen2[o.name]}`;
+    });
+
+    return [{ uri: "", name: "Auto", lang: "", desc: "Matches each message's language" }].concat(cleaned);
+}
+
+function renderVoiceCarousel(){
+    const orb = document.getElementById("voiceOrb");
+    const nameEl = document.getElementById("voiceCarouselName");
+    if(!orb || !nameEl) return;
+
+    const options = getVoiceCarouselOptions();
+    if(options.length <= 1){
+        // Voices often load asynchronously — retry once they're ready.
+        speechSynthesis.onvoiceschanged = () => renderVoiceCarousel();
+        nameEl.textContent = "Loading voices...";
+        document.getElementById("voiceCarouselDesc").textContent = "";
+        document.getElementById("voiceCarouselDots").innerHTML = "";
+        return;
+    }
+
+    const savedUri = localStorage.getItem("zyntra-voice-uri") || "";
+    const idx = options.findIndex(o => o.uri === savedUri);
+    voiceCarouselIndex = idx === -1 ? 0 : idx;
+
+    updateVoiceCarouselDisplay(options);
+}
+
+function updateVoiceCarouselDisplay(options){
+    const opt = options[voiceCarouselIndex];
+
+    document.getElementById("voiceCarouselName").textContent = opt.name;
+    // Real info only — a browser voice doesn't come with a curated
+    // personality description, so we show its actual language instead of
+    // inventing one.
+    document.getElementById("voiceCarouselDesc").textContent = opt.lang ? `Language: ${voiceLangLabel(opt.lang)}` : opt.desc;
+
+    const dotsEl = document.getElementById("voiceCarouselDots");
+    dotsEl.innerHTML = "";
+    if(options.length <= 10){
+        options.forEach((o, i) => {
+            const dot = document.createElement("span");
+            dot.className = "voice-carousel-dot" + (i === voiceCarouselIndex ? " active" : "");
+            dotsEl.appendChild(dot);
+        });
+    } else {
+        const counter = document.createElement("span");
+        counter.className = "voice-carousel-counter";
+        counter.textContent = `${voiceCarouselIndex + 1} / ${options.length}`;
+        dotsEl.appendChild(counter);
+    }
+
+    if(opt.uri){
+        localStorage.setItem("zyntra-voice-uri", opt.uri);
+    } else {
+        localStorage.removeItem("zyntra-voice-uri");
+    }
+}
+
+document.getElementById("voicePrevBtn")?.addEventListener("click", () => {
+    const options = getVoiceCarouselOptions();
+    voiceCarouselIndex = (voiceCarouselIndex - 1 + options.length) % options.length;
+    updateVoiceCarouselDisplay(options);
+});
+
+document.getElementById("voiceNextBtn")?.addEventListener("click", () => {
+    const options = getVoiceCarouselOptions();
+    voiceCarouselIndex = (voiceCarouselIndex + 1) % options.length;
+    updateVoiceCarouselDisplay(options);
+});
+
+const WORK_OPTIONS = [
+    { value: "", label: "Select one" },
+    { value: "Engineering", label: "Engineering" },
+    { value: "Design", label: "Design" },
+    { value: "Marketing", label: "Marketing" },
+    { value: "Business", label: "Business" },
+    { value: "Student", label: "Student" },
+    { value: "Other", label: "Other" }
+];
+
+function renderWorkOptions(){
+    const picker = document.getElementById("workPicker");
+    const label = document.getElementById("workPickerLabel");
+    const menu = document.getElementById("workPickerMenu");
+    const hiddenSelect = document.getElementById("profileWork");
+    if(!picker || !label || !menu || !hiddenSelect) return;
+
+    const current = WORK_OPTIONS.find(o => o.value === hiddenSelect.value) || WORK_OPTIONS[0];
+    label.textContent = current.label;
+
+    menu.innerHTML = "";
+    WORK_OPTIONS.forEach(opt => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "custom-picker-option" + (opt.value === hiddenSelect.value ? " selected" : "");
+
+        const text = document.createElement("span");
+        text.textContent = opt.label;
+        btn.appendChild(text);
+
+        if(opt.value === hiddenSelect.value){
+            const check = document.createElement("span");
+            check.className = "custom-picker-option-check";
+            check.textContent = "✓";
+            btn.appendChild(check);
+        }
+
+        btn.addEventListener("click", () => {
+            hiddenSelect.value = opt.value;
+            picker.classList.remove("open");
+            renderWorkOptions();
+        });
+        menu.appendChild(btn);
+    });
+}
+
+document.getElementById("workPickerTrigger")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const picker = document.getElementById("workPicker");
+    if(!picker) return;
+    const wasOpen = picker.classList.contains("open");
+    document.querySelectorAll(".custom-picker.open").forEach(p => p.classList.remove("open"));
+    if(!wasOpen) picker.classList.add("open");
+});
+
+document.addEventListener("click", () => {
+    document.querySelectorAll(".custom-picker.open").forEach(p => p.classList.remove("open"));
+});
+
+const VOICE_TEST_SAMPLES = {
+    en: "Hi! This is how I'll sound.",
+    hi: "नमस्ते! मैं ऐसी सुनाई दूँगी।",
+    gu: "નમસ્તે! હું આવી સંભળાઈશ.",
+    es: "¡Hola! Así sonaré.",
+    fr: "Bonjour ! Voici comment je sonne.",
+    de: "Hallo! So werde ich klingen.",
+    pt: "Olá! É assim que eu vou soar.",
+    it: "Ciao! Ecco come suonerò.",
+    ru: "Привет! Вот так я буду звучать.",
+    ja: "こんにちは！こんな声で話します。",
+    ko: "안녕하세요! 이런 목소리로 말할게요.",
+    zh: "你好！我的声音就是这样。"
+};
+document.getElementById("voiceTestBtn")?.addEventListener("click", () => {
+    const voice = getPreferredVoice();
+    const lang = voice ? voice.lang : ((navigator.language || "").toLowerCase().startsWith("en") ? navigator.language : "en-US");
+    const text = VOICE_TEST_SAMPLES[langPrefix(lang)] || VOICE_TEST_SAMPLES.en;
+    speakText(text, lang);
+});
+
+const MSG_ICONS = {
+    copy: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>',
+    check: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>',
+    feedback: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"></path><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"></path></svg>',
+    share: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>',
+    speaker: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>',
+    regenerate: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"></path><path d="M21 3v5h-5"></path><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"></path><path d="M3 21v-5h5"></path></svg>',
+    edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>'
+};
+
+function addSpeakRepeatButton(container, text, lang){
+    const btn = document.createElement("button");
+    btn.className = "msg-action-btn";
+    btn.title = "Repeat aloud";
+    btn.innerHTML = MSG_ICONS.speaker;
+    btn.addEventListener("click", () => {
+        speakText(text, lang);
+    });
+    container.appendChild(btn);
+    return btn;
+}
+
+function buildMsgCheck(){
+    const check = document.createElement("span");
+    check.className = "msg-check";
+    check.textContent = "✓✓";
+    check.title = "Sent";
+    return check;
+}
+
+function addMessageActionBar(container, text){
+    const bar = document.createElement("div");
+    bar.className = "msg-actions";
+
+    // ---- Copy ----
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "msg-action-btn";
+    copyBtn.title = "Copy";
+    copyBtn.innerHTML = MSG_ICONS.copy;
+    copyBtn.addEventListener("click", () => {
+        navigator.clipboard.writeText(text).then(() => {
+            copyBtn.innerHTML = MSG_ICONS.check;
+            setTimeout(() => { copyBtn.innerHTML = MSG_ICONS.copy; }, 1200);
+        });
+    });
+    bar.appendChild(copyBtn);
+
+    // ---- Feedback (single button, opens a small good/bad menu) ----
+    const feedbackWrap = document.createElement("div");
+    feedbackWrap.className = "msg-feedback-wrap";
+
+    const feedbackBtn = document.createElement("button");
+    feedbackBtn.className = "msg-action-btn";
+    feedbackBtn.title = "Feedback";
+    feedbackBtn.innerHTML = MSG_ICONS.feedback;
+
+    const feedbackMenu = document.createElement("div");
+    feedbackMenu.className = "msg-feedback-menu";
+
+    const goodOpt = document.createElement("button");
+    goodOpt.className = "msg-feedback-option";
+    goodOpt.textContent = "👍 Good response";
+
+    const badOpt = document.createElement("button");
+    badOpt.className = "msg-feedback-option";
+    badOpt.textContent = "👎 Needs improvement";
+
+    goodOpt.addEventListener("click", (e) => {
+        e.stopPropagation();
+        feedbackMenu.classList.remove("show");
+        feedbackBtn.classList.add("active");
+        showToast("Thanks for the feedback!");
+    });
+
+    badOpt.addEventListener("click", (e) => {
+        e.stopPropagation();
+        feedbackMenu.classList.remove("show");
+        feedbackBtn.classList.add("active");
+        openModal("contactModal");
+        const msgBox = document.getElementById("contactMsg");
+        msgBox.value = 'Reporting AI-generated content:\n\n"' + text + '"\n\nReason: ';
+        msgBox.focus();
+    });
+
+    feedbackBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const wasOpen = feedbackMenu.classList.contains("show");
+        document.querySelectorAll(".msg-feedback-menu.show").forEach(m => m.classList.remove("show"));
+        if(!wasOpen) feedbackMenu.classList.add("show");
+    });
+
+    feedbackMenu.appendChild(goodOpt);
+    feedbackMenu.appendChild(badOpt);
+    feedbackWrap.appendChild(feedbackBtn);
+    feedbackWrap.appendChild(feedbackMenu);
+    bar.appendChild(feedbackWrap);
+
+    // ---- Share ----
+    const shareBtn = document.createElement("button");
+    shareBtn.className = "msg-action-btn";
+    shareBtn.title = "Share";
+    shareBtn.innerHTML = MSG_ICONS.share;
+    shareBtn.addEventListener("click", async () => {
+        if(navigator.share){
+            try{ await navigator.share({ text }); }catch(err){ /* user cancelled */ }
+        } else {
+            navigator.clipboard.writeText(text).then(() => showToast("📋 Copied to clipboard"));
+        }
+    });
+    bar.appendChild(shareBtn);
+
+    container.appendChild(bar);
+    return bar;
+}
+
+document.addEventListener("click", () => {
+    document.querySelectorAll(".msg-feedback-menu.show").forEach(m => m.classList.remove("show"));
+});
+
+async function callChatAPI(messages, options){
+    const opts = options || {};
+    const payload = { messages: fitMessagesForRequest(messages) };
+    if(opts.forceSearch) payload.forceSearch = true;
+    if(opts.lite) payload.lite = true;
+
+    const headers = { "Content-Type": "application/json" };
+    // Sent so the backend can verify who's asking and, if they've connected
+    // Google, offer the send_email / create_calendar_event tools for this
+    // request. Silently skipped if getIdToken fails — chat still works.
+    if(activeAuth().currentUser){
+        try{
+            const idToken = await activeAuth().currentUser.getIdToken();
+            headers["Authorization"] = "Bearer " + idToken;
+        }catch(err){
+            console.error("Couldn't get ID token:", err);
+        }
+    }
+
+    const res = await fetch("/api/chat", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload)
+    });
+
+    let data;
+    try{
+        data = await res.json();
+    }catch(parseErr){
+        throw new Error(res.status === 504
+            ? "The request took too long and timed out. Please try again."
+            : "Unexpected response from the server (status " + res.status + "). Please try again.");
+    }
+
+    if(!res.ok){
+        const err = new Error(data.error || "Request failed");
+        if(data.code) err.code = data.code;
+        if(data.plan) err.plan = data.plan;
+        if(data.limit) err.limit = data.limit;
+        if(data.resetsAt) err.resetsAt = data.resetsAt;
+        if(data.feature) err.feature = data.feature;
+        if(data.requiredPlan) err.requiredPlan = data.requiredPlan;
+        throw err;
+    }
+    return {
+        content: data.choices[0].message.content,
+        sources: Array.isArray(data.zyntra_sources) ? data.zyntra_sources : [],
+        memoryWrites: Array.isArray(data.zyntra_memory_writes) ? data.zyntra_memory_writes : [],
+        usage: data.zyntra_usage || null
+    };
+}
+
+// Same job as callChatAPI, but the AI's reply arrives in real time instead
+// of all at once. onDelta(text) is called with each new piece of text as
+// it's generated — the caller is responsible for appending it to whatever
+// is shown on screen. Resolves once the reply is complete, with the same
+// sources/memoryWrites shape callChatAPI returns.
+async function streamChatAPI(messages, onDelta, options, onStep){
+    const opts = options || {};
+    const headers = { "Content-Type": "application/json" };
+    if(activeAuth().currentUser){
+        try{
+            const idToken = await activeAuth().currentUser.getIdToken();
+            headers["Authorization"] = "Bearer " + idToken;
+        }catch(err){
+            console.error("Couldn't get ID token:", err);
+        }
+    }
+
+    const payload = { messages: fitMessagesForRequest(messages), stream: true };
+    if(opts.research) payload.research = true;
+    if(opts.website) payload.website = true;
+    if(opts.agent) payload.agent = true;
+
+    const res = await fetch("/api/chat", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+        signal: opts.signal
+    });
+
+    if(!res.ok || !res.body){
+        // Errors are still sent as normal JSON when the request fails
+        // before streaming can start (e.g. missing messages, or the
+        // plan's monthly message limit has been reached).
+        let data = {};
+        try{ data = await res.json(); }catch{}
+        const err = new Error(data.error || "Request failed");
+        if(data.code) err.code = data.code;
+        if(data.plan) err.plan = data.plan;
+        if(data.limit) err.limit = data.limit;
+        if(data.resetsAt) err.resetsAt = data.resetsAt;
+        if(data.feature) err.feature = data.feature;
+        if(data.requiredPlan) err.requiredPlan = data.requiredPlan;
+        throw err;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let sources = [];
+    let memoryWrites = [];
+    let errorMessage = null;
+    let usage = null;
+
+    while(true){
+        const { done, value } = await reader.read();
+        if(done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let boundary;
+        while((boundary = buffer.indexOf("\n\n")) !== -1){
+            const rawEvent = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            const line = rawEvent.trim();
+            if(!line.startsWith("data:")) continue;
+
+            let payload;
+            try{
+                payload = JSON.parse(line.slice(5).trim());
+            }catch{
+                continue; // skip a malformed chunk rather than breaking the whole reply
+            }
+
+            if(payload.type === "content" && payload.text){
+                onDelta(payload.text);
+            } else if(payload.type === "step"){
+                if(onStep) onStep(payload);
+            } else if(payload.type === "done"){
+                sources = Array.isArray(payload.sources) ? payload.sources : [];
+                memoryWrites = Array.isArray(payload.memoryWrites) ? payload.memoryWrites : [];
+                usage = payload.usage || null;
+            } else if(payload.type === "error"){
+                errorMessage = payload.message || "Something went wrong. Please try again.";
+            }
+        }
+    }
+
+    if(errorMessage) throw new Error(errorMessage);
+    return { sources, memoryWrites, usage };
+}
+
+// ---------- Generic modal open/close ----------
+
+function openModal(id){
+    // Every modal shares one overlay layer/z-index, so if another modal is
+    // still open underneath, whichever happens to sit later in the HTML
+    // would silently paint on top — not necessarily the one just opened.
+    // Closing anything else first guarantees the modal you just triggered
+    // is always the one actually on top and visible.
+    document.querySelectorAll(".modal-overlay.show").forEach(overlay => {
+        if(overlay.id !== id) overlay.classList.remove("show");
+    });
+    document.getElementById(id).classList.add("show");
+}
+function closeModal(id){
+    document.getElementById(id).classList.remove("show");
+    // If this was the voice assistant (or anything else), stop any speech
+    // that might still be playing — closing a modal should silence it.
+    if(typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
+}
+
+document.querySelectorAll(".modal-overlay").forEach(overlay => {
+    overlay.addEventListener("click", e => {
+        if(e.target === overlay){
+            overlay.classList.remove("show");
+            if(typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
+            if(ROUTED_MODAL_SLUGS[overlay.id]) revertRouteToCurrentTool();
+        }
+    });
+});
+
+document.addEventListener("keydown", e => {
+    if(e.key === "Escape"){
+        document.querySelectorAll(".modal-overlay.show").forEach(m => {
+            m.classList.remove("show");
+            if(ROUTED_MODAL_SLUGS[m.id]) revertRouteToCurrentTool();
+        });
+        if(typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
+        closeSidebarMobile();
+        document.getElementById("accountMenu")?.classList.remove("show");
+        document.getElementById("accountMenuBackdrop")?.classList.remove("show");
+    }
+});
+
+// ---------- About page ----------
+
+document.getElementById("aboutBtn")?.addEventListener("click", e => {
+    e.preventDefault();
+    showPageView("about");
+    setActiveNav("about");
+    navigateToRoute("about");
+    closeSidebarMobile();
+});
+document.getElementById("aboutBackBtn")?.addEventListener("click", () => {
+    showPageView("chat");
+    setActiveNav("chat");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+});
+
+// ---------- Discover page ----------
+
+document.getElementById("discoverBtn")?.addEventListener("click", e => {
+    e.preventDefault();
+    showPageView("discover");
+    setActiveNav("discover");
+    navigateToRoute("discover");
+    loadDiscoverList();
+    closeSidebarMobile();
+});
+
+async function loadDiscoverList(){
+    const list = document.getElementById("discoverList");
+    if(!list) return;
+    list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;grid-column:1/-1;">Loading…</p>`;
+    try{
+        const res = await fetch("/api/share-chat?list=1");
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.error || "Could not load Discover.");
+
+        if(!data.items || data.items.length === 0){
+            list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;grid-column:1/-1;">No public conversations yet — be the first to share one!</p>`;
+            return;
+        }
+
+        list.innerHTML = "";
+        data.items.forEach(item => {
+            const card = document.createElement("a");
+            card.href = `/share/${item.id}`;
+            card.className = "discover-card";
+            card.innerHTML = `
+                <p class="discover-card-title">${escapeHtmlText(item.title)}</p>
+                <p class="discover-card-preview">${escapeHtmlText(item.preview || "")}</p>
+            `;
+            list.appendChild(card);
+        });
+    }catch(err){
+        list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;grid-column:1/-1;">${err.message}</p>`;
+    }
+}
+
+// ---------- My Shares (manage/delete) ----------
+
+document.getElementById("mySharesQuickBtn")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if(!isLoggedIn()){
+        alert("Sign in to see your shared chats.");
+        return;
+    }
+    closeSidebarMobile();
+    openModal("mySharesModal");
+    navigateToRoute("shares");
+    await loadMyShares();
+});
+
+document.getElementById("mySharesModalClose")?.addEventListener("click", () => { closeModal("mySharesModal"); revertRouteToCurrentTool(); });
+
+async function loadMyShares(){
+    const list = document.getElementById("mySharesList");
+    if(!list) return;
+    list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:24px 0;">Loading…</p>`;
+    try{
+        const idToken = await activeAuth().currentUser.getIdToken();
+        const res = await fetch("/api/share-chat?mine=1", {
+            headers: { "Authorization": "Bearer " + idToken }
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.error || "Could not load your shares.");
+
+        if(!data.items || data.items.length === 0){
+            list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:24px 0;">You haven't shared any chats yet.</p>`;
+            return;
+        }
+
+        list.innerHTML = "";
+        data.items.forEach(item => {
+            const row = document.createElement("div");
+            row.className = "my-share-row";
+            row.innerHTML = `
+                <div class="my-share-info">
+                    <p class="my-share-title">${escapeHtmlText(item.title)}</p>
+                    <p class="my-share-meta">${item.public ? "🌐 Public (on Discover)" : "🔒 Private link only"}</p>
+                </div>
+                <button type="button" class="my-share-copy" title="Copy link">📋</button>
+                <button type="button" class="my-share-delete" title="Delete">🗑</button>
+            `;
+            row.querySelector(".my-share-copy").addEventListener("click", () => {
+                const url = `${window.location.origin}/share/${item.id}`;
+                navigator.clipboard.writeText(url);
+                const btn = row.querySelector(".my-share-copy");
+                btn.textContent = "✅";
+                setTimeout(() => { btn.textContent = "📋"; }, 1200);
+            });
+            row.querySelector(".my-share-delete").addEventListener("click", async () => {
+                if(!confirm(`Delete "${item.title}"? This can't be undone.`)) return;
+                try{
+                    const idToken = await activeAuth().currentUser.getIdToken();
+                    const delRes = await fetch(`/api/share-chat?id=${encodeURIComponent(item.id)}`, {
+                        method: "DELETE",
+                        headers: { "Authorization": "Bearer " + idToken }
+                    });
+                    const delData = await delRes.json();
+                    if(!delRes.ok) throw new Error(delData.error || "Could not delete this share.");
+                    row.remove();
+                    if(list.children.length === 0){
+                        list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:24px 0;">You haven't shared any chats yet.</p>`;
+                    }
+                }catch(err){
+                    alert(err.message || "Could not delete this share.");
+                }
+            });
+            list.appendChild(row);
+        });
+    }catch(err){
+        list.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:24px 0;">${err.message}</p>`;
+    }
+}
+
+// ---------- Privacy Policy page ----------
+
+document.getElementById("privacyBtn")?.addEventListener("click", e => {
+    e.preventDefault();
+    showPageView("privacy");
+    setActiveNav("privacy");
+    navigateToRoute("privacy");
+    closeSidebarMobile();
+});
+document.getElementById("privacyBackBtn")?.addEventListener("click", () => {
+    showPageView("chat");
+    setActiveNav("chat");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+});
+
+if(window.location.hash === "#privacy"){
+    showPageView("privacy");
+    navigateToRoute("privacy");
+}
+
+// ---------- Ads (replaces the old Pro/payment system) ----------
+// Zyntra AI no longer has a paid tier — everyone gets full-speed chat and
+// image generation. The free message limit still applies (see
+// FREE_MESSAGE_LIMIT/isLockedOut above); it's cleared by watching an ad
+// instead of upgrading. Ads are shown to every user, all the time.
+
+function isRunningInApp(){
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches;
+    const isTwaReferrer = document.referrer.startsWith("android-app://");
+    return isStandalone || isTwaReferrer;
+}
+
+// Set this to true once you have REAL ad slot IDs from an approved AdSense
+// account and have replaced YOUR_AD_SLOT_ID / YOUR_SIDEBAR_AD_SLOT_ID in
+// index.html with them. Until then, ad slots render nothing — an invalid
+// placeholder slot can cause Google's ad script to behave unpredictably.
+const AD_SLOT_READY = false;
+
+let adsLoaded = false;
+
+function loadAds(){
+    if(!AD_SLOT_READY) return;
+    if(adsLoaded) return;
+    try{
+        document.querySelectorAll("ins.adsbygoogle").forEach(() => {
+            (window.adsbygoogle = window.adsbygoogle || []).push({});
+        });
+        adsLoaded = true;
+    }catch(err){
+        // AdSense script blocked (ad blocker) or not yet approved — fail silently
+    }
+}
+
+function renderAdSlots(){
+    const adBanner = document.getElementById("adBanner");
+    const sidebarAdSlot = document.getElementById("sidebarAdSlot");
+    if(adBanner) adBanner.style.display = AD_SLOT_READY ? "block" : "none";
+    if(sidebarAdSlot) sidebarAdSlot.style.display = AD_SLOT_READY ? "block" : "none";
+    loadAds();
+}
+
+renderAdSlots();
+
+document.getElementById("contactBtn")?.addEventListener("click", e => { e.preventDefault(); openModal("contactModal"); navigateToRoute("contact"); closeSidebarMobile(); });
+document.getElementById("contactModalClose")?.addEventListener("click", () => { closeModal("contactModal"); navigateToRoute(TOOL_TO_SLUG[activeChatTool] || ""); });
+document.getElementById("contactSubmit")?.addEventListener("click", async () => {
+    const name = document.getElementById("contactName").value.trim();
+    const email = document.getElementById("contactEmail").value.trim();
+    const msg = document.getElementById("contactMsg").value.trim();
+    if(!name || !email || !msg){
+        alert("Please fill in all fields.");
+        return;
+    }
+
+    const btn = document.getElementById("contactSubmit");
+    const originalText = btn.textContent;
+    btn.textContent = "Sending...";
+    btn.disabled = true;
+
+    try{
+        const res = await fetch("https://formspree.io/f/xbdnvlkg", {
+            method: "POST",
+            headers: { "Accept": "application/json", "Content-Type": "application/json" },
+            body: JSON.stringify({
+                name,
+                email,
+                message: msg
+            })
+        });
+
+        if(res.ok){
+            alert("Thanks " + name + "! Your message has been sent.");
+            document.getElementById("contactName").value = "";
+            document.getElementById("contactEmail").value = "";
+            document.getElementById("contactMsg").value = "";
+            closeModal("contactModal");
+            navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+        } else {
+            alert("Something went wrong sending your message. Please try again.");
+        }
+    }catch(err){
+        alert("Something went wrong sending your message. Please try again.");
+    }
+
+    btn.textContent = originalText;
+    btn.disabled = false;
+});
+
+// ---------- Live stats (kept running in the background, no UI display) ----------
+
+const STAT_NAMESPACE = "zyntra-ai-ghanchimoin";
+
+async function bumpStat(key){
+    try{
+        await fetch(`https://api.countapi.xyz/hit/${STAT_NAMESPACE}/${key}`);
+    }catch(err){
+        // ignore
+    }
+}
+
+if(!localStorage.getItem("zyntra-visited")){
+    localStorage.setItem("zyntra-visited", "1");
+    bumpStat("users");
+}
+
+// ---------- Splash screen ----------
+
+// Was keyed off window's "load" event before, which only fires once every
+// external resource (fonts, any remaining third-party script, images)
+// has finished — on a slow or flaky connection that can take anywhere
+// from instant to "never", which is exactly why this used to show up
+// inconsistently. DOMContentLoaded only waits on the page's own HTML, so
+// it's consistent regardless of network conditions, and the fallback
+// timeout below is a hard ceiling so the splash can never get stuck up
+// even in a worst case.
+let splashHidden = false;
+function hideSplashScreen(){
+    if(splashHidden) return;
+    splashHidden = true;
+    setTimeout(() => {
+        const splash = document.getElementById("splashScreen");
+        if(splash) splash.classList.add("hide");
+    }, 900);
+}
+
+if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", hideSplashScreen);
+} else {
+    hideSplashScreen();
+}
+setTimeout(hideSplashScreen, 4000); // hard ceiling — never stays up longer than this no matter what
+
+// ---------- Install app button ----------
+
+let deferredInstallPrompt = null;
+
+window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    const btn = document.getElementById("installAppBtn");
+    if(btn && !isRunningInApp()) btn.style.display = "block";
+});
+
+document.getElementById("installAppBtn")?.addEventListener("click", async () => {
+    if(!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    const choice = await deferredInstallPrompt.userChoice;
+    if(choice.outcome === "accepted"){
+        showToast("📥 Installing Zyntra AI...");
+    }
+    deferredInstallPrompt = null;
+    document.getElementById("installAppBtn").style.display = "none";
+});
+
+window.addEventListener("appinstalled", () => {
+    showToast("✅ Zyntra AI installed!");
+    const btn = document.getElementById("installAppBtn");
+    if(btn) btn.style.display = "none";
+});
+
+function isLoggedIn(){
+    return !!localStorage.getItem("zyntra-user");
+}
+
+function renderAuthNav(){
+    renderGuestMeter();
+    const loggedIn = isLoggedIn();
+    const nameEl = document.getElementById("sidebarUserName");
+    const planEl = document.getElementById("sidebarUserPlan");
+    const avatarEl = document.getElementById("sidebarUserAvatar");
+
+    if(loggedIn){
+        const email = localStorage.getItem("zyntra-user");
+        const profile = getProfile();
+        const display = (profile.nickname || profile.fullName || email || "Account").trim();
+        const letter = display.charAt(0).toUpperCase();
+        nameEl.textContent = display;
+        planEl.textContent = planDisplayName(getCachedPlan());
+        avatarEl.textContent = letter;
+        refreshUserPlan();
+    } else {
+        nameEl.textContent = "Guest";
+        planEl.textContent = "Sign in";
+        avatarEl.textContent = "?";
+    }
+    renderAdSlots();
+    updateDeleteChatBtnVisibility();
+}
+
+// ================= Plan / billing (Razorpay) =================
+// A user's real plan is deliberately NOT stored on their own
+// /users/{uid} doc (which the client can write freely for profile/
+// sessions/etc. sync) — it lives in its own billing/{uid} doc that
+// firestore.rules locks to read-only for the client. Only api/payment.js,
+// after verifying a real Razorpay payment signature server-side via the
+// Admin SDK, can ever change it. See firestore.rules and api/payment.js
+// for the full reasoning.
+
+const PLAN_LABELS = { guest: "Guest", free: "Free", starter: "Starter", pro: "Pro", ultra: "Ultra" };
+function planDisplayName(plan){
+    return PLAN_LABELS[plan] || "Free";
+}
+function getCachedPlan(){
+    return localStorage.getItem("zyntra-plan") || "free";
+}
+
+// The Razorpay checkout widget is only ever needed by the small fraction
+// of visits where someone actually opens the pricing modal — loading it
+// as a normal blocking <script> on every page load (the earlier version
+// of this) meant a slow/blocked request to checkout.razorpay.com could
+// stall the ENTIRE app's script.js from running for every visitor, not
+// just the ones checking out. Fetched on demand instead, cached so a
+// second upgrade attempt in the same session doesn't refetch it.
+let razorpayScriptPromise = null;
+function loadRazorpayScript(){
+    if(typeof Razorpay !== "undefined") return Promise.resolve();
+    if(razorpayScriptPromise) return razorpayScriptPromise;
+    razorpayScriptPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://checkout.razorpay.com/v1/checkout.js";
+        script.onload = () => resolve();
+        script.onerror = () => {
+            razorpayScriptPromise = null; // allow retrying later
+            reject(new Error("Could not load the payment widget — check your connection and try again."));
+        };
+        document.head.appendChild(script);
+    });
+    return razorpayScriptPromise;
+}
+
+async function refreshUserPlan(){
+    const user = activeAuth().currentUser;
+    if(!user) return "free";
+    try{
+        const snap = await activeFirestore().collection("billing").doc(user.uid).get();
+        const billing = snap.exists ? snap.data() : {};
+        // Same rule as api/_lib/plan.js: an expired paid plan counts as Free.
+        // (No planExpiresAt = older plan from before expiry existed = active.)
+        let plan = billing.plan || "free";
+        if(plan !== "free" && typeof billing.planExpiresAt === "number" && billing.planExpiresAt < Date.now()) plan = "free";
+        localStorage.setItem("zyntra-plan", plan);
+        if(plan !== "free" && typeof billing.planExpiresAt === "number") localStorage.setItem("zyntra-plan-expires", String(billing.planExpiresAt));
+        else localStorage.removeItem("zyntra-plan-expires");
+        applyPlanToUI(plan);
+        return plan;
+    }catch(err){
+        // Read is allowed by firestore.rules for the signed-in owner, so a
+        // failure here almost always just means no billing doc exists yet
+        // (brand new / still-free account) — fall back to "free" quietly.
+        return getCachedPlan();
+    }
+}
+
+// ================= Referrals =================
+// A referral link is /r/<code> (see applyRouteFromPath). Visiting one
+// while signed out stashes the code in localStorage and opens sign-in;
+// once sign-in actually completes (any method — email, Google, Apple,
+// Discord, phone), finishSignin() calls claimPendingReferralIfAny(),
+// which hands the code to api/payment.js's claim-referral action. That
+// endpoint owns every real rule (self-referral, already-claimed, code
+// must exist) — this is just the trigger, never the source of truth.
+function stashPendingReferral(code){
+    if(code) localStorage.setItem("zyntra-pending-referral", code.trim().toUpperCase());
+}
+
+async function claimPendingReferralIfAny(){
+    const code = localStorage.getItem("zyntra-pending-referral");
+    if(!code) return;
+    localStorage.removeItem("zyntra-pending-referral");
+    try{
+        const idToken = await activeAuth().currentUser.getIdToken();
+        const resp = await fetch("/api/payment?action=claim-referral", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: JSON.stringify({ code })
+        });
+        const data = await resp.json();
+        if(resp.ok){
+            showToast(`🎁 Referral bonus applied — +${data.bonusMessages} messages this month!`);
+            refreshUserPlan();
+        }
+        // A failed claim (already used, self-referral, bad code) fails
+        // completely silently — the person just signed in successfully,
+        // and a referral bonus is a nice-to-have, not something worth
+        // interrupting that moment to complain about.
+    }catch(err){
+        // Same reasoning — swallow it.
+    }
+}
+
+async function fetchReferralInfo(){
+    if(!isLoggedIn()) return { error: "Sign in to get your invite link." };
+    try{
+        const idToken = await activeAuth().currentUser.getIdToken();
+        const resp = await fetch("/api/payment?action=get-referral-info", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: "{}"
+        });
+        const raw = await resp.text();
+        let data = {};
+        try{ data = raw ? JSON.parse(raw) : {}; }catch{}
+        if(!resp.ok){
+            // "Unknown action" means the server is still running an older
+            // api/payment.js without the referral actions.
+            if(data.error && /unknown action/i.test(data.error)){
+                return { error: "Referrals aren't live on the server yet — the latest api/payment.js needs to be deployed." };
+            }
+            if(!data.error){
+                return { error: "The referral service didn't respond (HTTP " + resp.status + "). Check that api/payment.js is deployed." };
+            }
+            return { error: data.error };
+        }
+        return data;
+    }catch(err){
+        return { error: "Couldn't reach the server — check your connection and try again." };
+    }
+}
+
+async function openReferralModal(){
+    if(!isLoggedIn()){
+        if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+        openModal("signinModal");
+        navigateToRoute("login");
+        return;
+    }
+    openModal("referralModal");
+    navigateToRoute("invite");
+    const body = document.getElementById("referralModalBody");
+    if(body) body.innerHTML = `<p class="pricing-status">Loading your invite link...</p>`;
+    const info = await fetchReferralInfo();
+    renderReferralModal(info);
+}
+
+function renderReferralModal(info){
+    const body = document.getElementById("referralModalBody");
+    if(!body) return;
+    if(!info || info.error){
+        body.innerHTML = `<p class="pricing-status">${escapeForDisplay((info && info.error) || "Couldn't load your invite link right now — try again in a moment.")}</p>`;
+        return;
+    }
+    const link = `${window.location.origin}/r/${info.code}`;
+    body.innerHTML = `
+        <p class="referral-blurb">Share your link — you and your friend each get <strong>+${REFERRAL_BONUS_DISPLAY} messages</strong> for the month once they sign in.</p>
+        <div class="referral-link-row">
+            <input type="text" id="referralLinkInput" class="referral-link-input" readonly value="${escapeAttr(link)}">
+            <button type="button" id="referralCopyBtn" class="referral-copy-btn">Copy</button>
+        </div>
+        <div class="referral-stats-row">
+            <div class="referral-stat"><span class="referral-stat-num">${info.referralCount}</span><span class="referral-stat-label">Friends joined</span></div>
+            <div class="referral-stat"><span class="referral-stat-num">${info.bonusMessages}</span><span class="referral-stat-label">Bonus messages</span></div>
+        </div>
+    `;
+    document.getElementById("referralCopyBtn")?.addEventListener("click", () => {
+        const input = document.getElementById("referralLinkInput");
+        input.select();
+        navigator.clipboard?.writeText(link).then(() => {
+            const btn = document.getElementById("referralCopyBtn");
+            btn.textContent = "Copied!";
+            setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+        }).catch(() => {
+            document.execCommand("copy");
+        });
+    });
+}
+const REFERRAL_BONUS_DISPLAY = 20; // matches REFERRAL_BONUS_MESSAGES in api/payment.js — display-only, server enforces the real number
+
+document.getElementById("accountMenuInvite")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openReferralModal();
+});
+document.getElementById("referralModalClose")?.addEventListener("click", () => { closeModal("referralModal"); revertRouteToCurrentTool(); });
+
+function applyPlanToUI(plan){
+    const sidebarPlanEl = document.getElementById("sidebarUserPlan");
+    const menuPlanEl = document.getElementById("accountMenuPlan");
+    if(sidebarPlanEl && isLoggedIn()) sidebarPlanEl.textContent = planDisplayName(plan);
+    if(menuPlanEl){
+        // Paid plans show when they run out, e.g. "Pro · until Dec 1".
+        const exp = Number(localStorage.getItem("zyntra-plan-expires"));
+        menuPlanEl.textContent = (plan !== "free" && exp > Date.now())
+            ? planDisplayName(plan) + " · until " + new Date(exp).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+            : planDisplayName(plan);
+    }
+
+    document.querySelectorAll(".pricing-card").forEach(card => {
+        const cardPlan = card.dataset.plan;
+        const btn = card.querySelector(".pricing-card-btn");
+        if(!btn) return;
+        if(cardPlan === plan){
+            btn.textContent = "Your current plan";
+            btn.disabled = true;
+        } else if(cardPlan === "free"){
+            // Free has no checkout — it's just the floor everyone starts at.
+            btn.textContent = "Included with sign-up";
+            btn.disabled = true;
+        } else {
+            btn.textContent = `Upgrade to ${planDisplayName(cardPlan)}`;
+            btn.disabled = false;
+        }
+    });
+}
+
+function setPricingStatus(message){
+    const el = document.getElementById("pricingModalStatus");
+    if(el) el.textContent = message || "";
+}
+
+async function startPlanUpgrade(plan){
+    if(!isLoggedIn()){
+        setPricingStatus("Sign in first to upgrade.");
+        return;
+    }
+
+    setPricingStatus("Loading payment widget...");
+    try{
+        await loadRazorpayScript();
+    }catch(err){
+        setPricingStatus(err.message);
+        return;
+    }
+
+    setPricingStatus("Starting checkout...");
+    try{
+        const idToken = await activeAuth().currentUser.getIdToken();
+        const orderResp = await fetch("/api/payment?action=create-order", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: JSON.stringify({ plan })
+        });
+        const rawText = await orderResp.text();
+        let order;
+        try{ order = rawText ? JSON.parse(rawText) : {}; }
+        catch(parseErr){
+            throw new Error("Payments aren't live on the server yet — check that api/payment.js and RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET are deployed.");
+        }
+        if(!orderResp.ok) throw new Error(order.error || "Could not start checkout.");
+
+        const rzp = new Razorpay({
+            key: order.keyId,
+            amount: order.amount,
+            currency: order.currency,
+            order_id: order.orderId,
+            name: "Zyntra AI",
+            description: `${planDisplayName(plan)} plan`,
+            theme: { color: "#6e5cff" },
+            handler: async function(response){
+                setPricingStatus("Verifying payment...");
+                try{
+                    const verifyResp = await fetch("/api/payment?action=verify", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+                        body: JSON.stringify({
+                            razorpay_order_id: response.razorpay_order_id,
+                            razorpay_payment_id: response.razorpay_payment_id,
+                            razorpay_signature: response.razorpay_signature,
+                            plan
+                        })
+                    });
+                    const verifyData = await verifyResp.json();
+                    if(!verifyResp.ok) throw new Error(verifyData.error || "Payment verification failed.");
+
+                    localStorage.setItem("zyntra-plan", verifyData.plan);
+                    if(verifyData.planExpiresAt) localStorage.setItem("zyntra-plan-expires", String(verifyData.planExpiresAt));
+                    applyPlanToUI(verifyData.plan);
+                    showPricingSuccess(verifyData.plan);
+                    showToast(`Upgraded to ${planDisplayName(verifyData.plan)}!`);
+                }catch(err){
+                    setPricingStatus(err.message || "Payment verification failed.");
+                }
+            },
+            modal: {
+                ondismiss: function(){ setPricingStatus(""); }
+            }
+        });
+        rzp.open();
+        setPricingStatus("");
+    }catch(err){
+        setPricingStatus(err.message || "Could not start checkout.");
+    }
+}
+
+// Swaps the plan grid for a celebratory checkmark + confetti view, the
+// same general beat as ChatGPT/Gemini's upgrade-success moment.
+function showPricingSuccess(plan){
+    const plansView = document.getElementById("pricingPlansView");
+    const successView = document.getElementById("pricingSuccessView");
+    const nameEl = document.getElementById("pricingSuccessPlanName");
+    if(nameEl) nameEl.textContent = planDisplayName(plan);
+    if(plansView) plansView.style.display = "none";
+    if(successView){
+        // Re-trigger the CSS entrance/checkmark-draw animations even if
+        // this view was shown before in the same session.
+        successView.style.display = "none";
+        void successView.offsetWidth;
+        successView.style.display = "flex";
+    }
+    fireZyntraConfetti();
+}
+
+function resetPricingModalView(){
+    const plansView = document.getElementById("pricingPlansView");
+    const successView = document.getElementById("pricingSuccessView");
+    if(plansView) plansView.style.display = "";
+    if(successView) successView.style.display = "none";
+}
+
+// Lightweight, dependency-free confetti burst — a handful of colored
+// divs given random fall/spin physics via CSS transitions, cleaned up
+// after they finish. Not canvas-based on purpose: this fires once per
+// purchase, so a few dozen DOM nodes for ~2.5s is cheaper than pulling in
+// a whole confetti library for something this occasional.
+function fireZyntraConfetti(){
+    const colors = ["#6e5cff", "#ff59b0", "#3ddc84", "#ffc857", "#4fc3f7"];
+    const container = document.createElement("div");
+    container.className = "zyntra-confetti-canvas";
+    document.body.appendChild(container);
+
+    const pieceCount = 80;
+    for(let i = 0; i < pieceCount; i++){
+        const piece = document.createElement("div");
+        const size = 6 + Math.random() * 6;
+        const startX = Math.random() * window.innerWidth;
+        const duration = 1800 + Math.random() * 1400;
+        const delay = Math.random() * 250;
+        const drift = (Math.random() - 0.5) * 240;
+        const spin = 360 + Math.random() * 720;
+
+        piece.style.position = "absolute";
+        piece.style.top = "-20px";
+        piece.style.left = startX + "px";
+        piece.style.width = size + "px";
+        piece.style.height = size * (Math.random() > 0.5 ? 1 : 2.2) + "px";
+        piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+        piece.style.opacity = "0.9";
+        piece.style.borderRadius = Math.random() > 0.5 ? "50%" : "2px";
+        piece.style.transition = `transform ${duration}ms cubic-bezier(.15,.65,.3,1) ${delay}ms, opacity ${duration}ms ease ${delay}ms`;
+        container.appendChild(piece);
+
+        requestAnimationFrame(() => {
+            piece.style.transform = `translate(${drift}px, ${window.innerHeight + 40}px) rotate(${spin}deg)`;
+            piece.style.opacity = "0";
+        });
+    }
+
+    setTimeout(() => container.remove(), 3200);
+}
+
+document.getElementById("accountMenuUpgrade")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openModal("pricingModal");
+    resetPricingModalView();
+    setPricingStatus("");
+    applyPlanToUI(getCachedPlan());
+    navigateToRoute("plans");
+});
+document.getElementById("pricingModalClose")?.addEventListener("click", () => { closeModal("pricingModal"); revertRouteToCurrentTool(); });
+document.getElementById("pricingSuccessCloseBtn")?.addEventListener("click", () => {
+    closeModal("pricingModal");
+    resetPricingModalView();
+    revertRouteToCurrentTool();
+});
+document.querySelectorAll(".pricing-upgrade-btn").forEach(btn => {
+    btn.addEventListener("click", () => startPlanUpgrade(btn.dataset.plan));
+});
+
+function handleProfileEntry(){
+    if(isLoggedIn()){
+        toggleAccountMenu();
+        return;
+    }
+    document.getElementById("signinContext").style.display = "none";
+    resetSigninModalUI();
+    openModal("signinModal");
+    navigateToRoute("login");
+    closeSidebarMobile();
+}
+
+function toggleAccountMenu(forceState){
+    const menu = document.getElementById("accountMenu");
+    if(!menu) return;
+    const show = forceState !== undefined ? forceState : !menu.classList.contains("show");
+    if(show){
+        renderAccountMenu();
+        applyAdminMenuItem();
+        refreshAdminFlag().then(applyAdminMenuItem);
+        const anchor = document.getElementById("sidebarUser");
+        if(anchor){
+            const rect = anchor.getBoundingClientRect();
+            menu.style.left = rect.left + "px";
+            menu.style.width = rect.width + "px";
+            menu.style.bottom = (window.innerHeight - rect.top + 8) + "px";
+        }
+    }
+    menu.classList.toggle("show", show);
+    document.getElementById("accountMenuBackdrop")?.classList.toggle("show", show);
+}
+
+function renderAccountMenu(){
+    const email = localStorage.getItem("zyntra-user");
+    const profile = getProfile();
+    const displayName = profile.nickname || profile.fullName || (email ? email.split("@")[0] : "Guest");
+    const letter = displayName.trim().charAt(0).toUpperCase() || "?";
+    document.getElementById("accountMenuName").textContent = displayName;
+    document.getElementById("accountMenuAvatar").textContent = letter;
+}
+
+document.getElementById("sidebarUser")?.addEventListener("click", e => {
+    if(e.target.closest(".account-menu")) return; // menu items handle their own clicks
+    handleProfileEntry();
+});
+
+document.addEventListener("click", e => {
+    const menu = document.getElementById("accountMenu");
+    if(!menu || !menu.classList.contains("show")) return;
+    if(!e.target.closest("#sidebarUser") && !e.target.closest("#accountMenu")) toggleAccountMenu(false);
+});
+
+document.getElementById("accountMenuProfileBtn")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openProfileViewModal();
+});
+document.getElementById("accountMenuProfile")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openProfileViewModal();
+});
+document.getElementById("accountMenuPersonalization")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openModal("profileModal");
+    renderProfileModal();
+    switchSettingsSection("personalization");
+});
+document.getElementById("accountMenuSettings")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openModal("profileModal");
+    renderProfileModal();
+    switchSettingsSection("general");
+});
+document.getElementById("accountMenuHelp")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openModal("contactModal");
+});
+document.getElementById("accountMenuLogout")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openModal("signoutModal");
+});
+
+// ---------- Profile view modal (read-only overview) ----------
+
+function openProfileViewModal(){
+    renderProfileViewModal();
+    openModal("profileViewModal");
+}
+
+// Plan look + what each plan includes (mirrors the pricing cards).
+const PROFILE_PLAN_INFO = {
+    guest:   { emoji: "👤", limit: 10,   perks: [] },
+    free:    { emoji: "🆓", limit: 50,   perks: ["50 AI messages/month", "Basic AI Chat", "Basic web search", "Basic memory", "Publish live links"] },
+    starter: { emoji: "🟢", limit: 150,  perks: ["150 AI messages/month", "Web Search", "Memory", "Google tools", "Agent Mode", "Publish live links"] },
+    pro:     { emoji: "🟣", limit: 500,  perks: ["500 AI messages/month", "Advanced Research", "Memory", "Google tools", "Agent Mode", "Priority AI", "Publish live links"] },
+    ultra:   { emoji: "🔥", limit: 1500, perks: ["1,500 AI messages/month", "Advanced Research", "Memory", "Google tools", "Agent Mode", "Highest priority", "Premium features", "Publish live links"] }
+};
+
+// The server tells us how many messages are left with every reply, so we
+// keep the latest figure around for the profile meter (there is no
+// separate "usage" endpoint to ask).
+function rememberUsage(usage){
+    if(!usage || typeof usage.remaining !== "number" || typeof usage.limit !== "number") return;
+    try{
+        localStorage.setItem("zyntra-last-usage", JSON.stringify({
+            plan: usage.plan, limit: usage.limit, remaining: usage.remaining,
+            month: new Date().toISOString().slice(0, 7)
+        }));
+    }catch(e){}
+    renderGuestMeter();
+}
+function readRememberedUsage(plan){
+    try{
+        const u = JSON.parse(localStorage.getItem("zyntra-last-usage") || "null");
+        if(!u || u.plan !== plan) return null;
+        if(u.month !== new Date().toISOString().slice(0, 7)) return null; // a new month = a fresh quota
+        return u;
+    }catch(e){ return null; }
+}
+
+function paintProfilePlan(plan, signedIn){
+    const key = signedIn ? (PROFILE_PLAN_INFO[plan] ? plan : "free") : "guest";
+    const info = PROFILE_PLAN_INFO[key];
+    const label = signedIn ? planDisplayName(key) : "Guest";
+
+    document.getElementById("profileViewBox")?.setAttribute("data-plan", key);
+    const badge = document.getElementById("profileViewPlanBadge");
+    if(badge) badge.textContent = `${info.emoji} ${label}`;
+
+    // Upgrade button: hidden for guests and for the top plan.
+    const up = document.getElementById("profileViewUpgradeBtn");
+    if(up) up.style.display = (signedIn && key !== "ultra") ? "" : "none";
+
+    // Perks
+    const perksEl = document.getElementById("profileViewPerks");
+    if(perksEl){
+        perksEl.innerHTML = "";
+        info.perks.forEach(p => {
+            const chip = document.createElement("span");
+            chip.className = "profile-view-perk";
+            chip.textContent = p;
+            perksEl.appendChild(chip);
+        });
+        perksEl.parentElement.style.display = info.perks.length ? "" : "none";
+    }
+
+    // Usage meter
+    const usageBox = document.getElementById("profileViewUsage");
+    if(!signedIn){ if(usageBox) usageBox.style.display = "none"; return; }
+    usageBox.style.display = "";
+    const known = readRememberedUsage(key);
+    const limit = known ? known.limit : info.limit;
+    const fill = document.getElementById("profileViewMeterFill");
+    const count = document.getElementById("profileViewUsageCount");
+    const note = document.getElementById("profileViewUsageNote");
+    const reset = formatLimitResetDate();
+    if(known){
+        const used = Math.min(limit, Math.max(0, limit - known.remaining));
+        const pct = Math.min(100, Math.round((used / limit) * 100));
+        count.textContent = `${used.toLocaleString()} / ${limit.toLocaleString()} used`;
+        fill.style.width = Math.max(pct, used > 0 ? 3 : 0) + "%";
+        fill.classList.toggle("is-warn", pct >= 80 && pct < 100);
+        fill.classList.toggle("is-full", pct >= 100);
+        note.textContent = known.remaining > 0
+            ? `${known.remaining.toLocaleString()} left · resets ${reset}`
+            : `You've used them all · resets ${reset}`;
+    } else {
+        count.textContent = `${limit.toLocaleString()} / month`;
+        fill.style.width = "0%";
+        fill.classList.remove("is-warn", "is-full");
+        note.textContent = `Resets ${reset} · your count updates after your next message`;
+    }
+}
+
+function renderProfileViewModal(){
+    const email = localStorage.getItem("zyntra-user");
+    const profile = getProfile();
+    const displayName = profile.nickname || profile.fullName || (email ? email.split("@")[0] : "Guest");
+    const letter = displayName.trim().charAt(0).toUpperCase() || "?";
+    const handle = email ? "@" + email.split("@")[0] : "@guest";
+
+    document.getElementById("profileViewAvatar").textContent = letter;
+    document.getElementById("profileViewName").textContent = displayName;
+    document.getElementById("profileViewHandle").textContent = handle;
+
+    paintProfilePlan(getCachedPlan(), !!email);
+    // The cached plan can be stale right after an upgrade — re-read the
+    // real one from the server and repaint if it differs.
+    if(email && typeof refreshUserPlan === "function"){
+        refreshUserPlan().then(plan => {
+            if(plan) paintProfilePlan(plan, true);
+        }).catch(() => {});
+    }
+
+    document.getElementById("profileViewTotalChats").textContent = getSessions().length;
+    document.getElementById("profileViewTotalProjects").textContent = getProjects().length;
+
+    let memberSince = "—";
+    const fbUser = (typeof firebase !== "undefined") ? activeAuth().currentUser : null;
+    if(fbUser?.metadata?.creationTime){
+        memberSince = new Date(fbUser.metadata.creationTime).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+    }
+    document.getElementById("profileViewMemberSince").textContent = memberSince;
+
+    const plugins = getPlugins();
+    const enabled = PLUGIN_DEFS.filter(p => plugins[p.key]);
+    const pluginsEl = document.getElementById("profileViewPlugins");
+    document.getElementById("profileViewPluginCount").textContent = enabled.length ? `· ${enabled.length}` : "";
+    pluginsEl.innerHTML = "";
+    if(enabled.length === 0){
+        pluginsEl.innerHTML = '<p class="profile-view-plugins-empty">No plugins enabled yet.</p>';
+    } else {
+        enabled.forEach(p => {
+            const chip = document.createElement("div");
+            chip.className = "profile-view-plugin-chip";
+            chip.innerHTML = `<span>${p.icon}</span> ${p.title}`;
+            pluginsEl.appendChild(chip);
+        });
+    }
+}
+
+document.getElementById("profileViewClose")?.addEventListener("click", () => closeModal("profileViewModal"));
+document.getElementById("profileViewEditBtn")?.addEventListener("click", () => {
+    closeModal("profileViewModal");
+    openModal("profileModal");
+    renderProfileModal();
+    switchSettingsSection("account");
+});
+
+document.getElementById("profileViewUpgradeBtn")?.addEventListener("click", () => {
+    closeModal("profileViewModal");
+    openModal("pricingModal");
+    if(typeof resetPricingModalView === "function") resetPricingModalView();
+    if(typeof setPricingStatus === "function") setPricingStatus("");
+    if(typeof applyPlanToUI === "function") applyPlanToUI(getCachedPlan());
+    navigateToRoute("plans");
+});
+
+document.getElementById("topbarSettingsBtn")?.addEventListener("click", handleProfileEntry);
+
+// ---------- Profile modal ----------
+
+function getProfile(){
+    return JSON.parse(localStorage.getItem("zyntra-profile") || "{}");
+}
+
+function switchSettingsSection(section){
+    document.querySelectorAll(".settings-nav-item").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.settingsSection === section);
+    });
+    document.querySelectorAll(".settings-panel").forEach(panel => {
+        panel.style.display = panel.dataset.settingsPanel === section ? "block" : "none";
+    });
+    navigateToRoute("settings", section);
+}
+
+document.querySelectorAll(".settings-nav-item").forEach(btn => {
+    btn.addEventListener("click", () => switchSettingsSection(btn.dataset.settingsSection));
+});
+
+function renderProfileModal(){
+    const guestView = document.getElementById("profileGuestView");
+    const signedInView = document.getElementById("profileSignedInView");
+
+    if(!isLoggedIn()){
+        guestView.style.display = "block";
+        signedInView.style.display = "none";
+        return;
+    }
+
+    guestView.style.display = "none";
+    signedInView.style.display = "flex";
+    switchSettingsSection("personalization");
+    renderPinnedChats();
+    renderSettingsMemoryList();
+
+    const email = localStorage.getItem("zyntra-user");
+    const profile = getProfile();
+
+    document.getElementById("profileEmailDisplay").textContent = email;
+    document.getElementById("profileFullName").value = profile.fullName || "";
+    document.getElementById("profileNickname").value = profile.nickname || "";
+    document.getElementById("profileWork").value = profile.work || "";
+    document.getElementById("profileInstructions").value = profile.instructions || "";
+
+    const letter = (profile.nickname || profile.fullName || email || "?").trim().charAt(0).toUpperCase();
+    document.getElementById("profileAvatar").textContent = letter;
+
+    renderVoiceCarousel();
+    renderWorkOptions();
+    renderChatBehaviorSettings();
+    renderNotificationSettings();
+    renderSecuritySettings();
+    renderAccountSwitcher();
+}
+
+document.getElementById("profileModalClose")?.addEventListener("click", () => {
+    closeModal("profileModal");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+});
+
+document.getElementById("profileSigninBtn")?.addEventListener("click", () => {
+    closeModal("profileModal");
+    document.getElementById("signinContext").style.display = "none";
+    resetSigninModalUI(); openModal("signinModal"); navigateToRoute("login");
+});
+
+document.getElementById("profileSaveBtn")?.addEventListener("click", () => {
+    const profile = {
+        fullName: document.getElementById("profileFullName").value.trim(),
+        nickname: document.getElementById("profileNickname").value.trim(),
+        work: document.getElementById("profileWork").value,
+        instructions: document.getElementById("profileInstructions").value.trim()
+    };
+    localStorage.setItem("zyntra-profile", JSON.stringify(profile));
+    renderProfileModal();
+    renderAuthNav();
+
+    const btn = document.getElementById("profileSaveBtn");
+    const original = btn.textContent;
+    btn.textContent = "Saved ✓";
+    setTimeout(() => { btn.textContent = original; }, 1500);
+});
+
+document.getElementById("profileSignoutBtn")?.addEventListener("click", () => {
+    closeModal("profileModal");
+    openModal("signoutModal");
+});
+
+document.getElementById("signoutModalClose")?.addEventListener("click", () => closeModal("signoutModal"));
+document.getElementById("signoutCancel")?.addEventListener("click", () => closeModal("signoutModal"));
+document.getElementById("signoutConfirm")?.addEventListener("click", () => {
+    const btn = document.getElementById("signoutConfirm");
+    btn.disabled = true;
+    closeModal("signoutModal");
+    showAuthLoading("Signing you out…");
+
+    // Save this account's latest state to the cloud before wiping the
+    // local copy, so nothing is lost — then always drop to a clean Guest
+    // state. (No more auto-switching to another signed-in account here —
+    // Sign Out should mean Sign Out, not silently hop to a different one.)
+    pushLocalToCloud().catch(() => {}).finally(() => {
+        activeAuth().signOut().catch(() => {});
+        localStorage.removeItem("zyntra-user");
+        localStorage.removeItem("zyntra-sessions");
+        localStorage.removeItem("zyntra-profile");
+        localStorage.removeItem("zyntra-memories");
+        activeAccountSlot = "default";
+        localStorage.setItem("zyntra-active-slot", "default");
+
+        closeModal("signoutModal");
+        resetChatView();
+        renderAuthNav();
+        renderSidebarHistory();
+        btn.disabled = false;
+        hideAuthLoading(1000);
+        clearGuestChosen();
+        showWelcomeGate();
+    });
+});
+document.getElementById("signinModalClose")?.addEventListener("click", () => { closeModal("signinModal"); revertRouteToCurrentTool(); });
+let isSignupMode = false;
+
+function showSigninError(message){
+    hideAuthLoading(0);
+    const errEl = document.getElementById("signinError");
+    errEl.textContent = message;
+    errEl.style.display = "block";
+    // The welcome screen has its own error line (the sign-in modal's is hidden behind it).
+    const gateErr = document.getElementById("gateError");
+    if(gateErr && welcomeGateActive()){
+        gateErr.textContent = message;
+        gateErr.style.display = "block";
+    }
+}
+
+function clearSigninError(){
+    document.getElementById("signinError").style.display = "none";
+    const gateErr = document.getElementById("gateError");
+    if(gateErr) gateErr.style.display = "none";
+    const notice = document.getElementById("signinNotice");
+    if(notice) notice.style.display = "none";
+}
+
+function showSigninNotice(message){
+    hideAuthLoading(0);
+    const el = document.getElementById("signinNotice");
+    if(!el) return;
+    el.textContent = message;
+    el.style.display = "block";
+}
+
+// "Forgot password?" — sends Firebase's standard reset email. Only works
+// for accounts created with email + password (Google/Microsoft accounts
+// have no password to reset). The reply is deliberately the same whether
+// or not that email has an account, so the form can't be used to check
+// who is registered.
+let lastPasswordResetAt = 0;
+document.getElementById("forgotPasswordLink")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    clearSigninError();
+    const email = document.getElementById("signinEmail").value.trim();
+    if(!email){
+        showSigninError("Type your email in the box above first, then tap \"Forgot password?\" again.");
+        return;
+    }
+    if(Date.now() - lastPasswordResetAt < 30000){
+        showSigninNotice("A reset link was just sent — give it a minute, and check your spam folder.");
+        return;
+    }
+    lastPasswordResetAt = Date.now();
+    activeAuth().sendPasswordResetEmail(email)
+        .then(() => {
+            showSigninNotice("If an account exists for " + email + ", a password reset link is on its way. Check your inbox and spam folder. (Signed up with Google? Use \"Continue with Google\" instead.)");
+        })
+        .catch(err => {
+            if(err.code === "auth/user-not-found"){
+                // Same message as success — don't reveal which emails are registered.
+                showSigninNotice("If an account exists for " + email + ", a password reset link is on its way. Check your inbox and spam folder.");
+                return;
+            }
+            lastPasswordResetAt = 0; // a failed attempt shouldn't lock out a retry
+            showSigninError(firebaseErrorMessage(err.code, err.message) || "Couldn't send the reset email. Please try again.");
+        });
+});
+
+function setForgotPasswordVisible(show){
+    const el = document.getElementById("forgotPasswordLink");
+    if(el) el.style.display = show ? "" : "none";
+}
+
+function firebaseErrorMessage(code, rawMessage){
+    switch(code){
+        case "auth/user-not-found":
+            return "No account exists with this email.";
+        case "auth/wrong-password":
+        case "auth/invalid-credential":
+            return "Incorrect email or password. If you signed up with Google before, use \"Continue with Google\" instead.";
+        case "auth/invalid-email":
+            return "Please enter a valid email address.";
+        case "auth/email-already-in-use":
+            return "An account with this email already exists. Try signing in instead.";
+        case "auth/weak-password":
+            return "Password should be at least 6 characters.";
+        case "auth/too-many-requests":
+            return "Too many attempts. Please wait a moment and try again.";
+        case "auth/account-exists-with-different-credential":
+            return "This email is already registered with a different sign-in method. Please sign in with that method instead.";
+        case "auth/popup-closed-by-user":
+            return "Sign-in was closed before finishing. Please try again.";
+        case "auth/popup-blocked":
+            return "Your browser blocked the sign-in popup. Please allow popups for this site and try again.";
+        case "auth/cancelled-popup-request":
+            return "";
+        case "auth/network-request-failed":
+            return "Network error. Please check your connection and try again.";
+        case "auth/unauthorized-domain":
+            return "This domain isn't authorized for sign-in yet. Please contact support.";
+        default:
+            return "Something went wrong: " + (rawMessage || code || "unknown error") + ". Please try again.";
+    }
+}
+
+function finishSignin(email){
+    clearGuestChosen();
+    hideWelcomeGate();
+    hideAuthLoading(1000);
+    const wasAddingAccount = accountAddPreviousSlot !== null;
+
+    // Adding an account you're already signed into elsewhere on this
+    // device isn't a second account at all — back it out instead of
+    // showing the same email twice in the switcher.
+    if(wasAddingAccount){
+        const otherSlot = activeAccountSlot === "secondary" ? "default" : "secondary";
+        const known = getKnownAccounts();
+        if(known[otherSlot] && known[otherSlot].email.toLowerCase() === email.toLowerCase()){
+            activeAuth().signOut().catch(() => {});
+            activeAccountSlot = accountAddPreviousSlot;
+            localStorage.setItem("zyntra-active-slot", activeAccountSlot);
+            accountAddPreviousSlot = null;
+            localStorage.removeItem("zyntra-account-add-previous-slot");
+            document.getElementById("signinEmail").value = "";
+            document.getElementById("signinPass").value = "";
+            document.getElementById("signinContext").style.display = "none";
+            clearSigninError();
+            closeModal("signinModal");
+            openModal("profileModal");
+            renderProfileModal();
+            navigateToRoute("settings", "general");
+            showToast("⚠️ That's already your signed-in account — try a different one.");
+            return;
+        }
+    }
+
+    localStorage.setItem("zyntra-user", email);
+    accountAddPreviousSlot = null;
+    localStorage.removeItem("zyntra-account-add-previous-slot");
+    document.getElementById("signinEmail").value = "";
+    document.getElementById("signinPass").value = "";
+    document.getElementById("signinContext").style.display = "none";
+    clearSigninError();
+    closeModal("signinModal");
+    revertRouteToCurrentTool();
+    renderAuthNav();
+    renderSidebarHistory();
+    showToast("✅ You're signed in successfully!");
+    claimPendingReferralIfAny();
+
+    // Adding a second account started from Settings — hop back there so
+    // the newly added account shows up in the switcher right away.
+    if(wasAddingAccount){
+        openModal("profileModal");
+        renderProfileModal();
+    }
+}
+
+// ================= Firestore cloud sync =================
+// Profile + chat sessions already live in localStorage (read/written by
+// getProfile/getSessions/saveSessions elsewhere in this file) so the rest
+// of the app works exactly as before. This section mirrors that same data
+// to Firestore, keyed by the signed-in Firebase user, so it survives a
+// cleared cache and follows the user to a new device — instead of only
+// existing in the browser that created it.
+
+let zyntraCloudSyncing = false; // true while pulling down, to avoid an echo save
+let zyntraCloudSaveTimer = null;
+
+function zyntraUserDocRef(){
+    const user = activeAuth().currentUser;
+    if(!user) return null;
+    return activeFirestore().collection("users").doc(user.uid);
+}
+
+// ---- Long-term memory ----
+// Durable facts about the user (name, job, ongoing projects, preferences)
+// that the AI decides are worth keeping via the remember_fact tool in
+// api/chat.js. Stored as a plain array on the same Firestore user doc as
+// profile/sessions, cached in localStorage for instant access, and fed
+// back into every new conversation's system prompt below.
+
+function getMemories(){
+    return JSON.parse(localStorage.getItem("zyntra-memories") || "[]");
+}
+
+function saveMemories(memories){
+    localStorage.setItem("zyntra-memories", JSON.stringify(memories));
+    scheduleCloudSave();
+}
+
+// Called after every AI reply with whatever facts it chose to remember
+// (zyntra_memory_writes from /api/chat). Skips near-duplicates and caps
+// the list so it can't grow without bound.
+let memoryFullWarned = false;
+function addMemories(facts){
+    if(!Array.isArray(facts) || facts.length === 0) return;
+    if(!getPlugins().memory) return;
+    if(temporaryChatActive) return;
+    const memories = getMemories();
+    const plan = currentPlanKey();
+    const cap = MEMORY_LIMITS[plan] || MEMORY_LIMITS.free;
+    let skippedForRoom = false;
+    facts.forEach(fact => {
+        const normalized = (fact || "").trim();
+        if(!normalized) return;
+        const alreadyKnown = memories.some(m => m.fact.toLowerCase() === normalized.toLowerCase());
+        if(alreadyKnown) return;
+        // Each plan keeps a limited amount of memory. Full = no new ones
+        // (nothing is deleted behind your back) until you free some up.
+        if(memories.length >= cap){ skippedForRoom = true; return; }
+        memories.push({ fact: normalized, ts: Date.now() });
+    });
+    saveMemories(memories);
+    if(skippedForRoom && !memoryFullWarned){
+        memoryFullWarned = true;
+        showToast(`🧠 Memory is full (${cap} on the ${planDisplayName(plan)} plan). Delete some in Settings → Memory${plan === "ultra" ? "" : ", or upgrade for more room"}.`);
+    }
+}
+
+// ---- Projects ----
+// Groups of chats that share custom instructions (e.g. "always answer as
+// a senior React dev"). Unlike everything else on this page, projects can
+// be SHARED between accounts, so they can't live in localStorage or the
+// private per-user Firestore doc — they're real documents in a top-level
+// `projects` collection, access-controlled by a `members` array (see
+// firestore.rules). `projectsCache` is just an in-memory mirror so the
+// rest of the UI can keep reading getProjects() synchronously like before.
+
+let projectsCache = [];
+
+async function refreshProjectsCache(){
+    if(!isLoggedIn()){ projectsCache = []; return; }
+    try{
+        const uid = activeAuth().currentUser.uid;
+        const snap = await activeFirestore().collection("projects").where("members", "array-contains", uid).get();
+        projectsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        projectsCache.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    }catch(err){
+        console.error("Failed to load projects:", err);
+    }
+}
+
+function getProjects(){
+    return projectsCache;
+}
+
+const PROJECT_COLORS = ["#7c5cff", "#ff6b8a", "#37c98f", "#ffb545", "#4fb8ff", "#c85cff"];
+
+// Which project (if any) new chats should be tagged with and get their
+// custom instructions from. Cleared whenever the user starts a chat that
+// isn't explicitly "+ New Chat" from inside a project.
+let currentProjectId = null;
+
+async function createProject(name, instructions, color){
+    const uid = activeAuth().currentUser.uid;
+    const email = (activeAuth().currentUser.email || "").toLowerCase();
+    const docRef = activeFirestore().collection("projects").doc();
+    const project = {
+        name: name.trim(),
+        instructions: (instructions || "").trim(),
+        color: color || PROJECT_COLORS[0],
+        createdAt: Date.now(),
+        ownerId: uid,
+        members: [uid],
+        memberEmails: email ? [email] : []
+    };
+    await docRef.set(project);
+    await refreshProjectsCache();
+    return { id: docRef.id, ...project };
+}
+
+async function updateProject(id, changes){
+    await activeFirestore().collection("projects").doc(id).update(changes);
+    await refreshProjectsCache();
+}
+
+async function deleteProject(id){
+    await activeFirestore().collection("projects").doc(id).delete();
+    await refreshProjectsCache();
+    // Un-tag any of YOUR chats that belonged to this project — their
+    // history stays, they just go back to being regular chats. (Chats
+    // belong to whoever created them, so this only touches your own.)
+    const sessions = getSessions();
+    let changed = false;
+    sessions.forEach(s => {
+        if(s.projectId === id){ s.projectId = null; changed = true; }
+    });
+    if(changed) saveSessions(sessions);
+}
+
+// Invites another Zyntra account (by email) to a project with full
+// access. The actual email→uid lookup and members-list write happen in
+// api/share-project.js via the Admin SDK — a client can never resolve an
+// arbitrary email to a uid itself (see that file's comments).
+async function shareProject(projectId, email){
+    const idToken = await activeAuth().currentUser.getIdToken();
+    const resp = await fetch("/api/share-project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+        body: JSON.stringify({ projectId, email })
+    });
+    const rawText = await resp.text();
+    let data;
+    try{
+        data = rawText ? JSON.parse(rawText) : {};
+    }catch(parseErr){
+        // The endpoint returned something that isn't JSON at all (often an
+        // empty body) — almost always means api/share-project.js hasn't
+        // actually been deployed yet, not a real sharing failure.
+        throw new Error("The sharing feature isn't live on the server yet — check that api/share-project.js has been deployed.");
+    }
+    if(!resp.ok) throw new Error(data.error || "Failed to share project.");
+    await refreshProjectsCache();
+    return data;
+}
+
+// ---- Plugins ----
+// Toggleable built-in capabilities. Missing/undefined defaults to true so
+// existing users see no behavior change until they actually flip something.
+
+const PLUGIN_DEFS = [
+    { key: "webSearch", icon: "🔎", color: "#3ea6ff", title: "Web Search & Research", desc: "Let Zyntra search the web for current information, and show the Research mode toggle for deeper, multi-source answers." },
+    { key: "googleTools", slug: "google", icon: "📧", color: "#ea4335", title: "Google Tools", desc: "Let a connected Google account be used for Gmail, Calendar, and Drive actions." },
+    { key: "githubTools", slug: "github", icon: "🐙", color: "#24292e", title: "GitHub Tools", desc: "Let a connected GitHub account be used to read repos and manage issues/PRs." },
+    { key: "slackTools", slug: "slack", icon: "💬", color: "#4A154B", title: "Slack Tools", desc: "Let a connected Slack account be used to read channels and send messages." },
+    { key: "discordTools", slug: "discord", icon: "🎮", color: "#5865F2", title: "Discord Tools", desc: "Let a connected Discord account be used to read and send messages in a server." },
+    { key: "notionTools", slug: "notion", icon: "📝", color: "#000000", title: "Notion Tools", desc: "Let a connected Notion account be used to search, read, and create pages." },
+    { key: "trelloTools", slug: "trello", icon: "📋", color: "#0079BF", title: "Trello Tools", desc: "Let a connected Trello account be used to read and create cards." },
+    { key: "outlookTools", slug: "microsoftoutlook", icon: "📧", color: "#0072C6", title: "Outlook Tools", desc: "Let a connected Outlook account be used to search, read, and send email." },
+    { key: "memory", icon: "🧠", color: "#a259ff", title: "Memory", desc: "Let Zyntra remember facts about you across conversations." },
+    { key: "imageGen", icon: "🖼️", color: "#37c98f", title: "Image Generator", desc: "Show the Image Generator tool in the sidebar." },
+    { key: "codexBuilder", icon: "🧑‍💻", color: "#ffb545", title: "Codex", desc: "Show the Codex (coding + website building) tool in the sidebar." }
+];
+
+
+// Builds an icon element for a plugin row: a real logo (white, on the
+// brand's color) when `def.slug` is set, falling back to a bold colored
+// initial (never a random unrelated emoji) if there's no slug or the
+// logo fails to load — a clean, honest placeholder instead of guessing.
+function buildPluginIconEl(def, className){
+    const icon = document.createElement("div");
+    icon.className = className || "plugin-row-icon";
+    icon.style.background = def.color;
+    const showFallback = () => {
+        icon.innerHTML = "";
+        icon.textContent = def.title.trim().charAt(0).toUpperCase();
+        icon.style.fontWeight = "800";
+    };
+    if(def.slug){
+        const img = document.createElement("img");
+        img.src = `https://cdn.simpleicons.org/${def.slug}/ffffff`;
+        img.alt = def.title;
+        img.className = "plugin-row-icon-img";
+        img.onerror = showFallback;
+        icon.appendChild(img);
+    } else {
+        showFallback();
+    }
+    return icon;
+}
+
+function getPlugins(){
+    const saved = JSON.parse(localStorage.getItem("zyntra-plugins") || "{}");
+    const merged = {};
+    PLUGIN_DEFS.forEach(p => { merged[p.key] = saved[p.key] !== false; }); // default true
+    return merged;
+}
+
+function savePlugins(plugins){
+    localStorage.setItem("zyntra-plugins", JSON.stringify(plugins));
+    scheduleCloudSave();
+}
+
+function setPlugin(key, enabled){
+    const plugins = getPlugins();
+    plugins[key] = enabled;
+    savePlugins(plugins);
+    applyPluginVisibility();
+}
+
+// Hides/shows sidebar nav items and chat-bar toggles based on the current
+// plugin settings — the actual "gating", not just a cosmetic switch.
+function applyPluginVisibility(){
+    const plugins = getPlugins();
+
+    const imageNav = document.querySelector('.nav-item[data-tool="image"]');
+    if(imageNav) imageNav.style.display = plugins.imageGen ? "" : "none";
+
+    const codexNav = document.querySelector('.nav-item[data-tool="codex"]');
+    if(codexNav) codexNav.style.display = plugins.codexBuilder ? "" : "none";
+
+    const researchBtn = document.getElementById("researchBtn");
+    if(researchBtn) researchBtn.style.display = plugins.webSearch ? "" : "none";
+    if(!plugins.webSearch) researchModeEnabled = false;
+
+    const googleCard = document.getElementById("googleConnectionCard");
+    if(googleCard) googleCard.style.display = plugins.googleTools ? "" : "none";
+
+    const githubCard = document.getElementById("githubConnectionCard");
+    if(githubCard) githubCard.style.display = plugins.githubTools ? "" : "none";
+
+    const slackCard = document.getElementById("slackConnectionCard");
+    if(slackCard) slackCard.style.display = plugins.slackTools ? "" : "none";
+
+    const discordCard = document.getElementById("discordConnectionCard");
+    if(discordCard) discordCard.style.display = plugins.discordTools ? "" : "none";
+
+    const notionCard = document.getElementById("notionConnectionCard");
+    if(notionCard) notionCard.style.display = plugins.notionTools ? "" : "none";
+
+    const trelloCard = document.getElementById("trelloConnectionCard");
+    if(trelloCard) trelloCard.style.display = plugins.trelloTools ? "" : "none";
+
+    const outlookCard = document.getElementById("outlookConnectionCard");
+    if(outlookCard) outlookCard.style.display = plugins.outlookTools ? "" : "none";
+}
+
+// ---- Scheduled Tasks ----
+// Tasks Zyntra runs automatically on a schedule, even while the app is
+// closed. Creation/listing/deletion happens locally + cloud-synced like
+// everything else above; actual execution is handled server-side by a
+// scheduled job that writes results back here.
+
+function getScheduledTasks(){
+    return JSON.parse(localStorage.getItem("zyntra-scheduled") || "[]");
+}
+
+function saveScheduledTasks(tasks){
+    localStorage.setItem("zyntra-scheduled", JSON.stringify(tasks));
+    scheduleCloudSave();
+}
+
+function createScheduledTask(prompt, frequency){
+    const tasks = getScheduledTasks();
+    const task = {
+        id: Date.now(),
+        prompt: prompt.trim(),
+        frequency, // "daily" | "weekly"
+        active: true,
+        createdAt: Date.now(),
+        lastRunAt: null,
+        results: [] // { ranAt, reply }
+    };
+    tasks.unshift(task);
+    saveScheduledTasks(tasks);
+    return task;
+}
+
+function deleteScheduledTask(id){
+    saveScheduledTasks(getScheduledTasks().filter(t => t.id !== id));
+}
+
+function toggleScheduledTask(id){
+    const tasks = getScheduledTasks();
+    const task = tasks.find(t => t.id === id);
+    if(task) task.active = !task.active;
+    saveScheduledTasks(tasks);
+}
+
+// ---- Connections (Gmail, Google Drive, Google Calendar, GitHub) ----
+// Rendered as individual rows in the Plugins page, ChatGPT-connector
+// style — but Gmail/Drive/Calendar all share ONE underlying Google OAuth
+// connection (one grant covers all three scopes), so all three rows
+// reflect the same status and connecting/disconnecting any one of them
+// connects/disconnects all three. GitHub is fully separate. The actual
+// token never touches this browser — it's stored server-side by
+// /api/auth/*, keyed to the signed-in Firebase user.
+
+const CONNECTORS = [
+    { key: "gmail", provider: "google", slug: "gmail", color: "#EA4335", title: "Gmail", desc: "Search, read, send email & drafts" },
+    { key: "google-drive", provider: "google", slug: "googledrive", color: "#0F9D58", title: "Google Drive", desc: "Drive, Docs, Sheets or Slides" },
+    { key: "google-calendar", provider: "google", slug: "googlecalendar", color: "#1A73E8", title: "Google Calendar", desc: "Manage Google Calendar events" },
+    { key: "github", provider: "github", slug: "github", color: "#24292e", title: "GitHub", desc: "Repos, issues, and pull requests" },
+    { key: "slack", provider: "slack", slug: "slack", color: "#4A154B", title: "Slack", desc: "Channels, messages, and search" },
+    { key: "discord", provider: "discord", slug: "discord", color: "#5865F2", title: "Discord", desc: "Read and send messages in a server" },
+    { key: "notion", provider: "notion", slug: "notion", color: "#000000", title: "Notion", desc: "Search, read, and create pages" },
+    { key: "trello", provider: "trello", slug: "trello", color: "#0079BF", title: "Trello", desc: "Boards, lists, and cards" },
+    { key: "outlook", provider: "outlook", slug: "microsoftoutlook", color: "#0072C6", title: "Outlook", desc: "Search, read, send email & drafts" }
+];
+
+const CONNECTOR_PROVIDER_CONFIG = {
+    google: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=google",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=google",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=google",
+        label: data => data.label ? `Connected as ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to use Gmail, Google Drive, or Google Calendar on your behalf."
+    },
+    github: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=github",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=github",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=github",
+        label: data => data.label ? `Connected as ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to read your repos or create issues/PRs on your behalf."
+    },
+    slack: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=slack",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=slack",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=slack",
+        label: data => data.label ? `Connected to ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to read or send Slack messages on your behalf."
+    },
+    discord: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=discord",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=discord",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=discord",
+        label: data => data.label ? `Connected to ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to read or send messages in your Discord server on your behalf. The bot stays in your server until you remove it yourself from Discord."
+    },
+    notion: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=notion",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=notion",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=notion",
+        label: data => data.label ? `Connected to ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to search, read, or create pages in your Notion workspace. You can also remove Zyntra's access directly from Notion's own Settings → Connections."
+    },
+    trello: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=trello",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=trello",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=trello",
+        label: data => data.label ? `Connected as ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to read or create cards on your Trello boards."
+    },
+    outlook: {
+        statusUrl: "/api/auth/oauth-manage?action=status&provider=outlook",
+        startUrl: "/api/auth/oauth-manage?action=start&provider=outlook",
+        disconnectUrl: "/api/auth/oauth-manage?action=disconnect&provider=outlook",
+        label: data => data.label ? `Connected as ${data.label}` : "Connected",
+        disconnectConfirm: "Zyntra will no longer be able to search, read, or send Outlook email on your behalf. You can also remove Zyntra's access directly from your Microsoft account's app permissions page."
+    }
+};
+
+// Plain-English capability lists shown on each plugin/connector's detail
+// page — keyed by CONNECTORS' `key` (for connections) and PLUGIN_DEFS'
+// `key` (for built-in capabilities).
+const PLUGIN_CAPABILITIES = {
+    gmail: ["Search your inbox", "Read full email content", "Send emails on your behalf", "Create drafts without sending"],
+    "google-drive": ["Search your files", "Read file content (Docs, Sheets, text files)", "Create new files"],
+    "google-calendar": ["View upcoming events", "Create new events", "Update or cancel existing events"],
+    github: ["List your repositories", "View issues and pull requests", "Create new issues", "Create new pull requests"],
+    slack: ["List channels (public and private)", "Read recent messages", "Send messages", "Search your workspace", "Look up teammates"],
+    discord: ["List channels in your connected server", "Read recent messages", "Send messages"],
+    notion: ["Search your workspace", "Read page content", "Create new pages"],
+    trello: ["List your boards and lists", "View cards", "Create new cards"],
+    outlook: ["Search your inbox", "Read full email content", "Send emails on your behalf", "Create drafts without sending"],
+    webSearch: ["Search the web for current information", "Multi-source Research mode for deeper, longer answers"],
+    googleTools: ["Lets the AI use your connected Google account for Gmail, Drive, and Calendar actions"],
+    githubTools: ["Lets the AI use your connected GitHub account to read repos and manage issues/PRs"],
+    slackTools: ["Lets the AI use your connected Slack account to read channels and send messages"],
+    discordTools: ["Lets the AI use your connected Discord account to read and send messages"],
+    notionTools: ["Lets the AI use your connected Notion account to search, read, and create pages"],
+    trelloTools: ["Lets the AI use your connected Trello account to read and create cards"],
+    outlookTools: ["Lets the AI use your connected Outlook account to search, read, and send email"],
+    memory: ["Remembers facts you share, across conversations", "Injects relevant memories into new chats automatically"],
+    imageGen: ["Adds the Image Generator tool to your sidebar"],
+    codexBuilder: ["Adds the Codex coding and website-building tool to your sidebar"]
+};
+
+// Richer metadata for the detail page's "Information" section and example
+// prompts — real, working starter messages (not decorative), since every
+// connector here is a real, tested integration.
+const PLUGIN_DETAILS = {
+    gmail: {
+        longDesc: "Search your inbox, read full email content, send new emails, and create drafts — all from chat, using your own connected Gmail account.",
+        examples: ["Search my Gmail for emails from the last 7 days", "Read that email from [sender] and summarize it", "Draft a reply to my last email from [sender]"],
+        category: "Email", website: "https://gmail.com"
+    },
+    "google-drive": {
+        longDesc: "Search your Google Drive, read the content of Docs, Sheets, and text files, and create new files — without leaving the chat.",
+        examples: ["Search my Drive for the Q3 budget file", "Read that file and summarize the key points", "Create a new file called Meeting Notes with today's summary"],
+        category: "Productivity", website: "https://drive.google.com"
+    },
+    "google-calendar": {
+        longDesc: "See what's coming up, schedule new events, and update or cancel existing ones on your Google Calendar.",
+        examples: ["What's on my calendar tomorrow?", "Schedule a meeting with the team Friday at 2pm", "Move my 3pm call to 4pm"],
+        category: "Productivity", website: "https://calendar.google.com"
+    },
+    github: {
+        longDesc: "List your repositories, review issues and pull requests, and create new ones — right from chat, using your own connected GitHub account.",
+        examples: ["List my GitHub repos", "Show open issues on [repo]", "Create an issue on [repo] titled 'Fix login bug'"],
+        category: "Developer Tools", website: "https://github.com"
+    },
+    slack: {
+        longDesc: "Read and send messages across your Slack channels and DMs, search your workspace, and look up teammates.",
+        examples: ["List my Slack channels", "What's the latest in #general?", "Send a message to #team saying I'll be late"],
+        category: "Communication", website: "https://slack.com"
+    },
+    discord: {
+        longDesc: "Read and send messages in the Discord server you've added the Zyntra bot to.",
+        examples: ["List channels in my Discord server", "What's the latest message in #general?", "Send a message to #announcements"],
+        category: "Communication", website: "https://discord.com"
+    },
+    notion: {
+        longDesc: "Search your Notion workspace, read page content, and create new pages — all from chat.",
+        examples: ["Search my Notion for the project roadmap", "Read that page and summarize it", "Create a new page under Projects called Q4 Plan"],
+        category: "Productivity", website: "https://notion.so"
+    },
+    trello: {
+        longDesc: "View your Trello boards, lists, and cards, and create new cards — without opening Trello.",
+        examples: ["List my Trello boards", "Show cards in my To Do list", "Create a card called 'Review designs' in my To Do list"],
+        category: "Productivity", website: "https://trello.com"
+    },
+    outlook: {
+        longDesc: "Search your Outlook inbox, read full email content, send new emails, and create drafts — using your own connected Microsoft account.",
+        examples: ["Search my Outlook for emails from last week", "Read that email and summarize it", "Send an email to [name] about tomorrow's meeting"],
+        category: "Email", website: "https://outlook.com"
+    },
+    webSearch: {
+        longDesc: "Lets Zyntra search the web for current information and switch to Research mode for deeper, multi-source answers on complex questions.",
+        examples: ["What's the latest news on [topic]?", "Research the pros and cons of [decision] for me"],
+        category: "Built-in"
+    },
+    googleTools: { longDesc: "Turns Gmail, Google Drive, and Google Calendar actions on or off for the AI, once you've connected your Google account.", examples: [], category: "Built-in" },
+    githubTools: { longDesc: "Turns GitHub actions on or off for the AI, once you've connected your GitHub account.", examples: [], category: "Built-in" },
+    slackTools: { longDesc: "Turns Slack actions on or off for the AI, once you've connected your Slack account.", examples: [], category: "Built-in" },
+    discordTools: { longDesc: "Turns Discord actions on or off for the AI, once you've connected Discord and added the bot to a server.", examples: [], category: "Built-in" },
+    notionTools: { longDesc: "Turns Notion actions on or off for the AI, once you've connected your Notion account.", examples: [], category: "Built-in" },
+    trelloTools: { longDesc: "Turns Trello actions on or off for the AI, once you've connected your Trello account.", examples: [], category: "Built-in" },
+    outlookTools: { longDesc: "Turns Outlook actions on or off for the AI, once you've connected your Outlook account.", examples: [], category: "Built-in" },
+    memory: {
+        longDesc: "Lets Zyntra remember facts you share and bring them back naturally in future conversations, so you don't have to repeat yourself.",
+        examples: [], category: "Built-in"
+    },
+    imageGen: { longDesc: "Adds the Image Generator tool to your sidebar for creating images from text prompts.", examples: [], category: "Built-in" },
+    codexBuilder: { longDesc: "Adds the Codex tool to your sidebar for coding help and building full websites from a prompt.", examples: [], category: "Built-in" }
+};
+
+// Cache of the last known status per provider, so all rows for that
+// provider (e.g. the 3 Google rows) render consistently without each
+// firing its own network request.
+let connectorStatusCache = {};
+
+async function fetchConnectorStatus(provider){
+    if(!activeAuth().currentUser) return { connected: false, error: true };
+    try{
+        const idToken = await activeAuth().currentUser.getIdToken();
+        const res = await fetch(CONNECTOR_PROVIDER_CONFIG[provider].statusUrl, {
+            headers: { "Authorization": "Bearer " + idToken }
+        });
+        const data = await res.json();
+        return { ...data, error: false };
+    }catch(err){
+        console.error(`Couldn't check ${provider} connection status:`, err);
+        return { connected: false, error: true };
+    }
+}
+
+async function refreshAllConnectorStatuses(){
+    const providers = [...new Set(CONNECTORS.map(c => c.provider))];
+    await Promise.all(providers.map(async provider => {
+        connectorStatusCache[provider] = await fetchConnectorStatus(provider);
+    }));
+    renderPluginsConnectionsList();
+    if(pluginDetailCurrent?.type === "connector") renderPluginDetail();
+}
+
+async function handleConnectorClick(connector){
+    const provider = connector.provider;
+    const config = CONNECTOR_PROVIDER_CONFIG[provider];
+    const status = connectorStatusCache[provider];
+
+    if(status?.connected){
+        confirmAction(
+            `Disconnect ${provider === "google" ? "Google" : "GitHub"}?`,
+            config.disconnectConfirm,
+            async () => {
+                try{
+                    const user = await getCurrentFirebaseUser();
+                    if(!user) { showToast("Please sign in first."); return; }
+                    const idToken = await user.getIdToken();
+                    await fetch(config.disconnectUrl, {
+                        method: "POST",
+                        headers: { "Authorization": "Bearer " + idToken }
+                    });
+                    showToast(`${provider === "google" ? "Google" : "GitHub"} disconnected.`);
+                    refreshAllConnectorStatuses();
+                }catch(err){
+                    console.error("Disconnect failed:", err);
+                    showToast("Couldn't disconnect. Please try again.");
+                }
+            }
+        );
+        return;
+    }
+
+    try{
+        const user = await getCurrentFirebaseUser();
+        if(!user) { showToast("Please sign in first, then try connecting again."); return; }
+        const idToken = await user.getIdToken();
+        const res = await fetch(config.startUrl, {
+            headers: { "Authorization": "Bearer " + idToken }
+        });
+        const data = await res.json();
+        if(!res.ok || !data.url) throw new Error(data.error || `Couldn't start ${provider} connection.`);
+        window.location.href = data.url; // full navigation — leaves the app to the provider's consent screen
+    }catch(err){
+        console.error("Connect failed:", err);
+        showToast(err.message || `Couldn't connect ${provider}. Please try again.`);
+    }
+}
+
+// Every provider's oauth-callback redirects back to "/" with either
+// "<provider>_connected=1" or "<provider>_error=<reason>" — generic so
+// a newly added provider never needs a matching change here.
+(function handleConnectorRedirectResult(){
+    const params = new URLSearchParams(window.location.search);
+    const providerNames = { google: "Google", github: "GitHub", slack: "Slack", discord: "Discord", notion: "Notion", trello: "Trello", outlook: "Outlook" };
+
+    for (const key of params.keys()) {
+        const connectedMatch = key.match(/^(\w+)_connected$/);
+        const errorMatch = key.match(/^(\w+)_error$/);
+        if (connectedMatch) {
+            const label = providerNames[connectedMatch[1]] || connectedMatch[1];
+            showToast(`✅ ${label} connected!`);
+            window.history.replaceState({}, "", window.location.pathname);
+            break;
+        }
+        if (errorMatch) {
+            const label = providerNames[errorMatch[1]] || errorMatch[1];
+            showToast(`⚠️ ${label} connection failed: ` + params.get(key));
+            window.history.replaceState({}, "", window.location.pathname);
+            break;
+        }
+    }
+})();
+
+function renderPluginsConnectionsList(){
+    const list = document.getElementById("pluginsConnectionsList");
+    if(!list) return;
+    list.innerHTML = "";
+
+    CONNECTORS.forEach(connector => {
+        const status = connectorStatusCache[connector.provider];
+        const connected = status?.connected;
+
+        const row = document.createElement("div");
+        row.className = "plugin-row";
+        row.dataset.connectorKey = connector.key;
+        row.style.cursor = "pointer";
+        row.addEventListener("click", () => openPluginDetail("connector", connector.key));
+
+        const left = document.createElement("div");
+        left.style.cssText = "display:flex; align-items:flex-start;";
+        const icon = buildPluginIconEl(connector);
+        const textWrap = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "plugin-row-title";
+        title.textContent = connector.title;
+        const desc = document.createElement("div");
+        desc.className = "plugin-row-desc";
+        desc.textContent = status === undefined ? "Checking…" : (connected ? CONNECTOR_PROVIDER_CONFIG[connector.provider].label(status) : connector.desc);
+        textWrap.appendChild(title);
+        textWrap.appendChild(desc);
+        left.appendChild(icon);
+        left.appendChild(textWrap);
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "plugin-connect-btn";
+        btn.textContent = connected ? "Disconnect" : "+";
+        btn.title = connected ? "Disconnect" : "Connect";
+        btn.disabled = status === undefined;
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            handleConnectorClick(connector);
+        });
+
+        row.appendChild(left);
+        row.appendChild(btn);
+        list.appendChild(row);
+    });
+}
+
+// Debounced so rapid local writes (e.g. several messages in a row)
+// collapse into one Firestore write instead of one per message.
+function scheduleCloudSave(){
+    if(zyntraCloudSyncing) return;
+    clearTimeout(zyntraCloudSaveTimer);
+    zyntraCloudSaveTimer = setTimeout(pushLocalToCloud, 1200);
+}
+
+async function pushLocalToCloud(){
+    const ref = zyntraUserDocRef();
+    if(!ref) return;
+    try{
+        await ref.set({
+            profile: getProfile(),
+            sessions: getSessions(),
+            memories: getMemories(),
+            plugins: getPlugins(),
+            scheduledTasks: getScheduledTasks(),
+            skills: (window.ZyntraSkills ? ZyntraSkills.getCustom() : []),
+            skillsOff: (function(){ try{ return JSON.parse(localStorage.getItem("zyntra-skills-off") || "[]"); }catch(e){ return []; } })(),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    }catch(err){
+        console.error("Zyntra cloud save failed:", err);
+    }
+}
+
+async function pullCloudToLocal(){
+    const ref = zyntraUserDocRef();
+    if(!ref) return;
+    zyntraCloudSyncing = true;
+    try{
+        const snap = await ref.get();
+        if(snap.exists){
+            const data = snap.data() || {};
+            if(data.profile) localStorage.setItem("zyntra-profile", JSON.stringify(data.profile));
+            if(Array.isArray(data.sessions)) localStorage.setItem("zyntra-sessions", JSON.stringify(data.sessions));
+            if(Array.isArray(data.memories)) localStorage.setItem("zyntra-memories", JSON.stringify(data.memories));
+            if(data.plugins) localStorage.setItem("zyntra-plugins", JSON.stringify(data.plugins));
+            if(Array.isArray(data.scheduledTasks)) localStorage.setItem("zyntra-scheduled", JSON.stringify(data.scheduledTasks));
+            if(Array.isArray(data.skills)) localStorage.setItem("zyntra-skills", JSON.stringify(data.skills));
+            if(Array.isArray(data.skillsOff)) localStorage.setItem("zyntra-skills-off", JSON.stringify(data.skillsOff));
+            if(data.avatar) localStorage.setItem("zyntra-avatar", JSON.stringify(data.avatar));
+            if(Array.isArray(data.notifications)){
+                localStorage.setItem("zyntra-notifications", JSON.stringify(data.notifications));
+                updateNotifBadge();
+            }
+        } else {
+            // Brand new account in Firestore — seed the cloud with
+            // whatever this browser already has (e.g. a first chat sent
+            // before this sync finished setting up).
+            zyntraCloudSyncing = false;
+            await pushLocalToCloud();
+            return;
+        }
+    }catch(err){
+        console.error("Zyntra cloud pull failed:", err);
+    }finally{
+        zyntraCloudSyncing = false;
+        renderAuthNav();
+        renderSidebarHistory();
+        applyPluginVisibility();
+    }
+}
+
+// Multi-account support: which Firebase app instance is "active" right
+// now. "default" is always the original app (used by everyone with just
+// one account). "secondary" is a second named Firebase app created the
+// first time the user adds a second account — its own signed-in session
+// persists independently, so switching back to it later never requires
+// re-entering credentials.
+let activeAccountSlot = localStorage.getItem("zyntra-active-slot") || "default";
+// Survives an in-progress "add account" flow across a mobile Google
+// sign-in redirect, which does a full page reload and would otherwise
+// lose track of which slot to fall back to if the user backs out.
+let accountAddPreviousSlot = localStorage.getItem("zyntra-account-add-previous-slot");
+
+function activeAuth(){
+    return activeAccountSlot === "secondary" && firebase.apps.some(a => a.name === "secondary")
+        ? firebase.app("secondary").auth()
+        : firebase.app().auth();
+}
+function activeFirestore(){
+    return activeAccountSlot === "secondary" && firebase.apps.some(a => a.name === "secondary")
+        ? firebase.app("secondary").firestore()
+        : firebase.app().firestore();
+}
+
+// Runs on every page load AND right after sign-in/sign-up/Google sign-in,
+// since all of those trigger onAuthStateChanged — so there's no separate
+// hook needed in finishSignin. Registered separately per account slot (see
+// initSecondaryFirebaseApp below) so a background account's own state
+// changes never overwrite what's currently on screen.
+// Route resolution (see applyRouteFromPath at the bottom of this file)
+// needs to wait for the first cloud sync to actually finish before
+// looking up a /chat/<id> link — otherwise a pasted chat URL gets
+// checked against sessions that haven't downloaded yet and looks like
+// it doesn't exist. tryApplyInitialRoute runs exactly once, whichever
+// happens first: sync finishes, no user is signed in, or a timeout.
+let initialRouteApplied = false;
+function tryApplyInitialRoute(){
+    if(initialRouteApplied) return;
+    // While the welcome screen is up, hold the route (a deep link could open
+    // a modal on top of it) — choosing guest or signing in calls this again.
+    if(welcomeGateActive()) return;
+    initialRouteApplied = true;
+    if(typeof applyRouteFromPath === "function") applyRouteFromPath();
+}
+setTimeout(tryApplyInitialRoute, 4000); // safety net if auth never resolves
+
+function attachAuthStateListener(authInstance, slot){
+    authInstance.onAuthStateChanged(user => {
+        if(user){
+            saveKnownAccount(slot, user.email || user.phoneNumber || user.displayName);
+        } else {
+            removeKnownAccount(slot);
+        }
+        if(slot !== activeAccountSlot) return;
+        // Safety net: Firebase says signed in but the app is still showing
+        // Guest (e.g. a popup flow whose .then never ran) — finish sign-in.
+        if(user && !isLoggedIn() && accountAddPreviousSlot === null){
+            finishSignin(user.email || user.displayName || user.providerData?.[0]?.email || "Account");
+        }
+        if(user){
+            hideWelcomeGate();
+            pullCloudToLocal().then(tryApplyInitialRoute).catch(tryApplyInitialRoute);
+            refreshProjectsCache();
+            refreshAdminFlag();
+        } else {
+            projectsCache = [];
+            adminFlag = { uid: null, value: false };
+            applyAdminMenuItem();
+            tryApplyInitialRoute();
+        }
+    });
+}
+attachAuthStateListener(firebase.app().auth(), "default");
+
+// If a second account was already added in an earlier session, make sure
+// its Firebase app + listener exist again on this fresh page load too —
+// otherwise switching to it (or a mobile Google-redirect mid-flow) would
+// have nothing to attach to.
+if(activeAccountSlot === "secondary" || getKnownAccounts().secondary){
+    initSecondaryFirebaseApp();
+}
+
+// activeAuth().currentUser can briefly be null right after a sign-in
+// completes, before Firebase's internal state has fully settled — so
+// anything that needs "the signed-in user, right now" should await this
+// instead of reading .currentUser directly, which can otherwise throw
+// "Cannot read properties of null" in that narrow window.
+function getCurrentFirebaseUser(){
+    if(activeAuth().currentUser) return Promise.resolve(activeAuth().currentUser);
+    return new Promise((resolve) => {
+        const unsubscribe = activeAuth().onAuthStateChanged(user => {
+            unsubscribe();
+            resolve(user);
+        });
+        setTimeout(() => { unsubscribe(); resolve(activeAuth().currentUser); }, 3000);
+    });
+}
+
+// Wrap the existing local-save functions (declared earlier in this file)
+// so every place that already calls them also schedules a cloud save,
+// with no changes needed at any of those call sites.
+const zyntraLocalSaveSessions = saveSessions;
+saveSessions = function(sessions){
+    zyntraLocalSaveSessions(sessions);
+    scheduleCloudSave();
+};
+
+document.getElementById("profileSaveBtn")?.addEventListener("click", scheduleCloudSave);
+
+function showToast(message){
+    let toast = document.getElementById("zyntraToast");
+    if(!toast){
+        toast = document.createElement("div");
+        toast.id = "zyntraToast";
+        toast.className = "zyntra-toast";
+        document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add("show");
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => {
+        toast.classList.remove("show");
+    }, 3000);
+}
+
+function resetSigninModalUI(){
+    isSignupMode = false;
+    clearSigninError();
+    document.getElementById("signinTitle").innerHTML = 'Welcome <span>Back</span>';
+    document.getElementById("signinSubmit").textContent = "Sign In";
+    setForgotPasswordVisible(true);
+    document.getElementById("signupToggleText").innerHTML = 'Don\'t have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign up</a>';
+    document.getElementById("signupToggleLink").addEventListener("click", handleSignupToggleClick);
+}
+
+function handleSignupToggleClick(e){
+    e.preventDefault();
+    isSignupMode = !isSignupMode;
+    clearSigninError();
+    document.getElementById("signinTitle").innerHTML = isSignupMode
+        ? 'Create <span>Account</span>'
+        : 'Welcome <span>Back</span>';
+    document.getElementById("signinSubmit").textContent = isSignupMode ? "Sign Up" : "Sign In";
+    setForgotPasswordVisible(!isSignupMode);
+    document.getElementById("signupToggleText").innerHTML = isSignupMode
+        ? 'Already have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign in</a>'
+        : 'Don\'t have an account? <a href="#" id="signupToggleLink" style="color:#c9a8ff; font-weight:600;">Sign up</a>';
+    document.getElementById("signupToggleLink").addEventListener("click", handleSignupToggleClick);
+}
+document.getElementById("signupToggleLink")?.addEventListener("click", handleSignupToggleClick);
+
+document.getElementById("signinSubmit")?.addEventListener("click", () => {
+    const email = document.getElementById("signinEmail").value.trim();
+    const password = document.getElementById("signinPass").value;
+    clearSigninError();
+
+    if(!email || !password){
+        showSigninError("Please enter both email and password.");
+        return;
+    }
+
+    const btn = document.getElementById("signinSubmit");
+    const original = btn.textContent;
+    btn.textContent = isSignupMode ? "Creating account..." : "Signing in...";
+    btn.disabled = true;
+    showAuthLoading(isSignupMode ? "Creating your account…" : "Signing you in…");
+
+    if(!isSignupMode){
+        activeAuth().signInWithEmailAndPassword(email, password)
+            .then(userCredential => {
+                finishSignin(userCredential.user.email);
+            })
+            .catch(err => {
+                showSigninError(firebaseErrorMessage(err.code, err.message));
+            })
+            .finally(() => {
+                btn.textContent = original;
+                btn.disabled = false;
+            });
+        return;
+    }
+
+    const authAction = activeAuth().createUserWithEmailAndPassword(email, password);
+
+    authAction
+        .then(userCredential => {
+            finishSignin(userCredential.user.email);
+        })
+        .catch(err => {
+            if(err.code === "auth/email-already-in-use"){
+                showSigninError("This email already has an account. If you signed up with Google before, use \"Continue with Google\" instead.");
+            } else {
+                showSigninError(firebaseErrorMessage(err.code, err.message));
+            }
+        })
+        .finally(() => {
+            btn.textContent = original;
+            btn.disabled = false;
+        });
+});
+
+document.getElementById("googleSigninBtn")?.addEventListener("click", () => {
+    clearSigninError();
+    const provider = new firebase.auth.GoogleAuthProvider();
+
+    // Popup for everyone, mobile included. signInWithRedirect() relies on
+    // a cross-origin storage handshake with the authDomain
+    // (zyntra-98cad.firebaseapp.com, a different origin from the actual
+    // app on vercel.app) to carry sign-in state across the redirect —
+    // and modern Chrome/Firefox/Safari block that by default unless the
+    // app is hosted directly on Firebase Hosting. This is Firebase's own
+    // documented fix for exactly this setup (a custom/non-Firebase host):
+    // https://firebase.google.com/docs/auth/web/redirect-best-practices
+    activeAuth().signInWithPopup(provider)
+        .then(result => {
+            showAuthLoading("Signing you in…");
+            finishSignin(result.user.email);
+        })
+        .catch(err => {
+            const msg = firebaseErrorMessage(err.code, err.message);
+            if(msg) showSigninError(msg);
+        });
+});
+
+// currentSessionId must be declared before renderAuthNav() runs, since
+// renderAuthNav -> updateDeleteChatBtnVisibility reads it.
+let currentSessionId = null;
+
+// ---------- Loading screen (sign in / sign out) ----------
+// One full-screen overlay shared by every sign-in method and sign-out.
+// It stays up for a minimum time so it never just flashes, and a safety
+// timer guarantees it can't get stuck if something upstream never
+// reports back.
+let authLoadingShownAt = 0;
+let authLoadingHideTimer = null;
+let authLoadingSafetyTimer = null;
+function showAuthLoading(text){
+    const el = document.getElementById("authLoadingOverlay");
+    if(!el) return;
+    clearTimeout(authLoadingHideTimer);
+    const label = document.getElementById("authLoadingText");
+    if(label) label.textContent = text || "Signing you in…";
+    el.style.display = "flex";
+    authLoadingShownAt = Date.now();
+    clearTimeout(authLoadingSafetyTimer);
+    authLoadingSafetyTimer = setTimeout(() => hideAuthLoading(0), 12000);
+}
+function hideAuthLoading(minVisibleMs){
+    const el = document.getElementById("authLoadingOverlay");
+    if(!el || el.style.display === "none") return;
+    const min = minVisibleMs === undefined ? 900 : minVisibleMs;
+    const wait = Math.max(0, min - (Date.now() - authLoadingShownAt));
+    clearTimeout(authLoadingHideTimer);
+    authLoadingHideTimer = setTimeout(() => {
+        el.style.display = "none";
+        clearTimeout(authLoadingSafetyTimer);
+    }, wait);
+}
+
+// ---------- Microsoft ----------
+// Firebase supports Microsoft natively (free). It only works once
+// Microsoft is enabled in the Firebase console with an app registered in
+// Azure (Application/client ID + client secret).
+document.getElementById("microsoftSigninBtn")?.addEventListener("click", () => {
+    console.log("[Zyntra][Microsoft] button clicked");
+    clearSigninError();
+    const provider = new firebase.auth.OAuthProvider("microsoft.com");
+    provider.setCustomParameters({ prompt: "select_account" });
+    activeAuth().signInWithPopup(provider)
+        .then(result => {
+            console.log("[Zyntra][Microsoft] popup success", result.user && { email: result.user.email, name: result.user.displayName, uid: result.user.uid });
+            showAuthLoading("Signing you in…");
+            const u = result.user || {};
+            finishSignin(u.email || u.providerData?.[0]?.email || u.displayName || "Microsoft account");
+        })
+        .catch(err => {
+            console.error("[Zyntra][Microsoft] sign-in failed:", err.code, err.message, err.customData || "", err);
+            if(err.code === "auth/operation-not-allowed"){
+                showSigninError("Sign in with Microsoft isn't available yet.");
+                return;
+            }
+            // The generic invalid-credential text talks about email/password,
+            // which is misleading here: for Microsoft it means Firebase
+            // couldn't exchange Microsoft's login code (app setup problem).
+            if(err.code === "auth/invalid-credential" || err.code === "auth/internal-error"){
+                showSigninError("Microsoft sign-in couldn't be completed (" + err.code + "): " + String(err.message || "").slice(0, 400));
+                return;
+            }
+            const msg = firebaseErrorMessage(err.code, err.message);
+            if(msg) showSigninError(msg);
+        });
+});
+
+renderAuthNav();
+
+// ---------- Chat history (session based sidebar list) ----------
+
+function timeAgo(ts){
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if(diff < 60) return "Just now";
+    if(diff < 3600) return Math.floor(diff / 60) + "m ago";
+    if(diff < 86400) return Math.floor(diff / 3600) + "h ago";
+    return Math.floor(diff / 86400) + "d ago";
+}
+
+function getSessions(){
+    return JSON.parse(localStorage.getItem("zyntra-sessions") || "[]");
+}
+
+function saveSessions(sessions){
+    localStorage.setItem("zyntra-sessions", JSON.stringify(sessions));
+}
+
+function stripMarkdownForTitle(text){
+    return text
+        .replace(/```[\s\S]*?```/g, "")
+        .replace(/\*\*(.*?)\*\*/g, "$1")
+        .replace(/\*(.*?)\*/g, "$1")
+        .replace(/`([^`]*)`/g, "$1")
+        .replace(/^#{1,6}\s*/gm, "")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function logMessageToHistory(role, content){
+    if(role === "assistant") notifyAIReply(content);
+    if(!isLoggedIn() || temporaryChatActive) return;
+
+    const sessions = getSessions();
+    let isNewSession = false;
+
+    if(!currentSessionId){
+        currentSessionId = Date.now();
+        isNewSession = true;
+        navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "chat", currentSessionId);
+        const cleanTitle = stripMarkdownForTitle(content);
+        sessions.unshift({
+            id: currentSessionId,
+            type: activeChatTool || "chat",
+            title: cleanTitle.length > 40 ? cleanTitle.slice(0, 40) + "…" : cleanTitle,
+            time: Date.now(),
+            messages: [],
+            projectId: currentProjectId || null
+        });
+    }
+
+    const session = sessions.find(s => s.id === currentSessionId);
+    if(session) session.messages.push({ role, content });
+    saveSessions(sessions);
+    renderSidebarHistory();
+    updateDeleteChatBtnVisibility();
+
+    if(isNewSession && role === "user"){
+        generateSessionTitle(currentSessionId, content);
+    }
+}
+
+async function generateSessionTitle(sessionId, firstMessage){
+    try{
+        const { content: title } = await callChatAPI([
+            {
+                role: "user",
+                content: 'Summarize the topic of this message in 3-5 words. No punctuation, no quotes, no markdown, just the topic itself:\n\n"' + firstMessage + '"'
+            }
+        ]);
+        const clean = stripMarkdownForTitle(title).replace(/["'.]/g, "");
+        if(!clean) return;
+
+        const sessions = getSessions();
+        const session = sessions.find(s => s.id === sessionId);
+        if(session){
+            session.title = clean.length > 60 ? clean.slice(0, 60) : clean;
+            saveSessions(sessions);
+            renderSidebarHistory();
+        }
+    }catch(err){
+        // keep the fallback title already saved
+    }
+}
+
+// ---------- History logging for non-chat tools (image / poster / voice) ----------
+
+function logNonChatSession(type, title, extra){
+    if(!isLoggedIn()) return;
+    const sessions = getSessions();
+    const cleanTitle = title.length > 40 ? title.slice(0, 40) + "…" : title;
+    const session = Object.assign({
+        id: Date.now(),
+        type: type,
+        title: cleanTitle,
+        time: Date.now()
+    }, extra);
+    sessions.unshift(session);
+    saveSessions(sessions);
+    renderSidebarHistory();
+}
+
+function logImageToHistory(prompt, imageUrl){
+    logNonChatSession("image", prompt, { imageUrl: imageUrl, prompt: prompt });
+}
+
+function logPosterToHistory(title, posterDataUrl){
+    logNonChatSession("poster", title, { posterDataUrl: posterDataUrl });
+}
+
+let currentVoiceSessionId = null;
+
+function logVoiceMessageToHistory(role, content){
+    if(!isLoggedIn()) return;
+    const sessions = getSessions();
+
+    if(!currentVoiceSessionId){
+        currentVoiceSessionId = Date.now();
+        const cleanTitle = stripMarkdownForTitle(content);
+        sessions.unshift({
+            id: currentVoiceSessionId,
+            type: "voice",
+            title: cleanTitle.length > 40 ? cleanTitle.slice(0, 40) + "…" : cleanTitle,
+            time: Date.now(),
+            messages: []
+        });
+    }
+
+    const session = sessions.find(s => s.id === currentVoiceSessionId);
+    if(session) session.messages.push({ role, content });
+    saveSessions(sessions);
+    renderSidebarHistory();
+}
+
+function renderPinnedChats(){
+    const box = document.getElementById("pinnedChatsBox");
+    if(!box) return;
+    const pinned = getSessions().filter(s => s.pinned);
+    box.innerHTML = "";
+
+    if(pinned.length === 0){
+        box.innerHTML = '<p class="pinned-empty">No pinned chats yet. Pin a conversation from the sidebar.</p>';
+        return;
+    }
+
+    pinned.forEach(session => {
+        const row = document.createElement("div");
+        row.className = "history-row pinned";
+
+        const title = document.createElement("span");
+        title.className = "history-row-title";
+        title.textContent = (SESSION_TYPE_ICONS[session.type] || SESSION_TYPE_ICONS.chat) + " " + session.title;
+
+        const time = document.createElement("span");
+        time.className = "history-row-time";
+        time.textContent = timeAgo(session.time);
+
+        row.appendChild(title);
+        row.appendChild(time);
+        box.appendChild(row);
+
+        row.addEventListener("click", () => {
+            openSession(session);
+            closeModal("profileModal");
+        });
+    });
+}
+
+function deleteChatSession(id){
+    const updated = getSessions().filter(s => s.id !== id);
+    saveSessions(updated);
+    if(currentSessionId === id){
+        currentSessionId = null;
+        resetChatView();
+        navigateToRoute("chat");
+    }
+    renderSidebarHistory();
+    renderPinnedChats();
+    updateDeleteChatBtnVisibility();
+}
+
+const SESSION_TYPE_ICONS = {
+    chat: "💬",
+    study: "📘",
+    code: "💻",
+    business: "💼",
+    image: "🖼️",
+    poster: "🪧",
+    voice: "🎤"
+};
+
+// ---------- Search chats modal ----------
+
+function renderSearchChatsList(query){
+    const list = document.getElementById("searchChatsList");
+    if(!list) return;
+    list.innerHTML = "";
+
+    if(!isLoggedIn()){
+        list.innerHTML = '<p class="search-chats-empty">Sign in to save and search your conversations.</p>';
+        return;
+    }
+
+    const q = (query || "").trim().toLowerCase();
+    const sessions = getSessions().filter(s => {
+        if(!q) return true;
+        if(s.title.toLowerCase().includes(q)) return true;
+        return (s.messages || []).some(m => (m.content || "").toLowerCase().includes(q));
+    });
+
+    if(sessions.length === 0){
+        list.innerHTML = q
+            ? '<p class="search-chats-empty">No chats match your search.</p>'
+            : '<p class="search-chats-empty">No conversations yet. Start chatting!</p>';
+        return;
+    }
+
+    sessions.forEach(session => {
+        const row = document.createElement("div");
+        row.className = "search-chats-row" + (session.pinned ? " pinned" : "");
+        row.title = session.title;
+
+        const icon = document.createElement("span");
+        icon.className = "search-chats-row-icon";
+        icon.textContent = SESSION_TYPE_ICONS[session.type] || SESSION_TYPE_ICONS.chat;
+
+        const textWrap = document.createElement("span");
+        textWrap.className = "search-chats-row-text";
+
+        const title = document.createElement("span");
+        title.className = "search-chats-row-title";
+        title.textContent = session.title;
+        textWrap.appendChild(title);
+
+        // If the match wasn't in the title, show where it actually was —
+        // otherwise a hit deep in a long chat is invisible in the list.
+        if(q && !session.title.toLowerCase().includes(q)){
+            const hit = (session.messages || []).find(m => (m.content || "").toLowerCase().includes(q));
+            if(hit){
+                const lower = hit.content.toLowerCase();
+                const at = lower.indexOf(q);
+                const start = Math.max(0, at - 30);
+                const snippetText = (start > 0 ? "…" : "") + hit.content.slice(start, at + q.length + 40) + "…";
+                const snippet = document.createElement("span");
+                snippet.className = "search-chats-row-snippet";
+                snippet.textContent = snippetText;
+                textWrap.appendChild(snippet);
+            }
+        }
+
+        const pinBtn = document.createElement("button");
+        pinBtn.type = "button";
+        pinBtn.className = "search-chats-row-action";
+        pinBtn.textContent = "📌";
+        pinBtn.title = session.pinned ? "Unpin" : "Pin";
+        pinBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const all = getSessions();
+            const s = all.find(x => x.id === session.id);
+            if(s){
+                s.pinned = !s.pinned;
+                saveSessions(all);
+                renderSearchChatsList(document.getElementById("searchChatsInput")?.value || "");
+                renderPinnedChats();
+            }
+        });
+
+        // Publish this chat — sits right beside delete, on every chat
+        const publishBtn = document.createElement("button");
+        publishBtn.type = "button";
+        publishBtn.className = "search-chats-row-action search-chats-row-publish";
+        publishBtn.textContent = "📤";
+        publishBtn.title = "Publish this chat";
+        publishBtn.setAttribute("aria-label", "Publish this chat");
+        publishBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            publishChatSession(session.id, publishBtn);
+        });
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "search-chats-row-action";
+        deleteBtn.textContent = "🗑";
+        deleteBtn.title = "Delete this chat";
+        deleteBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            confirmAction(
+                "Delete This Chat?",
+                "Are you sure you want to delete this conversation? This can't be undone.",
+                () => {
+                    deleteChatSession(session.id);
+                    renderSearchChatsList(document.getElementById("searchChatsInput")?.value || "");
+                }
+            );
+        });
+
+        row.appendChild(icon);
+        row.appendChild(textWrap);
+        row.appendChild(pinBtn);
+        row.appendChild(publishBtn);
+        row.appendChild(deleteBtn);
+        row.addEventListener("click", () => {
+            closeModal("searchChatsModal");
+            openSession(session);
+        });
+        list.appendChild(row);
+    });
+}
+
+function openSearchChatsModal(){
+    openModal("searchChatsModal");
+    navigateToRoute("search");
+    closeSidebarMobile();
+    const input = document.getElementById("searchChatsInput");
+    if(input){
+        input.value = "";
+        renderSearchChatsList("");
+        setTimeout(() => input.focus(), 50);
+    }
+}
+
+document.getElementById("searchChatsBtn")?.addEventListener("click", openSearchChatsModal);
+document.getElementById("searchChatsClose")?.addEventListener("click", () => { closeModal("searchChatsModal"); revertRouteToCurrentTool(); });
+document.getElementById("searchChatsInput")?.addEventListener("input", (e) => {
+    renderSearchChatsList(e.target.value);
+});
+
+// ==========================
+// Projects modal
+// ==========================
+
+// ==========================
+// Projects page (full-screen, like AI Chat / Image Generator / Codex)
+// ==========================
+
+// Switches which of the app's full-page views (chat UI vs Projects vs
+// Scheduled) occupies the main content area. Only one is visible at a time.
+function showPageView(view){
+    document.querySelectorAll(".page-view").forEach(el => el.classList.remove("active"));
+    const chatEls = [chatArea, document.getElementById("attachPreview"), document.getElementById("adBanner"), document.querySelector(".chat-input-bar")];
+
+    if(view === "chat"){
+        chatEls.forEach(el => { if(el) el.style.display = ""; });
+        return;
+    }
+    chatEls.forEach(el => { if(el) el.style.display = "none"; });
+    document.getElementById(view + "View").classList.add("active");
+}
+
+function showProjectsScreen(screen){
+    document.getElementById("projectsListScreen").style.display = screen === "list" ? "" : "none";
+    document.getElementById("projectDetailScreen").style.display = screen === "detail" ? "" : "none";
+    document.getElementById("projectShareScreen").style.display = screen === "share" ? "" : "none";
+    document.getElementById("projectFormScreen").style.display = screen === "form" ? "" : "none";
+}
+
+let projectsActiveFilter = "all";
+
+function renderProjectsList(filterText){
+    const list = document.getElementById("projectsList");
+    if(!list) return;
+    list.innerHTML = "";
+    list.classList.remove("is-empty");
+
+    if(!isLoggedIn()){
+        list.classList.add("is-empty");
+        list.innerHTML = '<div class="page-empty-state"><div class="page-empty-state-icon">📁</div><p>Sign in to create and sync projects</p></div>';
+        return;
+    }
+
+    // Sharing is real now — filter by actual ownership instead of the
+    // old placeholder that always showed "Shared with you" as empty.
+    const uid = activeAuth().currentUser?.uid;
+    let projects = getProjects();
+    if(projectsActiveFilter === "mine") projects = projects.filter(p => p.ownerId === uid);
+    if(projectsActiveFilter === "shared") projects = projects.filter(p => p.ownerId !== uid);
+
+    if(filterText){
+        const q = filterText.toLowerCase();
+        projects = projects.filter(p => p.name.toLowerCase().includes(q));
+    }
+
+    if(projects.length === 0){
+        list.classList.add("is-empty");
+        const emptyText = filterText
+            ? "No projects match your search"
+            : (projectsActiveFilter === "shared" ? "Nothing's been shared with you yet" : "No projects yet");
+        list.innerHTML = `<div class="page-empty-state"><div class="page-empty-state-icon">📁</div><p>${emptyText}</p></div>`;
+        return;
+    }
+
+    projects.forEach(project => {
+        const card = document.createElement("div");
+        card.className = "project-card";
+
+        const dot = document.createElement("div");
+        dot.className = "project-card-dot";
+        dot.style.background = project.color + "26";
+        dot.style.color = project.color;
+        dot.textContent = "📁";
+
+        const name = document.createElement("div");
+        name.className = "project-card-name";
+        name.textContent = project.name;
+
+        const count = document.createElement("div");
+        count.className = "project-card-count";
+        const chatCount = getSessions().filter(s => s.projectId === project.id).length;
+        const memberCount = (project.members || []).length;
+        count.textContent = chatCount + (chatCount === 1 ? " chat" : " chats") + (memberCount > 1 ? ` · 👥 ${memberCount}` : "");
+
+        card.appendChild(dot);
+        card.appendChild(name);
+        card.appendChild(count);
+        card.addEventListener("click", () => openProjectDetail(project.id));
+        list.appendChild(card);
+    });
+}
+
+let projectDetailId = null;
+
+function renderMemberChips(container, emails){
+    container.innerHTML = "";
+    (emails || []).forEach(email => {
+        const chip = document.createElement("div");
+        chip.className = "project-member-chip";
+        const avatar = document.createElement("div");
+        avatar.className = "project-member-avatar";
+        avatar.textContent = (email[0] || "?").toUpperCase();
+        const label = document.createElement("span");
+        label.textContent = email;
+        chip.appendChild(avatar);
+        chip.appendChild(label);
+        container.appendChild(chip);
+    });
+}
+
+function openProjectDetail(id){
+    const project = getProjects().find(p => p.id === id);
+    if(!project) return;
+    projectDetailId = id;
+    document.getElementById("projectDetailColorTag").textContent = project.name.toUpperCase();
+    document.getElementById("projectDetailColorTag").style.background = project.color + "33";
+    document.getElementById("projectDetailColorTag").style.color = project.color;
+    document.getElementById("projectDetailName").textContent = project.name;
+    document.getElementById("projectDetailInstructions").textContent = project.instructions || "No custom instructions set.";
+    renderMemberChips(document.getElementById("projectMembersRow"), project.memberEmails);
+    // Only the owner can delete or invite others — a member with shared
+    // access shouldn't be able to remove the project out from under the
+    // owner or the other members.
+    const isOwner = project.ownerId === activeAuth().currentUser?.uid;
+    document.getElementById("projectDeleteBtn").style.display = isOwner ? "" : "none";
+    document.getElementById("projectShareBtn").style.display = isOwner ? "" : "none";
+    document.getElementById("projectEditBtn").style.display = isOwner ? "" : "none";
+    renderProjectChatsList(id);
+    showProjectsScreen("detail");
+}
+
+function openProjectShare(id){
+    const project = getProjects().find(p => p.id === id);
+    if(!project) return;
+    projectDetailId = id;
+    document.getElementById("projectShareTitle").textContent = `Share "${project.name}"`;
+    document.getElementById("projectShareEmailInput").value = "";
+    document.getElementById("projectShareStatus").textContent = "";
+    renderMemberChips(document.getElementById("projectShareMembersList"), project.memberEmails);
+    showProjectsScreen("share");
+}
+
+async function sendProjectInvite(){
+    const input = document.getElementById("projectShareEmailInput");
+    const status = document.getElementById("projectShareStatus");
+    const email = input.value.trim();
+    if(!email){ status.style.color = "var(--danger)"; status.textContent = "Enter an email address."; return; }
+
+    const btn = document.getElementById("projectShareSendBtn");
+    btn.disabled = true;
+    status.style.color = "var(--text-2)";
+    status.textContent = "Sending invite…";
+    try{
+        const result = await shareProject(projectDetailId, email);
+        status.style.color = "#37c98f";
+        status.textContent = result.alreadyMember ? "They're already in this project." : `✅ ${email} added — they now have full access.`;
+        input.value = "";
+        const project = getProjects().find(p => p.id === projectDetailId);
+        renderMemberChips(document.getElementById("projectShareMembersList"), project?.memberEmails);
+        renderMemberChips(document.getElementById("projectMembersRow"), project?.memberEmails);
+    }catch(err){
+        status.style.color = "var(--danger)";
+        status.textContent = err.message || "Couldn't send that invite.";
+    }finally{
+        btn.disabled = false;
+    }
+}
+
+document.getElementById("projectShareBtn")?.addEventListener("click", () => openProjectShare(projectDetailId));
+document.getElementById("projectShareBackBtn")?.addEventListener("click", () => showProjectsScreen("detail"));
+document.getElementById("projectShareSendBtn")?.addEventListener("click", sendProjectInvite);
+document.getElementById("projectShareEmailInput")?.addEventListener("keydown", (e) => {
+    if(e.key === "Enter") sendProjectInvite();
+});
+
+function renderProjectChatsList(projectId){
+    const list = document.getElementById("projectChatsList");
+    if(!list) return;
+    list.innerHTML = "";
+    const sessions = getSessions().filter(s => s.projectId === projectId);
+    if(sessions.length === 0){
+        list.innerHTML = '<p class="search-chats-empty">No chats in this project yet.</p>';
+        return;
+    }
+    sessions.forEach(session => {
+        const row = document.createElement("div");
+        row.className = "search-chats-row";
+        const icon = document.createElement("span");
+        icon.className = "search-chats-row-icon";
+        icon.textContent = SESSION_TYPE_ICONS[session.type] || SESSION_TYPE_ICONS.chat;
+        const title = document.createElement("span");
+        title.className = "search-chats-row-title";
+        title.textContent = session.title;
+        row.appendChild(icon);
+        row.appendChild(title);
+        row.addEventListener("click", () => openSession(session));
+        list.appendChild(row);
+    });
+}
+
+let projectFormEditId = null;
+let projectFormSelectedColor = PROJECT_COLORS[0];
+
+function renderProjectColorPicker(){
+    const picker = document.getElementById("projectColorPicker");
+    if(!picker) return;
+    picker.innerHTML = "";
+    PROJECT_COLORS.forEach(color => {
+        const dot = document.createElement("div");
+        dot.className = "project-color-dot" + (color === projectFormSelectedColor ? " selected" : "");
+        dot.style.background = color;
+        dot.addEventListener("click", () => {
+            projectFormSelectedColor = color;
+            renderProjectColorPicker();
+        });
+        picker.appendChild(dot);
+    });
+}
+
+function openProjectForm(editId){
+    projectFormEditId = editId || null;
+    const project = editId ? getProjects().find(p => p.id === editId) : null;
+    document.getElementById("projectFormTag").textContent = editId ? "EDIT PROJECT" : "NEW PROJECT";
+    document.getElementById("projectFormTitle").textContent = editId ? "Edit Project" : "New Project";
+    document.getElementById("projectNameInput").value = project ? project.name : "";
+    document.getElementById("projectInstructionsInput").value = project ? project.instructions : "";
+    projectFormSelectedColor = project ? project.color : PROJECT_COLORS[0];
+    renderProjectColorPicker();
+    showProjectsScreen("form");
+    setTimeout(() => document.getElementById("projectNameInput").focus(), 50);
+}
+
+document.getElementById("navProjects")?.addEventListener("click", async () => {
+    if(!isLoggedIn()){
+        openModal("signinModal");
+        navigateToRoute("login");
+        closeSidebarMobile();
+        return;
+    }
+    currentProjectId = null;
+    setActiveNav("projects");
+    showProjectsScreen("list");
+    document.getElementById("projectsSearchInput").value = "";
+    projectsActiveFilter = "all";
+    document.querySelectorAll(".page-view-tab").forEach(t => t.classList.toggle("active", t.dataset.projectFilter === "all"));
+    showPageView("projects");
+    navigateToRoute("projects");
+    closeSidebarMobile();
+    document.getElementById("projectsList").classList.add("is-empty");
+    document.getElementById("projectsList").innerHTML = '<div class="page-empty-state"><div class="page-empty-state-icon">⏳</div><p>Loading projects…</p></div>';
+    await refreshProjectsCache();
+    renderProjectsList("");
+});
+document.querySelectorAll(".page-view-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+        projectsActiveFilter = tab.dataset.projectFilter;
+        document.querySelectorAll(".page-view-tab").forEach(t => t.classList.remove("active"));
+        tab.classList.add("active");
+        renderProjectsList(document.getElementById("projectsSearchInput").value);
+    });
+});
+document.getElementById("projectsSearchInput")?.addEventListener("input", (e) => renderProjectsList(e.target.value));
+document.getElementById("newProjectBtn")?.addEventListener("click", () => openProjectForm(null));
+document.getElementById("projectBackBtn")?.addEventListener("click", () => { showProjectsScreen("list"); renderProjectsList(""); });
+document.getElementById("projectFormBackBtn")?.addEventListener("click", () => {
+    showProjectsScreen(projectFormEditId ? "detail" : "list");
+    if(!projectFormEditId) renderProjectsList("");
+});
+document.getElementById("projectCancelBtn")?.addEventListener("click", () => {
+    showProjectsScreen(projectFormEditId ? "detail" : "list");
+    if(!projectFormEditId) renderProjectsList("");
+});
+document.getElementById("projectSaveBtn")?.addEventListener("click", async () => {
+    const name = document.getElementById("projectNameInput").value.trim();
+    if(!name){ showToast("Give the project a name first."); return; }
+    const instructions = document.getElementById("projectInstructionsInput").value.trim();
+    const btn = document.getElementById("projectSaveBtn");
+    btn.disabled = true;
+    try{
+        if(projectFormEditId){
+            await updateProject(projectFormEditId, { name, instructions, color: projectFormSelectedColor });
+            openProjectDetail(projectFormEditId);
+        } else {
+            await createProject(name, instructions, projectFormSelectedColor);
+            showProjectsScreen("list");
+            renderProjectsList("");
+        }
+    }catch(err){
+        showToast("Couldn't save the project. Please try again.");
+    }finally{
+        btn.disabled = false;
+    }
+});
+document.getElementById("projectEditBtn")?.addEventListener("click", () => openProjectForm(projectDetailId));
+document.getElementById("projectDeleteBtn")?.addEventListener("click", () => {
+    const project = getProjects().find(p => p.id === projectDetailId);
+    if(!project) return;
+    confirmAction(
+        "Delete This Project?",
+        `Are you sure you want to delete "${project.name}"? Its chats will stay in your history, just no longer grouped together.`,
+        async () => {
+            await deleteProject(projectDetailId);
+            showProjectsScreen("list");
+            renderProjectsList("");
+        }
+    );
+});
+document.getElementById("projectNewChatBtn")?.addEventListener("click", () => {
+    currentProjectId = projectDetailId;
+    resetChatView();
+    activeChatTool = "chat";
+    applyToolGreeting("chat");
+    userInput.placeholder = TOOL_PLACEHOLDERS.chat;
+    setActiveNav("chat");
+    showPageView("chat");
+    showToast("💬 New chat started in this project");
+});
+
+// ==========================
+// Plugins page (full-screen marketplace, like Projects/Scheduled)
+// ==========================
+
+// ==========================
+// Plugin detail page (shared by connectors and built-in plugins)
+// ==========================
+
+let pluginDetailCurrent = null; // { type: "connector"|"plugin", key }
+
+function openPluginDetail(type, key){
+    pluginDetailCurrent = { type, key };
+    renderPluginDetail();
+    showPageView("pluginDetail");
+    navigateToRoute("plugins", key);
+}
+
+function renderPluginDetail(){
+    if(!pluginDetailCurrent) return;
+    const { type, key } = pluginDetailCurrent;
+    const def = type === "connector" ? CONNECTORS.find(c => c.key === key) : PLUGIN_DEFS.find(p => p.key === key);
+    if(!def) return;
+    const details = PLUGIN_DETAILS[def.key] || {};
+
+    document.getElementById("pluginDetailTitle").textContent = def.title;
+    const iconWrap = document.getElementById("pluginDetailIcon");
+    iconWrap.innerHTML = "";
+    iconWrap.appendChild(buildPluginIconEl(def, "plugin-icon-tile-square"));
+
+    document.getElementById("pluginDetailLongDesc").textContent = details.longDesc || def.desc;
+
+    // Hero card of real, working example prompts — clicking one sends it
+    // exactly like the homepage starter-prompt chips do.
+    const hero = document.getElementById("pluginDetailHero");
+    hero.innerHTML = "";
+    if(details.examples && details.examples.length){
+        hero.style.display = "flex";
+        details.examples.forEach(example => {
+            const row = document.createElement("div");
+            row.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 18px; border-radius:14px; background:rgba(255,255,255,.14); cursor:pointer; backdrop-filter:blur(6px);";
+            const text = document.createElement("span");
+            text.style.cssText = "color:#fff; font-size:14px; line-height:1.4;";
+            text.textContent = example;
+            const arrow = document.createElement("span");
+            arrow.textContent = "→";
+            arrow.style.cssText = "color:#fff; flex-shrink:0; font-size:16px;";
+            row.appendChild(text);
+            row.appendChild(arrow);
+            row.addEventListener("click", () => {
+                showPageView("chat");
+                setActiveNav("chat");
+                sendChatMessage(example);
+            });
+            hero.appendChild(row);
+        });
+    } else {
+        hero.style.display = "none";
+    }
+
+    const capsList = document.getElementById("pluginDetailCapabilities");
+    capsList.innerHTML = "";
+    (PLUGIN_CAPABILITIES[def.key] || [def.desc]).forEach(cap => {
+        const li = document.createElement("li");
+        li.style.cssText = "display:flex; align-items:flex-start; gap:10px; color:#c7cae6; font-size:14px;";
+        li.innerHTML = '<span style="color:#7c8bff;">\u2713</span><span></span>';
+        li.querySelector("span:last-child").textContent = cap;
+        capsList.appendChild(li);
+    });
+
+    const subtitle = document.getElementById("pluginDetailSubtitle");
+    const actionBtn = document.getElementById("pluginDetailActionBtn");
+    const statusEl = document.getElementById("pluginDetailStatus");
+    let connected = false;
+
+    if(type === "connector"){
+        const status = connectorStatusCache[def.provider];
+        connected = !!status?.connected;
+        subtitle.textContent = status === undefined ? "Checking\u2026" : (connected ? CONNECTOR_PROVIDER_CONFIG[def.provider].label(status) : def.desc);
+        actionBtn.textContent = connected ? "Disconnect" : "Connect";
+        actionBtn.disabled = status === undefined;
+        actionBtn.onclick = () => handleConnectorClick(def);
+        statusEl.textContent = connected ? "" : "Connecting lets Zyntra take real actions in your account, only when you ask it to in chat.";
+    } else {
+        const plugins = getPlugins();
+        connected = !!plugins[def.key];
+        subtitle.textContent = def.desc;
+        actionBtn.textContent = connected ? "Disable" : "Enable";
+        actionBtn.disabled = false;
+        actionBtn.onclick = () => {
+            const newState = !connected;
+            setPlugin(def.key, newState);
+            renderPluginDetail();
+            showToast((newState ? "\u2705 " : "\ud83d\udeab ") + def.title + (newState ? " enabled" : " disabled"));
+        };
+        statusEl.textContent = "";
+    }
+
+    // "Information" section — matches the reference layout: capabilities,
+    // developer, category, website, version, privacy policy.
+    const infoTable = document.getElementById("pluginDetailInfoTable");
+    infoTable.innerHTML = "";
+    const rows = [
+        ["Capabilities", type === "connector" ? "Read, Write" : "Built-in"],
+        ["Developer", "Zyntra AI"],
+        ["Category", details.category || (type === "connector" ? "Integration" : "Built-in")]
+    ];
+    if(details.website) rows.push(["Website", details.website]);
+    rows.push(["Version", "1.0"]);
+    rows.push(["Privacy Policy", "__privacy__"]);
+
+    rows.forEach(([label, value]) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex; align-items:center; justify-content:space-between; padding:14px 0; border-bottom:1px solid #232952;";
+        const labelEl = document.createElement("span");
+        labelEl.style.cssText = "color:#8087a8; font-size:14px;";
+        labelEl.textContent = label;
+        row.appendChild(labelEl);
+
+        if(value === "__privacy__"){
+            const link = document.createElement("a");
+            link.href = "#";
+            link.textContent = "View";
+            link.style.cssText = "color:#9aa8ff; font-size:14px; text-decoration:none;";
+            link.addEventListener("click", (e) => { e.preventDefault(); showPageView("privacy"); setActiveNav("privacy"); });
+            row.appendChild(link);
+        } else if(typeof value === "string" && value.startsWith("http")){
+            const link = document.createElement("a");
+            link.href = value;
+            link.target = "_blank";
+            link.rel = "noopener";
+            link.textContent = value.replace(/^https?:\/\//, "");
+            link.style.cssText = "color:#9aa8ff; font-size:14px; text-decoration:none;";
+            row.appendChild(link);
+        } else {
+            const valueEl = document.createElement("span");
+            valueEl.style.cssText = "color:#eef0ff; font-size:14px; font-weight:600;";
+            valueEl.textContent = value;
+            row.appendChild(valueEl);
+        }
+        infoTable.appendChild(row);
+    });
+}
+
+document.getElementById("pluginDetailPrivacyLink")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    showPageView("privacy");
+    setActiveNav("privacy");
+});
+
+document.getElementById("pluginDetailBackBtn")?.addEventListener("click", () => {
+    renderPluginsConnectionsList();
+    showPageView("plugins");
+    navigateToRoute("plugins");
+});
+
+document.getElementById("navPlugins")?.addEventListener("click", () => {
+    setActiveNav("plugins");
+    renderPluginsConnectionsList();
+    refreshAllConnectorStatuses();
+    showPageView("plugins");
+    navigateToRoute("plugins");
+    closeSidebarMobile();
+});
+
+// ==========================
+// Scheduled page (full-screen))
+// ==========================
+
+const SCHEDULED_RECOMMENDED = [
+    { icon: "🌅", title: "Daily brief", prompt: "Give me a short daily briefing on the topics I care about most", frequency: "daily" },
+    { icon: "📖", title: "Weekend long read", prompt: "Every Saturday, find me one exceptional recent long read based on my interests", frequency: "weekly" },
+    { icon: "💡", title: "Fresh ideas", prompt: "Give me 3 fresh business ideas for a small budget", frequency: "weekly" },
+    { icon: "📈", title: "Weekly recap", prompt: "Summarize the biggest news in tech and AI from this week", frequency: "weekly" }
+];
+
+let scheduledShowActiveOnly = true;
+
+function renderScheduledRecommended(){
+    const wrap = document.getElementById("scheduledRecommendedList");
+    if(!wrap) return;
+    wrap.innerHTML = "";
+    SCHEDULED_RECOMMENDED.forEach(rec => {
+        const row = document.createElement("div");
+        row.className = "scheduled-task-row";
+
+        const icon = document.createElement("span");
+        icon.className = "scheduled-task-icon";
+        icon.textContent = rec.icon;
+
+        const body = document.createElement("div");
+        body.className = "scheduled-task-body";
+        const title = document.createElement("div");
+        title.className = "scheduled-task-title";
+        title.textContent = rec.title;
+        const desc = document.createElement("div");
+        desc.className = "scheduled-task-desc";
+        desc.textContent = rec.prompt;
+        body.appendChild(title);
+        body.appendChild(desc);
+
+        const addBtn = document.createElement("button");
+        addBtn.type = "button";
+        addBtn.className = "scheduled-task-action";
+        addBtn.textContent = "+";
+        addBtn.title = "Add this task";
+        addBtn.addEventListener("click", () => {
+            if(!isLoggedIn()){ openModal("signinModal"); navigateToRoute("login"); return; }
+            createScheduledTask(rec.prompt, rec.frequency);
+            renderScheduledList();
+            showToast("🕐 Added: " + rec.title);
+        });
+
+        row.appendChild(icon);
+        row.appendChild(body);
+        row.appendChild(addBtn);
+        wrap.appendChild(row);
+    });
+}
+
+function renderScheduledList(){
+    const list = document.getElementById("scheduledList");
+    const label = document.getElementById("scheduledTasksLabel");
+    if(!list) return;
+    list.innerHTML = "";
+
+    if(!isLoggedIn()){
+        label.style.display = "none";
+        return;
+    }
+
+    let tasks = getScheduledTasks();
+    if(scheduledShowActiveOnly) tasks = tasks.filter(t => t.active);
+
+    if(tasks.length === 0){
+        label.style.display = "none";
+        return;
+    }
+    label.style.display = "";
+
+    tasks.forEach(task => {
+        const row = document.createElement("div");
+        row.className = "scheduled-task-row";
+
+        const icon = document.createElement("span");
+        icon.className = "scheduled-task-icon";
+        icon.textContent = "🕐";
+
+        const body = document.createElement("div");
+        body.className = "scheduled-task-body";
+        const title = document.createElement("div");
+        title.className = "scheduled-task-title";
+        title.textContent = task.prompt;
+        const meta = document.createElement("div");
+        meta.className = "scheduled-task-desc";
+        const lastRun = task.lastRunAt ? `Last ran ${timeAgo(task.lastRunAt)}` : "Not run yet";
+        meta.textContent = (task.frequency === "daily" ? "Daily" : "Weekly") + " — " + lastRun;
+        body.appendChild(title);
+        body.appendChild(meta);
+        if(task.results && task.results.length){
+            const lastResult = task.results[task.results.length - 1];
+            const resultPreview = document.createElement("div");
+            resultPreview.className = "scheduled-task-result";
+            resultPreview.textContent = "💬 " + (lastResult.reply.length > 110 ? lastResult.reply.slice(0, 110) + "…" : lastResult.reply);
+            body.appendChild(resultPreview);
+        }
+
+        const status = document.createElement("span");
+        status.className = "scheduled-task-status";
+        status.textContent = task.active ? "Active" : "Paused";
+        status.title = "Click to " + (task.active ? "pause" : "resume");
+        status.addEventListener("click", () => {
+            toggleScheduledTask(task.id);
+            renderScheduledList();
+        });
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.type = "button";
+        deleteBtn.className = "scheduled-task-action";
+        deleteBtn.textContent = "🗑";
+        deleteBtn.title = "Delete this task";
+        deleteBtn.addEventListener("click", () => {
+            deleteScheduledTask(task.id);
+            renderScheduledList();
+        });
+
+        row.appendChild(icon);
+        row.appendChild(body);
+        row.appendChild(status);
+        row.appendChild(deleteBtn);
+        list.appendChild(row);
+    });
+}
+
+document.getElementById("navScheduled")?.addEventListener("click", () => {
+    if(!isLoggedIn()){
+        openModal("signinModal");
+        navigateToRoute("login");
+        closeSidebarMobile();
+        return;
+    }
+    currentProjectId = null;
+    setActiveNav("scheduled");
+    renderScheduledList();
+    renderScheduledRecommended();
+    showPageView("scheduled");
+    navigateToRoute("scheduled");
+    closeSidebarMobile();
+});
+
+document.getElementById("scheduledFilterBtn")?.addEventListener("click", () => {
+    scheduledShowActiveOnly = !scheduledShowActiveOnly;
+    document.getElementById("scheduledFilterLabel").textContent = scheduledShowActiveOnly ? "Active" : "All";
+    renderScheduledList();
+});
+
+let scheduledQuickFrequency = "daily";
+
+function createScheduledTaskFromQuickBar(){
+    const input = document.getElementById("scheduledQuickInput");
+    const prompt = input.value.trim();
+    if(!prompt){ showToast("Describe what Zyntra should do first."); return; }
+    if(!isLoggedIn()){ openModal("signinModal"); navigateToRoute("login"); return; }
+    createScheduledTask(prompt, scheduledQuickFrequency);
+    input.value = "";
+    renderScheduledList();
+    showToast("🕐 Scheduled task created");
+}
+document.getElementById("scheduledInputPlus")?.addEventListener("click", () => document.getElementById("scheduledQuickInput").focus());
+document.getElementById("scheduledQuickSend")?.addEventListener("click", createScheduledTaskFromQuickBar);
+document.getElementById("scheduledQuickInput")?.addEventListener("keydown", (e) => {
+    if(e.key === "Enter") createScheduledTaskFromQuickBar();
+});
+
+// Custom frequency dropdown (Daily/Weekly) — see the CSS comment on
+// .custom-select for why this isn't a native <select>.
+document.getElementById("scheduledFrequencyBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.getElementById("scheduledFrequencyMenu").classList.toggle("open");
+});
+document.querySelectorAll("#scheduledFrequencyMenu .custom-select-option").forEach(opt => {
+    opt.addEventListener("click", () => {
+        scheduledQuickFrequency = opt.dataset.value;
+        document.getElementById("scheduledFrequencyLabel").textContent = opt.textContent;
+        document.querySelectorAll("#scheduledFrequencyMenu .custom-select-option").forEach(o => o.classList.remove("selected"));
+        opt.classList.add("selected");
+        document.getElementById("scheduledFrequencyMenu").classList.remove("open");
+    });
+});
+document.addEventListener("click", () => {
+    document.getElementById("scheduledFrequencyMenu")?.classList.remove("open");
+});
+
+applyPluginVisibility();
+
+function buildSidebarHistoryRow(session){
+    const row = document.createElement("div");
+    row.className = "sidebar-history-row" + (session.pinned ? " pinned" : "");
+    row.title = session.title;
+
+    const icon = document.createElement("span");
+    icon.className = "shr-icon";
+    icon.textContent = SESSION_TYPE_ICONS[session.type] || SESSION_TYPE_ICONS.chat;
+
+    const title = document.createElement("span");
+    title.className = "shr-title";
+    title.textContent = session.title;
+
+    const pinBtn = document.createElement("button");
+    pinBtn.className = "shr-pin";
+    pinBtn.textContent = "📌";
+    pinBtn.title = session.pinned ? "Unpin" : "Pin";
+    pinBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const all = getSessions();
+        const s = all.find(x => x.id === session.id);
+        if(s){
+            s.pinned = !s.pinned;
+            saveSessions(all);
+            renderSidebarHistory();
+            renderPinnedChats();
+        }
+    });
+
+    const menuBtn = document.createElement("button");
+    menuBtn.className = "shr-menu";
+    menuBtn.textContent = "⋮";
+    menuBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        confirmAction(
+            "Delete This Chat?",
+            "Are you sure you want to delete this conversation? This can't be undone.",
+            () => deleteChatSession(session.id)
+        );
+    });
+
+    row.appendChild(icon);
+    row.appendChild(title);
+    row.appendChild(pinBtn);
+    row.appendChild(menuBtn);
+    row.addEventListener("click", () => openSession(session));
+    return row;
+}
+
+function renderSidebarHistory(){
+    const list = document.getElementById("sidebarHistoryList");
+    const pinnedSection = document.getElementById("sidebarPinnedSection");
+    const pinnedList = document.getElementById("sidebarPinnedList");
+    if(!list || !pinnedSection || !pinnedList) return;
+    list.innerHTML = "";
+    pinnedList.innerHTML = "";
+
+    if(!isLoggedIn()){
+        list.innerHTML = '<p class="sidebar-history-empty">Sign in to save and revisit your conversations.</p>';
+        pinnedSection.style.display = "none";
+        return;
+    }
+
+    const sessions = getSessions();
+    const pinned = sessions.filter(s => s.pinned);
+    const unpinned = sessions.filter(s => !s.pinned);
+
+    if(pinned.length > 0){
+        pinnedSection.style.display = "";
+        pinned.forEach(session => pinnedList.appendChild(buildSidebarHistoryRow(session)));
+    } else {
+        pinnedSection.style.display = "none";
+    }
+
+    if(unpinned.length === 0){
+        list.innerHTML = sessions.length === 0
+            ? '<p class="sidebar-history-empty">No conversations yet. Start chatting!</p>'
+            : '<p class="sidebar-history-empty">All chats are pinned.</p>';
+        return;
+    }
+
+    unpinned.forEach(session => list.appendChild(buildSidebarHistoryRow(session)));
+}
+
+function confirmAction(title, text, onConfirm){
+    document.getElementById("confirmActionTitle").innerHTML = title;
+    document.getElementById("confirmActionText").textContent = text;
+    openModal("confirmActionModal");
+
+    const okBtn = document.getElementById("confirmActionOk");
+    const newOkBtn = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+    newOkBtn.addEventListener("click", () => {
+        closeModal("confirmActionModal");
+        onConfirm();
+    });
+}
+
+document.getElementById("confirmActionClose")?.addEventListener("click", () => closeModal("confirmActionModal"));
+document.getElementById("confirmActionCancel")?.addEventListener("click", () => closeModal("confirmActionModal"));
+
+document.getElementById("searchChatsClearBtn")?.addEventListener("click", () => {
+    if(!isLoggedIn()) return;
+    confirmAction(
+        "Clear All History?",
+        "Are you sure you want to delete every saved conversation? This can't be undone.",
+        () => {
+            saveSessions([]);
+            currentSessionId = null;
+            renderSidebarHistory();
+            renderPinnedChats();
+            renderSearchChatsList(document.getElementById("searchChatsInput")?.value || "");
+        }
+    );
+});
+
+function openSession(session){
+    showPageView("chat");
+    const type = session.type || "chat";
+    navigateToRoute(TOOL_TO_SLUG[type] || "chat", session.id);
+    if(type === "image" && session.imageUrl){
+        openImageSession(session);
+    } else if(type === "poster"){
+        openPosterSession(session);
+    } else if(type === "voice"){
+        openVoiceSession(session);
+    } else {
+        openChatSession(session);
+    }
+    closeSidebarMobile();
+}
+
+function openChatSession(session){
+    activeChatTool = session.type || "chat";
+    currentProjectId = session.projectId || null;
+    setActiveNav(activeChatTool);
+    if(TOOL_PLACEHOLDERS[activeChatTool]) userInput.placeholder = TOOL_PLACEHOLDERS[activeChatTool];
+
+    chatHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
+    activeDocument = null; // a saved chat doesn't carry its document index — attach the file again to keep searching it
+    currentSessionId = session.id;
+    document.getElementById("chatGreeting").style.display = "none";
+    chatMessages.innerHTML = "";
+    session.messages.forEach(m => {
+        if(m.role === "user"){
+            const div = document.createElement("div");
+            div.className = "user-message";
+            const p = document.createElement("p");
+            p.style.margin = "0";
+            p.textContent = m.content;
+            div.appendChild(p);
+            div.appendChild(buildMsgCheck());
+            chatMessages.appendChild(div);
+        } else {
+            const div = document.createElement("div");
+            div.className = "ai-message done";
+            const avatar = document.createElement("img");
+            avatar.src = "/favicon.png";
+            avatar.alt = "";
+            avatar.className = "ai-message-avatar";
+            const content = document.createElement("div");
+            content.className = "ai-message-content";
+            content.innerHTML = formatAIText(m.content);
+            div.appendChild(avatar);
+            div.appendChild(content);
+            chatMessages.appendChild(div);
+        }
+    });
+    chatAutoScroll();
+    updateDeleteChatBtnVisibility();
+}
+
+function openImageSession(session){
+    openModal("imageModal");
+    const input = document.getElementById("imageInput");
+    const result = document.getElementById("imageResult");
+    if(input) input.value = session.prompt || "";
+    if(!result) return;
+    result.innerHTML = "";
+    const img = document.createElement("img");
+    img.className = "generated-img";
+    img.alt = session.title || "Generated image";
+    img.src = session.imageUrl;
+    result.appendChild(img);
+
+    const actionsRow = document.createElement("div");
+    actionsRow.style.display = "flex";
+    actionsRow.style.gap = "8px";
+    actionsRow.style.marginTop = "8px";
+    result.appendChild(actionsRow);
+
+    const downloadBtn = document.createElement("button");
+    downloadBtn.className = "copy-btn";
+    downloadBtn.textContent = "⬇ Download";
+    downloadBtn.addEventListener("click", () => {
+        const a = document.createElement("a");
+        a.href = session.imageUrl;
+        a.download = "zyntra-ai-image.png";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    });
+    actionsRow.appendChild(downloadBtn);
+}
+
+function openPosterSession(session){
+    openModal("posterModal");
+    const result = document.getElementById("posterResult");
+    if(!result) return;
+    result.innerHTML = "";
+    const img = document.createElement("img");
+    img.className = "generated-img";
+    img.alt = session.title || "Generated poster";
+    img.src = session.posterDataUrl;
+    result.appendChild(img);
+
+    const actionsRow = document.createElement("div");
+    actionsRow.style.display = "flex";
+    actionsRow.style.gap = "8px";
+    actionsRow.style.marginTop = "8px";
+    result.appendChild(actionsRow);
+
+    const downloadBtn = document.createElement("button");
+    downloadBtn.className = "copy-btn";
+    downloadBtn.textContent = "⬇ Download Poster";
+    downloadBtn.addEventListener("click", () => {
+        const a = document.createElement("a");
+        a.href = session.posterDataUrl;
+        a.download = "zyntra-ai-poster.png";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    });
+    actionsRow.appendChild(downloadBtn);
+}
+
+function openVoiceSession(session){
+    showPageView("voice");
+    document.getElementById("jarvisPermissionGate").style.display = jarvisMicGranted ? "none" : "";
+    document.getElementById("jarvisInterface").style.display = jarvisMicGranted ? "" : "none";
+    voiceHistory = session.messages.map(m => ({ role: m.role, content: m.content }));
+    currentVoiceSessionId = session.id;
+    voiceBox.innerHTML = "";
+    session.messages.forEach(m => {
+        addVoiceMsg(m.content, m.role === "user" ? "user" : "ai");
+    });
+}
+
+// ---------- New chat ----------
+
+function resetChatView(){
+    // Any messages already sent were saved to chat history live as they
+    // happened (see logMessageToHistory), so this just clears the view.
+    chatHistory = [];
+    activeDocument = null;
+    currentSessionId = null;
+    chatMessages.innerHTML = "";
+    document.getElementById("chatGreeting").style.display = "";
+    renderPromptSuggestions();
+    updateDeleteChatBtnVisibility();
+    if(temporaryChatActive) setTemporaryChatActive(false);
+    updateTempChatToggleVisibility();
+    dataAnalysisDataset = null;
+}function updateDeleteChatBtnVisibility(){
+    const btn = document.getElementById("deleteChatBtn");
+    const shareBtn = document.getElementById("shareChatBtn");
+    const exportBtn = document.getElementById("exportChatBtn");
+    const visible = (currentSessionId && isLoggedIn()) ? "flex" : "none";
+    if(btn) btn.style.display = visible;
+    if(shareBtn) shareBtn.style.display = visible;
+    if(exportBtn) exportBtn.style.display = currentSessionId ? "flex" : "none";
+}
+
+document.getElementById("deleteChatBtn")?.addEventListener("click", () => {
+    if(!currentSessionId) return;
+    const idToDelete = currentSessionId;
+    confirmAction(
+        "Delete This Chat?",
+        "Are you sure you want to delete this conversation? This can't be undone.",
+        () => deleteChatSession(idToDelete)
+    );
+});
+
+document.getElementById("exportChatBtn")?.addEventListener("click", () => {
+    const messages = chatHistory.filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim());
+    if(messages.length === 0){
+        alert("Nothing in this chat to export yet.");
+        return;
+    }
+
+    const session = getSessions().find(s => s.id === currentSessionId);
+    const title = session?.title || "Zyntra AI conversation";
+    const dateStr = new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+
+    let md = `# ${title}\n\n_Exported from Zyntra AI — ${dateStr}_\n\n---\n\n`;
+    messages.forEach(m => {
+        md += (m.role === "user" ? "### 🧑 You\n\n" : "### 🤖 Zyntra AI\n\n") + m.content.trim() + "\n\n";
+    });
+
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) + ".md";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+});
+
+function ensureShareResultModal(){
+    let modal = document.getElementById("shareResultModal");
+    if(modal) return modal;
+
+    modal = document.createElement("div");
+    modal.id = "shareResultModal";
+    modal.className = "modal-overlay";
+    modal.innerHTML = `
+        <div class="modal-box" style="max-width:440px;">
+            <h3 style="margin:0 0 14px;">🎉 Chat published!</h3>
+            <p style="margin:0 0 14px;color:var(--text-2);font-size:13.5px;">Anyone with this link can view this conversation — no sign-in needed.</p>
+            <div class="share-result-row">
+                <span class="share-result-url" id="shareResultUrl"></span>
+                <button type="button" class="share-result-copy" id="shareResultCopyBtn">📋 Copy</button>
+            </div>
+            <button type="button" class="modal-close-btn" id="shareResultCloseBtn" style="margin-top:16px;width:100%;">Done</button>
+            <button type="button" id="shareResultManageBtn" style="margin-top:10px;width:100%;background:none;border:none;color:var(--text-3);font-size:12px;cursor:pointer;">Manage your shared chats →</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector("#shareResultCloseBtn").addEventListener("click", () => closeModal("shareResultModal"));
+    modal.querySelector("#shareResultManageBtn")?.addEventListener("click", async () => {
+        closeModal("shareResultModal");
+        openModal("mySharesModal");
+        navigateToRoute("shares");
+        await loadMyShares();
+    });
+    modal.addEventListener("click", (e) => { if(e.target === modal) closeModal("shareResultModal"); });
+    return modal;
+}
+
+function ensureShareConfirmModal(){
+    let modal = document.getElementById("shareConfirmModal");
+    if(modal) return modal;
+
+    modal = document.createElement("div");
+    modal.id = "shareConfirmModal";
+    modal.className = "modal-overlay";
+    modal.innerHTML = `
+        <div class="modal-box" style="max-width:440px;">
+            <h3 style="margin:0 0 6px;">📤 Publish this chat</h3>
+            <p id="shareConfirmChatName" style="margin:0 0 10px;color:var(--text-1);font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></p>
+            <p style="margin:0 0 14px;color:var(--text-2);font-size:13.5px;">Anyone with the link can read it — no sign-in needed.</p>
+            <label class="share-public-checkbox">
+                <input type="checkbox" id="sharePublicCheckbox">
+                <span>🌐 Also feature this on the public Discover page</span>
+            </label>
+            <div style="display:flex;gap:8px;margin-top:16px;">
+                <button type="button" class="persona-form-save" id="shareConfirmGoBtn" style="flex:1;">Publish</button>
+                <button type="button" class="persona-form-cancel" id="shareConfirmCancelBtn">Cancel</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector("#shareConfirmCancelBtn").addEventListener("click", () => closeModal("shareConfirmModal"));
+    modal.addEventListener("click", (e) => { if(e.target === modal) closeModal("shareConfirmModal"); });
+    return modal;
+}
+
+async function doShareChat(makePublic, sessionId, btnEl){
+    // sessionId: which chat to publish (defaults to the one that's open)
+    const targetId = sessionId || currentSessionId;
+    const btn = btnEl || document.getElementById("shareChatBtn");
+    const original = btn ? btn.textContent : "";
+    if(btn) btn.textContent = "…";
+    try{
+        const session = getSessions().find(s => s.id === targetId);
+        const source = (targetId === currentSessionId && chatHistory.length) ? chatHistory : ((session && session.messages) || []);
+        const cleanMessages = source
+            .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
+            .map(m => ({ role: m.role, content: m.content }));
+        if(cleanMessages.length === 0){
+            alert("Nothing in this chat to publish yet.");
+            return;
+        }
+        const idToken = await activeAuth().currentUser.getIdToken();
+        const res = await fetch("/api/share-chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: JSON.stringify({ messages: cleanMessages, title: session?.title || "A Zyntra AI conversation", makePublic })
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.error || "Could not publish this chat.");
+
+        const modal = ensureShareResultModal();
+        modal.querySelector("#shareResultUrl").textContent = data.url;
+        modal.querySelector("#shareResultCopyBtn").onclick = () => {
+            navigator.clipboard.writeText(data.url);
+            const copyBtn = modal.querySelector("#shareResultCopyBtn");
+            copyBtn.textContent = "✅ Copied";
+            setTimeout(() => { copyBtn.textContent = "📋 Copy"; }, 1500);
+        };
+        openModal("shareResultModal");
+    }catch(err){
+        alert(err.message || "Could not publish this chat. Please try again.");
+    }finally{
+        if(btn) btn.textContent = original;
+    }
+}
+
+// Asks "also feature it on Discover?" then publishes the chosen chat.
+function publishChatSession(sessionId, btnEl){
+    if(!isLoggedIn()){
+        openModal("signinModal");
+        return;
+    }
+    if(!sessionId) return;
+    const modal = ensureShareConfirmModal();
+    modal.querySelector("#sharePublicCheckbox").checked = false;
+    const session = getSessions().find(s => s.id === sessionId);
+    const nameEl = modal.querySelector("#shareConfirmChatName");
+    if(nameEl) nameEl.textContent = session ? session.title : "";
+    modal.querySelector("#shareConfirmGoBtn").onclick = () => {
+        const makePublic = modal.querySelector("#sharePublicCheckbox").checked;
+        closeModal("shareConfirmModal");
+        doShareChat(makePublic, sessionId, btnEl);
+    };
+    openModal("shareConfirmModal");
+}
+
+document.getElementById("shareChatBtn")?.addEventListener("click", () => {
+    if(!currentSessionId || !isLoggedIn()) return;
+    publishChatSession(currentSessionId);
+});
+
+async function loadSharedChat(id){
+    showPageView("share");
+    const container = document.getElementById("shareViewMessages");
+    const titleEl = document.getElementById("shareViewTitle");
+    container.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;">Loading…</p>`;
+    try{
+        // Same file as the POST that creates a share — one function
+        // handles both GET and POST to save a Vercel function slot.
+        const res = await fetch(`/api/share-chat?id=${encodeURIComponent(id)}`);
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.error || "This shared chat doesn't exist or was removed.");
+
+        titleEl.textContent = data.title;
+        container.innerHTML = "";
+        data.messages.forEach(msg => {
+            if(msg.role === "user"){
+                const div = document.createElement("div");
+                div.className = "user-message";
+                div.textContent = msg.content;
+                container.appendChild(div);
+            } else {
+                const div = document.createElement("div");
+                div.className = "ai-message done";
+                const avatar = document.createElement("img");
+                avatar.src = "/favicon.png";
+                avatar.alt = "";
+                avatar.className = "ai-message-avatar";
+                const content = document.createElement("div");
+                content.className = "ai-message-content";
+                content.innerHTML = formatAIText(msg.content);
+                div.appendChild(avatar);
+                div.appendChild(content);
+                container.appendChild(div);
+            }
+        });
+    }catch(err){
+        titleEl.textContent = "Not found";
+        container.innerHTML = `<p style="text-align:center;color:var(--text-3);padding:40px 0;">${err.message}</p>`;
+    }
+}
+
+document.getElementById("newChatBtn")?.addEventListener("click", () => {
+    currentProjectId = null;
+    showPageView("chat");
+    resetChatView();
+    navigateToRoute("chat");
+    closeSidebarMobile();
+    userInput.focus();
+});
+
+// ---------- Theme toggle ----------
+
+const themeToggle = document.getElementById("themeToggle");
+
+function applyTheme(isLight){
+    document.body.classList.toggle("light-mode", isLight);
+    if(themeToggle) themeToggle.textContent = isLight ? "☀️" : "🌙";
+    localStorage.setItem("zyntra-theme", isLight ? "light" : "dark");
+    document.querySelectorAll(".settings-theme-btn").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.theme === (isLight ? "light" : "dark"));
+    });
+}
+
+applyTheme(localStorage.getItem("zyntra-theme") === "light");
+
+themeToggle?.addEventListener("click", () => {
+    applyTheme(!document.body.classList.contains("light-mode"));
+});
+
+document.querySelectorAll(".settings-theme-btn").forEach(btn => {
+    btn.addEventListener("click", () => applyTheme(btn.dataset.theme === "light"));
+});
+
+document.getElementById("settingsClearHistoryBtn")?.addEventListener("click", () => {
+    if(!isLoggedIn()) return;
+    confirmAction(
+        "Clear All History?",
+        "Are you sure you want to delete every saved conversation? This can't be undone.",
+        () => {
+            saveSessions([]);
+            currentSessionId = null;
+            renderSidebarHistory();
+            renderPinnedChats();
+            renderSearchChatsList(document.getElementById("searchChatsInput")?.value || "");
+        }
+    );
+});
+
+function renderSettingsMemoryList(){
+    const list = document.getElementById("settingsMemoryList");
+    const empty = document.getElementById("settingsMemoryEmpty");
+    if(!list || !empty) return;
+
+    const memories = getMemories();
+    list.innerHTML = "";
+    if(memories.length === 0){
+        empty.style.display = "block";
+        return;
+    }
+    empty.style.display = "none";
+    // Most recently learned first.
+    [...memories].reverse().forEach(m => {
+        const li = document.createElement("li");
+        li.textContent = m.fact;
+        list.appendChild(li);
+    });
+}
+
+document.querySelectorAll('.settings-nav-item[data-settings-section="data"]').forEach(btn => {
+    btn.addEventListener("click", renderSettingsMemoryList);
+});
+
+document.getElementById("settingsClearMemoryBtn")?.addEventListener("click", () => {
+    if(!isLoggedIn()) return;
+    confirmAction(
+        "Clear Everything Remembered?",
+        "This deletes every fact Zyntra has learned about you across all your conversations. This can't be undone.",
+        () => {
+            saveMemories([]);
+            renderSettingsMemoryList();
+        }
+    );
+});
+
+// ---------- Sidebar (mobile off-canvas) ----------
+
+function openSidebarMobile(){
+    document.getElementById("sidebar").classList.add("show");
+    document.getElementById("sidebarOverlay").classList.add("show");
+}
+function closeSidebarMobile(){
+    document.getElementById("sidebar").classList.remove("show");
+    document.getElementById("sidebarOverlay").classList.remove("show");
+}
+
+document.getElementById("hamburgerBtn")?.addEventListener("click", openSidebarMobile);
+document.getElementById("sidebarCloseBtn")?.addEventListener("click", closeSidebarMobile);
+document.getElementById("sidebarOverlay")?.addEventListener("click", closeSidebarMobile);
+
+// ==========================
+// AI CHAT
+// ==========================
+
+const chatMessages = document.getElementById("chatMessages");
+const chatArea = document.getElementById("chatArea");
+const userInput = document.getElementById("userInput");
+let chatHistory = [];
+let attachedImage = null;
+let attachedDocument = null; // { name, text } — set once client-side extraction finishes
+let activeDocument = null;   // searchable index of the long document this chat is about (see "Chat with long documents")
+// ==========================================================
+// Chat with long documents
+// Short files (<= DOC_INLINE_LIMIT chars) are sent whole, exactly as
+// before. Longer ones are split into chunks and indexed in the browser;
+// for every question only the most relevant chunks are sent (BM25-style
+// keyword scoring, no server or extra library). The document stays
+// "active" for follow-up questions until it's removed or the chat resets.
+// ==========================================================
+const DOC_INLINE_LIMIT = 15000;   // up to this many chars: send the whole document
+const DOC_MAX_CHARS = 600000;     // index at most this much text per document
+const DOC_CHUNK_SIZE = 1500;      // chars per searchable chunk
+const DOC_CONTEXT_BUDGET = 12000; // chars of excerpts sent with each question
+const DOC_EXCERPT_MARK = "[Document excerpts from ";
+const DOC_STOPWORDS = new Set(("the and for are was were with that this these those from have has had not but you your " +
+    "what which who whom how why when where does did can could should would will into out about page pages than then " +
+    "they their them its his her our any all also been being more most some such other over under again").split(" "));
+
+function docTokens(text){
+    return (String(text || "").toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []).filter(t => !DOC_STOPWORDS.has(t));
+}
+
+function chunkDocText(text, size){
+    const chunks = [];
+    let i = 0;
+    while(i < text.length){
+        let end = Math.min(i + size, text.length);
+        if(end < text.length){
+            // Prefer ending at a sentence/line break in the last 40% of the chunk, else at a space.
+            const minCut = i + Math.floor(size * 0.6);
+            const stop = Math.max(text.lastIndexOf(". ", end), text.lastIndexOf("\n", end));
+            const space = text.lastIndexOf(" ", end);
+            if(stop > minCut) end = stop + 1;
+            else if(space > minCut) end = space;
+        }
+        const piece = text.slice(i, end).trim();
+        if(piece) chunks.push(piece);
+        i = end;
+    }
+    return chunks;
+}
+
+function buildDocIndex(name, fullText, capped){
+    const chunks = chunkDocText(fullText, DOC_CHUNK_SIZE).map(text => {
+        const tf = {};
+        const toks = docTokens(text);
+        toks.forEach(t => { tf[t] = (tf[t] || 0) + 1; });
+        return { text, tf, len: toks.length || 1 };
+    });
+    const df = {};
+    chunks.forEach(c => Object.keys(c.tf).forEach(t => { df[t] = (df[t] || 0) + 1; }));
+    const avgLen = chunks.reduce((s, c) => s + c.len, 0) / (chunks.length || 1);
+    const pageMatches = fullText.match(/\[Page \d+\]/g);
+    return {
+        name, chunks, df, avgLen, capped: !!capped,
+        totalChars: fullText.length,
+        words: fullText.split(/\s+/).filter(Boolean).length,
+        pages: pageMatches ? pageMatches.length : 0,
+        lastQuery: ""
+    };
+}
+
+function pickDocExcerpts(doc, question){
+    const N = doc.chunks.length;
+    const maxChunks = Math.max(1, Math.floor(DOC_CONTEXT_BUDGET / DOC_CHUNK_SIZE));
+    const overview = /\b(summar(y|ize|ise|ies)|overview|outline|tl;?dr|key points|main points|gist|recap)\b|what('s| is| does) (this|the) (doc|document|file|pdf|paper|report|book|article)/i.test(question);
+
+    let qTokens = [...new Set(docTokens(question))];
+    // Very short follow-ups ("and the second one?") carry little signal — borrow the previous question's words.
+    if(qTokens.length < 3 && doc.lastQuery) qTokens = [...new Set(qTokens.concat(docTokens(doc.lastQuery)))];
+
+    let chosen = [];
+    const spread = () => {
+        const out = [];
+        for(let k = 0; k < Math.min(maxChunks, N); k++) out.push(Math.floor(k * N / Math.min(maxChunks, N)));
+        return out;
+    };
+
+    if(overview || !qTokens.length){
+        chosen = spread();
+    } else {
+        const k1 = 1.5, b = 0.75;
+        const scored = doc.chunks.map((c, idx) => {
+            let score = 0;
+            qTokens.forEach(t => {
+                const tf = c.tf[t];
+                if(!tf) return;
+                const df = doc.df[t] || 0;
+                const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
+                score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * c.len / doc.avgLen));
+            });
+            return { idx, score };
+        }).filter(s => s.score > 0).sort((a, b2) => b2.score - a.score);
+
+        if(!scored.length){
+            chosen = spread();
+        } else {
+            chosen = scored.slice(0, maxChunks).map(s => s.idx);
+            // Keep the opening of the document (title / intro) in view when there's room.
+            if(N > maxChunks && !chosen.includes(0) && chosen.length === maxChunks) chosen[chosen.length - 1] = 0;
+        }
+    }
+    chosen = [...new Set(chosen)].sort((a, b2) => a - b2);
+    return { chosen, overview, sampled: overview || !qTokens.length };
+}
+
+function buildDocQuestion(doc, question){
+    const pick = pickDocExcerpts(doc, question);
+    doc.lastQuery = question;
+    const parts = pick.chosen.map(i => doc.chunks[i].text);
+    const sizeNote = `${doc.words.toLocaleString()} words${doc.pages ? ", " + doc.pages + " pages" : ""}${doc.capped ? ", only the first part was loaded" : ""}`;
+    const how = pick.sampled
+        ? "Below are samples spread across the document (not all of it)."
+        : "Below are the parts of the document most relevant to the question, in document order (not all of it).";
+    return `${DOC_EXCERPT_MARK}"${doc.name}" — a long document (${sizeNote}). ${how} `
+        + "If the answer isn't in these parts, say so honestly and suggest what the user could ask or which section to look at — never invent details. "
+        + "Markers like [Page 12] show where text came from; mention page numbers when helpful.]\n---\n"
+        + parts.join("\n\n…\n\n")
+        + `\n---\n\nUser's question: ${question}`;
+}
+
+// Only the newest question carries excerpts; older ones keep just the
+// question so the conversation stays small and the model's input fits.
+function compactOldDocExcerpts(){
+    chatHistory.forEach(m => {
+        if(m.role === "user" && typeof m.content === "string" && m.content.startsWith(DOC_EXCERPT_MARK)){
+            const q = m.content.split("\n\nUser's question: ").slice(1).join("\n\nUser's question: ");
+            const nameMatch = m.content.match(/^\[Document excerpts from "([^"]*)"/);
+            m.content = `[Earlier excerpts from "${nameMatch ? nameMatch[1] : "the document"}" omitted to save space]\n\nUser's question: ${q}`;
+        }
+    });
+}
+
+let dataAnalysisDataset = null; // { name, columns, rows } — structured data for the Data Analysis tool, persists across messages in the same chat
+
+// ---------- Centered input on empty chat, moves to the bottom once a
+// conversation starts (like ChatGPT's home screen) ----------
+
+function updateInputBarLayout(){
+    const inputBar = document.querySelector(".chat-input-bar");
+    const greeting = document.getElementById("chatGreeting");
+    const mainArea = document.querySelector(".main-area");
+    if(!inputBar || !greeting || !mainArea) return;
+
+    const isEmpty = chatMessages.children.length === 0;
+
+    if(isEmpty){
+        if(inputBar.parentElement !== greeting){
+            greeting.appendChild(inputBar);
+        }
+        mainArea.classList.add("centered-input");
+    } else {
+        if(inputBar.parentElement !== mainArea){
+            mainArea.appendChild(inputBar);
+        }
+        mainArea.classList.remove("centered-input");
+    }
+}
+
+new MutationObserver(updateInputBarLayout).observe(chatMessages, { childList: true });
+updateInputBarLayout();
+
+// ---------------------------------------------------------------------------
+// Preparing a picked image for sending.
+// Why: phone photos are often 3–8 MB; encoded for upload they exceed the host's
+// ~4.5 MB request limit and the AI provider's image limit, so they'd fail before the
+// AI ever saw them. What happens:
+//  - A plain (non-transparent) PNG that is already small is sent exactly as picked.
+//  - Everything else is redrawn on a canvas and re-encoded: this applies the photo's
+//    rotation (iPhone photos carry the orientation in hidden EXIF data), converts
+//    WebP/GIF/HEIC-that-the-browser-can-open into a format the AI accepts, and drops
+//    hidden metadata such as GPS location before the image leaves the device.
+//  - Size is capped by pixels (~3 MP, 3000 px longest side), not only the long side,
+//    so tall receipts and screenshots keep readable text.
+//  - Transparent images are painted on a background that contrasts with them (white
+//    for dark logos, dark for light/white logos) so they never vanish.
+//  - PNG sources (screenshots, logos, documents) stay lossless PNG when that fits;
+//    photos become JPEG, with quality lowered — then the picture shrunk — until the
+//    result fits comfortably under the request limit.
+// ---------------------------------------------------------------------------
+const IMAGE_MAX_SIDE = 3000;
+const IMAGE_MAX_PIXELS = 3000000;
+const IMAGE_KEEP_ORIGINAL_BYTES = 1.5 * 1024 * 1024;
+const IMAGE_MAX_DATAURL_CHARS = 3000000;
+
+function analyzeImageAlpha(img){
+    try{
+        const k = Math.min(1, 64 / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(img.naturalWidth * k));
+        c.height = Math.max(1, Math.round(img.naturalHeight * k));
+        const ctx = c.getContext("2d");
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        const d = ctx.getImageData(0, 0, c.width, c.height).data;
+        let seeThrough = 0, lum = 0, solid = 0;
+        for(let i = 0; i < d.length; i += 4){
+            const a = d[i + 3];
+            if(a < 250) seeThrough++;
+            if(a >= 128){
+                lum += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+                solid++;
+            }
+        }
+        return {
+            transparent: seeThrough / (d.length / 4) > 0.01,
+            light: solid > 0 && (lum / solid) > 0.6
+        };
+    }catch(e){
+        return { transparent: false, light: false };
+    }
+}
+
+function prepareImageForUpload(file){
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Couldn't read that image file."));
+        reader.onload = () => {
+            const original = reader.result;
+            const img = new Image();
+            img.onerror = () => reject(new Error("That image format isn't supported here — try a PNG or JPG."));
+            img.onload = () => {
+                const w0 = img.naturalWidth, h0 = img.naturalHeight;
+                if(!w0 || !h0) return reject(new Error("That image looks empty or damaged."));
+                const longest = Math.max(w0, h0);
+                const mayHaveAlpha = /^image\/(png|webp|gif)$/.test(file.type);
+                const alpha = mayHaveAlpha ? analyzeImageAlpha(img) : { transparent: false, light: false };
+
+                if(file.type === "image/png" && !alpha.transparent
+                    && longest <= IMAGE_MAX_SIDE && w0 * h0 <= IMAGE_MAX_PIXELS && file.size <= IMAGE_KEEP_ORIGINAL_BYTES){
+                    return resolve(original);
+                }
+
+                let scale = Math.min(1, IMAGE_MAX_SIDE / longest, Math.sqrt(IMAGE_MAX_PIXELS / (w0 * h0)));
+                const background = (alpha.transparent && alpha.light) ? "#1f1f1f" : "#ffffff";
+                const tryPng = file.type === "image/png";
+                for(let attempt = 0; attempt < 4; attempt++){
+                    const w = Math.max(1, Math.round(w0 * scale)), h = Math.max(1, Math.round(h0 * scale));
+                    const canvas = document.createElement("canvas");
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext("2d");
+                    ctx.fillStyle = background;
+                    ctx.fillRect(0, 0, w, h);
+                    ctx.drawImage(img, 0, 0, w, h);
+                    if(tryPng){
+                        const png = canvas.toDataURL("image/png");
+                        if(png.length <= IMAGE_MAX_DATAURL_CHARS) return resolve(png);
+                    }
+                    let quality = 0.9;
+                    let out = canvas.toDataURL("image/jpeg", quality);
+                    while(out.length > IMAGE_MAX_DATAURL_CHARS && quality > 0.5){
+                        quality -= 0.1;
+                        out = canvas.toDataURL("image/jpeg", quality);
+                    }
+                    if(out.length <= IMAGE_MAX_DATAURL_CHARS) return resolve(out);
+                    scale *= 0.75; // still too big at the lowest quality — shrink the picture and retry
+                }
+                reject(new Error("That image is too large to send — try a smaller one."));
+            };
+            img.src = original;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+// The whole request (text history + images) must fit the host's ~4.5 MB limit — the
+// image's own size isn't enough, because earlier messages are re-sent every time.
+// So: only the newest image is kept in the conversation (older ones become a short
+// note), and if it's STILL too big the oldest messages are dropped, never the last two.
+const REQUEST_MAX_CHARS = 4000000;
+function fitMessagesForRequest(messages){
+    const hasImage = (m) => Array.isArray(m.content) && m.content.some(part => part.type === "image_url");
+    let lastImage = -1;
+    messages.forEach((m, i) => { if(hasImage(m)) lastImage = i; });
+    let out = messages.map((m, i) => {
+        if(i === lastImage || !hasImage(m)) return m;
+        return { ...m, content: m.content.filter(part => part.type !== "image_url")
+            .concat([{ type: "text", text: "[An earlier image was attached here and has been left out to save space.]" }]) };
+    });
+    while(JSON.stringify(out).length > REQUEST_MAX_CHARS && out.length > 2) out = out.slice(1);
+    if(JSON.stringify(out).length > REQUEST_MAX_CHARS){
+        throw new Error("This message is too large to send. Try a smaller image, or start a new chat.");
+    }
+    return out;
+}
+
+document.getElementById("attachBtn").addEventListener("click", () => {
+    document.getElementById("chatFileInput").click();
+});
+
+document.getElementById("chatFileInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+
+    if(file.type.startsWith("image/")){
+        attachedDocument = null;
+        prepareImageForUpload(file)
+            .then(dataUrl => {
+                attachedImage = dataUrl;
+                renderAttachPreview();
+            })
+            .catch(err => {
+                showToast("⚠️ " + ((err && err.message) || "Couldn't use that image."));
+                document.getElementById("chatFileInput").value = "";
+            });
+        return;
+    }
+
+    if(file.size > 25 * 1024 * 1024){
+        showToast("⚠️ That file is over 25 MB — try a smaller one or split it up.");
+        document.getElementById("chatFileInput").value = "";
+        return;
+    }
+
+    extractDocumentText(file)
+        .then(text => {
+            attachedImage = null;
+            // Short documents go to the AI whole. Long ones are kept in full
+            // (up to DOC_MAX_CHARS) and searched per question instead — see
+            // "Chat with long documents" — so the whole file stays usable,
+            // not just its first few pages.
+            const full = text.length > DOC_MAX_CHARS ? text.slice(0, DOC_MAX_CHARS) : text;
+            attachedDocument = {
+                name: file.name,
+                text: full.length > DOC_INLINE_LIMIT ? full.slice(0, DOC_INLINE_LIMIT) : full,
+                fullText: full,
+                long: full.length > DOC_INLINE_LIMIT,
+                capped: text.length > DOC_MAX_CHARS,
+                truncated: false
+            };
+
+            const lower = file.name.toLowerCase();
+            const isTabular = lower.endsWith(".csv") || lower.endsWith(".xlsx") || lower.endsWith(".xls");
+            if(activeChatTool === "data" && isTabular){
+                parseTabularFile(file)
+                    .then(dataset => {
+                        dataAnalysisDataset = { name: file.name, columns: dataset.columns, rows: dataset.rows };
+                        renderAttachPreview();
+                    })
+                    .catch(err => {
+                        console.error("Tabular parse failed:", err);
+                        showToast("⚠️ Couldn't read that spreadsheet's rows — try re-saving it as .csv or .xlsx.");
+                    });
+            }
+
+            renderAttachPreview();
+        })
+        .catch(err => {
+            renderAttachPreview(); // clears any "reading…" progress chip
+            document.getElementById("chatFileInput").value = "";
+            if(err && err.message === "Cancelled") return; // the user backed out — nothing to report
+            console.error("Document extraction failed:", err);
+            showToast("⚠️ Couldn't read that file: " + (err.message || "unsupported format"));
+        });
+});
+
+// Parses a CSV/XLSX file into structured rows (array of objects, keyed by
+// column header) for the Data Analysis tool — separate from
+// extractDocumentText's flattened text, since Python needs real rows,
+// not a text preview.
+function parseTabularFile(file){
+    return file.arrayBuffer().then(buffer => {
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: null });
+        const MAX_ROWS = 20000; // sane cap so the browser sandbox stays responsive
+        const columns = rows.length ? Object.keys(rows[0]) : [];
+        return { columns, rows: rows.slice(0, MAX_ROWS) };
+    });
+}
+
+// Pulls plain text out of a PDF, Word doc, Excel sheet, or plain text/CSV
+// file — entirely in the browser, so an attached document is ready to
+// discuss immediately with no server round-trip. Returns a Promise<string>.
+// ==========================================================
+// OCR for scanned PDFs (Tesseract.js, runs entirely in the browser)
+// A PDF whose pages are mostly pictures of text has nothing for pdf.js to
+// extract, so we draw each such page to a canvas and "read" it instead.
+// Tesseract (~a few MB, plus the language data) is downloaded only the
+// first time someone attaches a scanned PDF — never at page load.
+// ==========================================================
+const OCR_MAX_PAGES = 30;            // pages read per file — OCR takes a few seconds per page
+const OCR_MIN_CHARS_PER_PAGE = 40;   // a page with less real text than this counts as a picture
+const OCR_LANG_CHOICES = [["eng", "English"], ["hin", "Hindi"], ["guj", "Gujarati"], ["ara", "Arabic"]];
+var ocrCancelled = false;
+var tesseractPromise = null;
+
+function loadTesseract(){
+    if(window.Tesseract) return Promise.resolve();
+    if(tesseractPromise) return tesseractPromise;
+    tesseractPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+        script.onload = () => resolve();
+        script.onerror = () => {
+            tesseractPromise = null; // allow retrying later
+            reject(new Error("Couldn't load the text-recognition tool — check your connection and try again."));
+        };
+        document.head.appendChild(script);
+    });
+    return tesseractPromise;
+}
+
+function setAttachBusy(titleHtml, subText, cancellable){
+    const preview = document.getElementById("attachPreview");
+    if(!preview) return null;
+    preview.innerHTML = "";
+    const chip = document.createElement("div");
+    chip.className = "attach-doc-chip attach-busy";
+    chip.innerHTML = `<span class="attach-doc-icon">⏳</span><span class="attach-doc-info"><strong>${titleHtml}</strong><small class="attach-busy-sub"></small></span>`;
+    chip.querySelector(".attach-busy-sub").textContent = subText || "";
+    if(cancellable){
+        const x = document.createElement("button");
+        x.type = "button";
+        x.textContent = "✕";
+        x.title = "Cancel";
+        x.addEventListener("click", () => { ocrCancelled = true; });
+        chip.appendChild(x);
+    }
+    preview.appendChild(chip);
+    return chip;
+}
+
+// Resolves with a language code, or rejects with Error("Cancelled").
+function askOcrLanguage(pageCount){
+    return new Promise((resolve, reject) => {
+        const preview = document.getElementById("attachPreview");
+        preview.innerHTML = "";
+        const chip = document.createElement("div");
+        chip.className = "attach-doc-chip attach-busy ocr-ask";
+        chip.innerHTML = `<span class="attach-doc-icon">🔍</span><span class="attach-doc-info"><strong>Scanned PDF — what language is it in?</strong>`
+            + `<small>${pageCount} page${pageCount === 1 ? "" : "s"} to read</small><span class="ocr-lang-row"></span></span>`;
+        const row = chip.querySelector(".ocr-lang-row");
+        OCR_LANG_CHOICES.forEach(([code, label]) => {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "ocr-lang-btn";
+            b.textContent = label;
+            b.addEventListener("click", () => resolve(code));
+            row.appendChild(b);
+        });
+        const x = document.createElement("button");
+        x.type = "button";
+        x.textContent = "✕";
+        x.title = "Cancel";
+        x.addEventListener("click", () => reject(new Error("Cancelled")));
+        chip.appendChild(x);
+        preview.appendChild(chip);
+    });
+}
+
+// Reads the given page numbers of an already-open pdf.js document.
+// Returns { [pageNumber]: text }.
+async function ocrPdfPages(pdf, pageNumbers, langCode){
+    await loadTesseract();
+    ocrCancelled = false;
+    const chip = setAttachBusy("Reading scanned PDF…", "Starting up…", true);
+    const setStatus = (t) => { const el = chip && chip.querySelector(".attach-busy-sub"); if(el) el.textContent = t; };
+
+    // Non-English scans usually mix in English words/numbers, so always include it.
+    const langs = langCode === "eng" ? "eng" : langCode + "+eng";
+    const worker = await Tesseract.createWorker(langs, 1, {
+        logger: m => {
+            if(m.status === "loading language traineddata"){
+                setStatus("Downloading language data… " + Math.round((m.progress || 0) * 100) + "% (first time only)");
+            }
+        }
+    });
+
+    const out = {};
+    try{
+        for(let k = 0; k < pageNumbers.length; k++){
+            if(ocrCancelled) throw new Error("Cancelled");
+            const n = pageNumbers[k];
+            setStatus(`Reading page ${n} (${k + 1} of ${pageNumbers.length})…`);
+            const page = await pdf.getPage(n);
+            const base = page.getViewport({ scale: 1 });
+            const scale = Math.min(2, 2400 / Math.max(base.width, base.height));
+            const viewport = page.getViewport({ scale });
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.floor(viewport.width);
+            canvas.height = Math.floor(viewport.height);
+            await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+            const { data } = await worker.recognize(canvas);
+            out[n] = (data.text || "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+            canvas.width = canvas.height = 0; // free the bitmap right away
+            if(ocrCancelled) throw new Error("Cancelled");
+        }
+    } finally {
+        try{ await worker.terminate(); }catch(e){}
+    }
+    return out;
+}
+
+async function extractDocumentText(file){
+    const name = file.name.toLowerCase();
+
+    if(name.endsWith(".pdf")){
+        if(!window.pdfjsLib) throw new Error("PDF reader didn't load — check your connection and try again.");
+        const buffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+        let text = "";
+        const pageCount = Math.min(pdf.numPages, 200); // sane cap for very long PDFs
+        const pageTexts = [];
+        for(let i = 1; i <= pageCount; i++){
+            const page = await pdf.getPage(i);
+            const content = await page.getTextContent();
+            pageTexts[i] = content.items.map(item => item.str).join(" ").trim();
+        }
+
+        // Pages with (almost) no selectable text are pictures of text. If most of
+        // the PDF is like that it's a scan, so read those pages with OCR; a few
+        // figure/blank pages inside an otherwise normal PDF are left alone.
+        const picturePages = [];
+        for(let i = 1; i <= pageCount; i++){
+            if((pageTexts[i] || "").length < OCR_MIN_CHARS_PER_PAGE) picturePages.push(i);
+        }
+        let unreadScanned = 0;
+        if(picturePages.length && picturePages.length >= Math.ceil(pageCount * 0.5)){
+            const toRead = picturePages.slice(0, OCR_MAX_PAGES);
+            const lang = await askOcrLanguage(toRead.length);
+            const ocrText = await ocrPdfPages(pdf, toRead, lang);
+            toRead.forEach(n => { pageTexts[n] = ocrText[n] || ""; });
+            unreadScanned = picturePages.length - toRead.length;
+        }
+
+        for(let i = 1; i <= pageCount; i++){
+            if(pageTexts[i]) text += `[Page ${i}] ` + pageTexts[i] + "\n\n";
+        }
+        if(unreadScanned > 0){
+            text += `[Note: ${unreadScanned} more scanned pages were not read — only the first ${OCR_MAX_PAGES} scanned pages are processed per file.]`;
+            showToast(`Read the first ${OCR_MAX_PAGES} scanned pages (the rest were skipped).`);
+        }
+        if(!text.trim()) throw new Error("Couldn't find any readable text in this PDF.");
+        return text.trim();
+    }
+
+    if(name.endsWith(".docx") || name.endsWith(".doc")){
+        if(!window.mammoth) throw new Error("Word document reader didn't load — check your connection and try again.");
+        const buffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer: buffer });
+        if(!result.value.trim()) throw new Error("Couldn't find any text in that document.");
+        return result.value.trim();
+    }
+
+    if(name.endsWith(".xlsx") || name.endsWith(".xls")){
+        if(!window.XLSX) throw new Error("Spreadsheet reader didn't load — check your connection and try again.");
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: "array" });
+        let text = "";
+        workbook.SheetNames.forEach(sheetName => {
+            text += `--- Sheet: ${sheetName} ---\n`;
+            text += XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]) + "\n\n";
+        });
+        return text.trim();
+    }
+
+    if(/\.(txt|csv|md|markdown|json|xml|html?|css|js|mjs|ts|jsx|tsx|py|java|c|h|cpp|cs|go|rs|rb|php|sql|log|ya?ml|ini|toml|tex|srt|vtt)$/.test(name)){
+        return await file.text();
+    }
+
+    throw new Error("Unsupported file type. Try a PDF, Word doc, Excel sheet, CSV, or a text/code file.");
+}
+
+// ==========================================================
+// PDF export — "make it a pdf" turns the last reply into a real,
+// downloadable PDF file, generated entirely in the browser.
+// ==========================================================
+
+function isPdfRequest(text){
+    const t = text.toLowerCase().trim();
+    if(!/\bpdf\b/.test(t)) return false;
+    if(/^(as a |a |the |that |this )?pdf[.!]?$/.test(t)) return true;
+    return /(make|turn|convert|give|send|download|export|save|create|generate).{0,25}\bpdf\b/.test(t)
+        || /\bpdf\b.{0,15}(please|version|file|format|instead)/.test(t);
+}
+
+function stripMarkdownForPdf(text){
+    return String(text || "")
+        .replace(/```[\s\S]*?```/g, m => m.replace(/```/g, "").trim())
+        .replace(/[*_`#>]+/g, "")
+        .replace(/^\s*[-•]\s+/gm, "• ")
+        // jsPDF's built-in fonts can't render emoji (they show as broken
+        // boxes), so strip them out for a clean PDF instead.
+        .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\uFE0F]/gu, "")
+        .replace(/[ \t]{2,}/g, " ")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+}
+
+function deriveTitleFromContent(content){
+    const clean = stripMarkdownForPdf(content);
+    const firstLine = clean.split("\n").find(l => l.trim().length > 0) || "";
+    return firstLine.slice(0, 70) || "Zyntra AI Export";
+}
+
+function generateAndDownloadPdf(content, title){
+    if(!window.jspdf || !window.jspdf.jsPDF){
+        showToast("⚠️ PDF export didn't load — check your connection and try again.");
+        return false;
+    }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const margin = 48;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const maxWidth = pageWidth - margin * 2;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    const titleLines = doc.splitTextToSize(title, maxWidth);
+    doc.text(titleLines, margin, margin);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    const clean = stripMarkdownForPdf(content);
+    const lines = doc.splitTextToSize(clean, maxWidth);
+
+    let y = margin + 20 + titleLines.length * 16;
+    const lineHeight = 16;
+    lines.forEach(line => {
+        if(y > pageHeight - margin){
+            doc.addPage();
+            y = margin;
+        }
+        doc.text(line, margin, y);
+        y += lineHeight;
+    });
+
+    const filename = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-+|-+$)/g, "").slice(0, 60) || "zyntra-ai-export";
+    doc.save(filename + ".pdf");
+    return true;
+}
+
+function renderPdfRequestExchange(userMsg, content){
+    document.getElementById("chatGreeting").style.display = "none";
+
+    const userDiv = document.createElement("div");
+    userDiv.className = "user-message";
+    const p = document.createElement("p");
+    p.textContent = userMsg;
+    userDiv.appendChild(p);
+    chatMessages.appendChild(userDiv);
+
+    const title = deriveTitleFromContent(content);
+
+    const aiDiv = document.createElement("div");
+    aiDiv.className = "ai-message";
+    const text = document.createElement("p");
+    text.textContent = "Your PDF is ready — tap below to download:";
+    aiDiv.appendChild(text);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "⬇ Download PDF";
+    btn.style.cssText = "margin-top:10px; padding:11px 20px; border:none; border-radius:12px; background:linear-gradient(135deg,#6e5cff,#ff59b0); color:#fff; font-weight:700; cursor:pointer; font-size:14px;";
+    btn.addEventListener("click", () => generateAndDownloadPdf(content, title));
+    aiDiv.appendChild(btn);
+    chatMessages.appendChild(aiDiv);
+
+    chatAutoScroll();
+    if(userInput) userInput.value = "";
+
+    logMessageToHistory("user", userMsg);
+    logMessageToHistory("assistant", "[Generated a downloadable PDF of the previous response]");
+    chatHistory.push({ role: "user", content: userMsg });
+    chatHistory.push({ role: "assistant", content: "[Generated a downloadable PDF of the previous response]" });
+}
+
+function renderAttachPreview(){
+    const preview = document.getElementById("attachPreview");
+    preview.innerHTML = "";
+
+    if(attachedImage){
+        const thumb = document.createElement("div");
+        thumb.className = "attach-thumb";
+        const img = document.createElement("img");
+        img.src = attachedImage;
+        const removeBtn = document.createElement("button");
+        removeBtn.textContent = "✕";
+        removeBtn.addEventListener("click", () => {
+            attachedImage = null;
+            document.getElementById("chatFileInput").value = "";
+            renderAttachPreview();
+        });
+        thumb.appendChild(img);
+        thumb.appendChild(removeBtn);
+        preview.appendChild(thumb);
+        return;
+    }
+
+    if(attachedDocument){
+        const chip = document.createElement("div");
+        chip.className = "attach-doc-chip";
+        let infoLine;
+        if(dataAnalysisDataset && dataAnalysisDataset.name === attachedDocument.name){
+            infoLine = `${dataAnalysisDataset.rows.length.toLocaleString()} rows · ${dataAnalysisDataset.columns.length} columns`;
+        } else {
+            const wordCount = (attachedDocument.fullText || attachedDocument.text).split(/\s+/).filter(Boolean).length;
+            infoLine = `${wordCount.toLocaleString()} words${attachedDocument.long ? " · long file — searched for each question" : " extracted"}${attachedDocument.capped ? " (first part only)" : ""}`;
+        }
+        chip.innerHTML = `<span class="attach-doc-icon">${dataAnalysisDataset ? "📊" : "📄"}</span>`
+            + `<span class="attach-doc-info"><strong>${attachedDocument.name}</strong>`
+            + `<small>${infoLine}</small></span>`;
+        const removeBtn = document.createElement("button");
+        removeBtn.textContent = "✕";
+        removeBtn.addEventListener("click", () => {
+            attachedDocument = null;
+            dataAnalysisDataset = null;
+            document.getElementById("chatFileInput").value = "";
+            renderAttachPreview();
+        });
+        chip.appendChild(removeBtn);
+        preview.appendChild(chip);
+    } else if(activeDocument){
+        // No new file attached, but this chat is still about a long document.
+        const chip = document.createElement("div");
+        chip.className = "attach-doc-chip";
+        chip.innerHTML = `<span class="attach-doc-icon">📄</span>`
+            + `<span class="attach-doc-info"><strong>${escapeHtmlText(activeDocument.name)}</strong>`
+            + `<small>Answering from this document · ${activeDocument.words.toLocaleString()} words</small></span>`;
+        const removeBtn = document.createElement("button");
+        removeBtn.textContent = "✕";
+        removeBtn.title = "Stop using this document";
+        removeBtn.addEventListener("click", () => {
+            activeDocument = null;
+            renderAttachPreview();
+        });
+        chip.appendChild(removeBtn);
+        preview.appendChild(chip);
+    }
+}
+
+// Fallback-only heuristic, used solely if the AI classification call itself
+// fails (e.g. a network error) — kept intentionally conservative since the
+// AI classifier below is what actually carries this most of the time.
+function looksLikeImagePrompt(msg){
+    const text = (msg || "").trim();
+    if(!text) return false;
+
+    const words = text.split(/\s+/);
+
+    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|love it|not bad|damn|omg|nice one|nice work|good job|well done|bhai|yaar|what|why|how|who|when|where|let|lets|let's|please|pls|plz|stop|wait|no|nah|don't|dont|cancel|undo|enough|never ?mind)\b/i;
+    if(conversationalStart.test(text) && words.length <= 8){
+        return false;
+    }
+
+    if(/^(can you|could you|do you|are you|what is|what's|who are you|how do|how does|why|is this|is that)\b/i.test(text) && text.endsWith("?")){
+        return false;
+    }
+
+    return true;
+}
+
+// Statements that only express a wish to create *something*, without ever
+// saying what — "i want to make image", "let's create something", "make a
+// picture" — should prompt the AI to ask what to create, not generate a
+// random image from that vague phrase. Checked before anything else.
+function isVagueImageIntent(msg){
+    const text = (msg || "").trim().toLowerCase().replace(/[.!]+$/, "");
+    return /^(i want to (make|create|draw|generate)( an?)? (image|picture|photo)s?|i want (an?|to make) (image|picture|photo)|let'?s (make|create|draw|generate)( an?)? (image|picture|photo|something)|make (an?|the) (image|picture|photo)|create (an?|the) (image|picture|photo)|generate (an?|the) (image|picture|photo)|can (you|u) make (an?|me an?) (image|picture|photo))$/i.test(text);
+}
+
+function parseImageIntentReply(content){
+    const clean = (content || "").trim().toLowerCase();
+    if(clean.startsWith("image")) return true;
+    if(clean.startsWith("chat")) return false;
+    if(/\bimage\b/.test(clean) && !/\bchat\b/.test(clean)) return true;
+    if(/\bchat\b/.test(clean) && !/\bimage\b/.test(clean)) return false;
+    return null; // genuinely ambiguous — let the caller fall back to the heuristic
+}
+
+// Asks the AI itself whether this message is a request to generate a new
+// image, or something else (a reply, question, complaint, greeting, command,
+// or vague statement of intent). Far more reliable than pattern-matching
+// alone — the few-shot examples below directly cover cases regex missed:
+// "please stop", complaints like "you made it look ugly", and vague intent
+// like "i want to make image" with no actual subject.
+async function classifyImageIntent(msg){
+    const text = (msg || "").trim();
+    const wordCount = text.split(/\s+/).length;
+
+    if(isVagueImageIntent(text)){
+        return false;
+    }
+
+    // Skip the round trip entirely for messages that are unambiguous —
+    // a reasonably long message that doesn't open with a casual/reactive
+    // word is virtually always a real image description. This also cuts
+    // total API call volume, which helps avoid rate limits.
+    const conversationalStart = /^(bro|hey|hi+|hello|yo|sup|thanks|thank you|thx|nice|wow|cool|amazing|great|awesome|good|lol+|haha+|ok(ay)?|perfect|not bad|damn|omg|what|why|how|who|when|where|let|lets|let's|can|could|do|are|is|please|pls|plz|stop|wait|no|nah|don't|dont|cancel|undo|enough)\b/i;
+    if(wordCount >= 7 && !conversationalStart.test(text)){
+        return true;
+    }
+
+    try{
+        const { content } = await callChatAPI([
+            {
+                role: "user",
+                content: `You are classifying a message sent inside an AI image-generation chat. Reply with exactly one word: IMAGE or CHAT.
+
+IMAGE = the message describes an actual picture to create — a subject, scene, object, or style (e.g. "a dragon flying over mountains", "make the sky purple", "add a hat to the girl").
+
+CHAT = anything else: greetings, thanks, questions, complaints about a result, commands directed at the assistant (stop, wait, please, don't, cancel, undo, no), or vague statements of intent with no real subject (e.g. "i want to make an image", "make an image", "let's create something").
+
+Examples:
+"a cat astronaut in space" -> IMAGE
+"make the sky purple" -> IMAGE
+"please stop" -> CHAT
+"what u make it look so ugly" -> CHAT
+"i want to make image" -> CHAT
+"thanks!" -> CHAT
+"can you make it bigger?" -> CHAT
+
+Message: "${msg}"
+
+Answer with exactly one word: IMAGE or CHAT.`
+            }
+        ], { lite: true });
+        const parsed = parseImageIntentReply(content);
+        return parsed === null ? looksLikeImagePrompt(msg) : parsed;
+    }catch(err){
+        return looksLikeImagePrompt(msg);
+    }
+}
+
+// A single, warm, human fallback message used anywhere a reply genuinely
+// fails — instead of a cold "something went wrong", or a swallowed error.
+function friendlyErrorMessage(err){
+    const msg = (err && err.message) ? err.message.trim() : "";
+    if(/took too long|timed out|timeout/i.test(msg)){
+        return "🌐 That took too long to finish. Please try again, or ask a more specific question.";
+    }
+    if(msg && msg.toLowerCase() !== "request failed"){
+        return msg;
+    }
+    return "Hmm, I'm having a little trouble understanding that — could you try rephrasing, or send it again?";
+}
+
+function appendUserBubble(msg){
+    document.getElementById("chatGreeting").style.display = "none";
+
+    const userDiv = document.createElement("div");
+    userDiv.className = "user-message";
+    const p = document.createElement("p");
+    p.textContent = msg;
+    p.style.margin = "0";
+    userDiv.appendChild(p);
+    const userTime = document.createElement("span");
+    userTime.className = "msg-time";
+    userTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " ";
+    userTime.appendChild(buildMsgCheck());
+    userDiv.appendChild(userTime);
+    chatMessages.appendChild(userDiv);
+    userInput.value = "";
+    chatAutoScroll();
+}
+
+function appendLoadingAiBubble(initialHTML){
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "ai-message";
+    const aiAvatar = document.createElement("img");
+    aiAvatar.src = "/favicon.png";
+    aiAvatar.alt = "";
+    aiAvatar.className = "ai-message-avatar";
+    const aiContent = document.createElement("div");
+    aiContent.className = "ai-message-content";
+    if(initialHTML === "Thinking..."){
+        renderThinkingIndicator(aiContent, "Thinking");
+    } else {
+        aiContent.innerHTML = initialHTML;
+    }
+    loadingDiv.appendChild(aiAvatar);
+    loadingDiv.appendChild(aiContent);
+    chatMessages.appendChild(loadingDiv);
+    chatAutoScroll();
+    return { loadingDiv, aiContent };
+}
+
+function runImageGeneration(msg, loadingDiv, aiContent){
+    const waitLabel = "Creating image";
+    aiContent.innerHTML = `<div class="creating-box"><p class="creating-label">${waitLabel}</p><div class="creating-dots"></div></div>`;
+
+    function finishWithImage(imageUrl){
+        bumpStat("images");
+        aiContent.innerHTML = buildImageBlockHTML({ alt: msg, url: imageUrl });
+        loadingDiv.classList.add("done");
+        addReportButton(aiContent.querySelector(".ai-image-actions"), "Generated image for prompt: \"" + msg + "\"");
+        const aiTime = document.createElement("span");
+        aiTime.className = "msg-time";
+        aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        aiContent.appendChild(aiTime);
+        chatAutoScroll();
+
+        // Saved as a markdown image so reopening this chat later renders it
+        // again automatically via formatAIText's image-block support.
+        logMessageToHistory("assistant", `![${msg.replace(/[[\]]/g, "")}](${imageUrl})`);
+    }
+
+    function attemptGenerate(retryCount){
+        const img = new Image();
+        img.onload = () => finishWithImage(img.src);
+        img.onerror = () => {
+            if(retryCount < 2){
+                setTimeout(() => attemptGenerate(retryCount + 1), 800);
+            } else {
+                aiContent.innerHTML = '<p>Could not generate the image right now. Please try again in a moment.</p>';
+                loadingDiv.classList.add("done");
+            }
+        };
+        const seed = Math.floor(Math.random() * 1000000);
+        img.src = buildImageUrl(msg, seed);
+    }
+
+    const waitMs = 2000;
+    setTimeout(() => attemptGenerate(0), waitMs);
+}
+
+async function runImageModeConversationalReply(msg, loadingDiv, aiContent){
+    renderThinkingIndicator(aiContent, "Thinking");
+
+    // A lightweight system note so the reply understands the context it's
+    // replying in, without needing the actual image data.
+    const contextNote = {
+        role: "system",
+        content: isVagueImageIntent(msg)
+            ? "You are chatting inside Zyntra AI's Image Generator. The user just said they want an image but didn't describe what it should look like (e.g. \"i want to make image\", \"make an image\"). Warmly ask them what they'd like to see — suggest they describe the subject, scene, or style. Keep it short."
+            : "You are chatting inside Zyntra AI's Image Generator. The user just sent a message that is a reply/question/comment rather than a new image request (e.g. reacting to an image you just generated for them). Reply naturally and briefly, like a friendly assistant — don't try to describe or generate an image for this message."
+    };
+
+    try{
+        const { content: reply } = await callChatAPI([contextNote, { role: "user", content: msg }]);
+        logMessageToHistory("assistant", reply);
+        aiContent.textContent = "";
+        typeOutText(aiContent, reply, chatArea, () => {
+            loadingDiv.classList.add("done");
+            addMessageActionBar(aiContent, reply);
+            const aiTime = document.createElement("span");
+            aiTime.className = "msg-time";
+            aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            aiContent.appendChild(aiTime);
+        });
+    }catch(err){
+        aiContent.textContent = friendlyErrorMessage(err);
+        loadingDiv.classList.add("done");
+    }
+    chatAutoScroll();
+}
+
+async function sendImageOrChatMessage(msg){
+    if(!msg) return;
+
+    appendUserBubble(msg);
+    logMessageToHistory("user", msg);
+    bumpStat("conversations");
+
+    const { loadingDiv, aiContent } = appendLoadingAiBubble("Thinking...");
+
+    const isImageRequest = await classifyImageIntent(msg);
+
+    if(isImageRequest){
+        runImageGeneration(msg, loadingDiv, aiContent);
+    } else {
+        runImageModeConversationalReply(msg, loadingDiv, aiContent);
+    }
+}
+
+function startEditingUserMessage(userDiv, p, originalText){
+    if(userDiv.querySelector(".user-msg-edit-box")) return; // already editing
+
+    const editBox = document.createElement("div");
+    editBox.className = "user-msg-edit-box";
+    editBox.innerHTML = `
+        <textarea class="user-msg-edit-textarea">${originalText.replace(/</g, "&lt;")}</textarea>
+        <div class="user-msg-edit-actions">
+            <button type="button" class="user-msg-edit-cancel">Cancel</button>
+            <button type="button" class="user-msg-edit-save">Save & resend</button>
+        </div>
+    `;
+    p.style.display = "none";
+    userDiv.querySelector(".user-msg-edit-btn").style.display = "none";
+    userDiv.appendChild(editBox);
+
+    const textarea = editBox.querySelector(".user-msg-edit-textarea");
+    textarea.focus();
+    textarea.selectionStart = textarea.value.length;
+
+    editBox.querySelector(".user-msg-edit-cancel").addEventListener("click", () => {
+        editBox.remove();
+        p.style.display = "";
+        userDiv.querySelector(".user-msg-edit-btn").style.display = "";
+    });
+
+    editBox.querySelector(".user-msg-edit-save").addEventListener("click", () => {
+        const newText = textarea.value.trim();
+        if(!newText) return;
+
+        const idx = parseInt(userDiv.dataset.historyIndex, 10);
+        if(!Number.isNaN(idx)) chatHistory.length = idx;
+
+        // Remove this message and everything after it from the visible
+        // chat — the conversation effectively rewinds to just before it.
+        let node = userDiv;
+        while(node){
+            const next = node.nextElementSibling;
+            node.remove();
+            node = next;
+        }
+
+        sendChatMessage(newText);
+    });
+}
+
+async function sendChatMessage(prefill){
+    if(activeStreamController) return; // a reply is already streaming — Stop it first
+    let msg = (prefill !== undefined ? prefill : userInput.value.trim());
+    const usedPaste = (prefill === undefined && activeChatTool !== "image" && typeof composeMessageWithPaste === "function" && !!pastedChunk);
+    if(usedPaste) msg = composeMessageWithPaste(msg);
+    if(!msg && !attachedImage && !attachedDocument) return;
+
+    if(activeChatTool === "image" && msg){
+        return sendImageOrChatMessage(msg);
+    }
+
+    // "Make it a PDF" — turn the last reply into a downloadable PDF
+    // instead of sending anything to the AI for a new answer.
+    if(msg && !attachedImage && !attachedDocument && isPdfRequest(msg)){
+        const lastAssistant = [...chatHistory].reverse().find(m => m.role === "assistant");
+        if(lastAssistant){
+            renderPdfRequestExchange(msg, lastAssistant.content);
+            return;
+        }
+        // Nothing to convert yet — fall through so the AI can respond
+        // naturally instead (e.g. ask what to write first).
+    }
+
+    if(isLockedOut()){
+        showChatLockedModal();
+        return;
+    }
+
+    document.getElementById("chatGreeting").style.display = "none";
+
+    const userDiv = document.createElement("div");
+    userDiv.className = "user-message";
+    if(attachedImage){
+        const imgEl = document.createElement("img");
+        imgEl.src = attachedImage;
+        imgEl.className = "sent-image";
+        userDiv.appendChild(imgEl);
+    }
+    if(attachedDocument){
+        const docChip = document.createElement("div");
+        docChip.className = "sent-doc-chip";
+        docChip.innerHTML = `<span>📄</span> ${attachedDocument.name}`;
+        userDiv.appendChild(docChip);
+    }
+    userDiv.dataset.historyIndex = String(chatHistory.length); // index this message will get once pushed below
+    if(msg){
+        const p = document.createElement("p");
+        p.textContent = msg;
+        p.style.margin = "0";
+        userDiv.appendChild(p);
+
+        const editBtn = document.createElement("button");
+        editBtn.className = "user-msg-edit-btn";
+        editBtn.title = "Edit & resend";
+        editBtn.innerHTML = MSG_ICONS.edit;
+        editBtn.addEventListener("click", () => startEditingUserMessage(userDiv, p, msg));
+        userDiv.appendChild(editBtn);
+    }
+    const userTime = document.createElement("span");
+    userTime.className = "msg-time";
+    userTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " ";
+    userTime.appendChild(buildMsgCheck());
+    userDiv.appendChild(userTime);
+    chatMessages.appendChild(userDiv);
+    userInput.value = "";
+    if(usedPaste) clearPastedChunk();
+    chatAutoScroll();
+
+    let historyContent;
+    if(attachedImage){
+        historyContent = [
+            { type: "text", text: msg || "What is in this image? Please help solve or explain it." },
+            { type: "image_url", image_url: { url: attachedImage } }
+        ];
+    } else if(activeChatTool === "data" && dataAnalysisDataset){
+        const cols = dataAnalysisDataset.columns.join(", ");
+        const sample = JSON.stringify(dataAnalysisDataset.rows.slice(0, 5));
+        historyContent = `[Dataset attached: "${dataAnalysisDataset.name}" — ${dataAnalysisDataset.rows.length} rows total, columns: ${cols}]\nFirst 5 rows as a sample: ${sample}\n\n${DATA_ANALYSIS_INSTRUCTIONS}\n\nUser's question: ${msg || "Give me a quick summary of this dataset."}`;
+    } else if(attachedDocument && attachedDocument.long){
+        // Long document: index it, then send only the parts relevant to the question.
+        activeDocument = buildDocIndex(attachedDocument.name, attachedDocument.fullText, attachedDocument.capped);
+        historyContent = buildDocQuestion(activeDocument, msg || "Please summarize this document and list its key points.");
+    } else if(attachedDocument){
+        // Documents aren't multimodal like images — fold the already-
+        // extracted text straight into the text the model reads.
+        activeDocument = null; // a new short document replaces any earlier long one
+        historyContent = `[Attached document: "${attachedDocument.name}"]\n---\n${attachedDocument.text}\n---\n\n`
+            + (msg || "Please read the attached document and summarize the key points.");
+    } else if(activeDocument && activeChatTool !== "data" && msg){
+        // Follow-up question in a chat about a long document.
+        historyContent = buildDocQuestion(activeDocument, msg);
+    } else {
+        historyContent = msg;
+    }
+    if(typeof historyContent === "string" && historyContent.startsWith(DOC_EXCERPT_MARK)) compactOldDocExcerpts();
+
+    if(chatHistory.length === 0){
+        const profile = getProfile();
+        let note = "Always reply in the same language the user writes in (for example, reply in Hindi if they write in Hindi, in Spanish if they write in Spanish, and so on — support any language naturally). If the user explicitly asks you to reply or speak in a specific language (for example \"talk in Gujarati\" or \"reply in French\"), you MUST switch to writing your entire response in that requested language from that point on, using its native script, not English. Pay attention to the emotional tone of what the user writes (happy, sad, frustrated, excited, worried, etc.) and respond with matching empathy and tone — be warm and supportive if they seem upset or stressed, and match their energy if they're happy or excited. Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process or thought process, and do not add unnecessary meta-commentary about the question itself. Just give the direct, natural answer.";
+        if(!temporaryChatActive){
+            if(profile.nickname) note += ` Call the user "${profile.nickname}".`;
+            if(profile.instructions) note += ` User's custom instructions: ${profile.instructions}`;
+            const memories = getMemories();
+            if(memories.length && getPlugins().memory){
+                note += ` Here are things you already know about this user from past conversations — weave them in naturally where relevant, don't just list them back at the user: ${memories.map(m => m.fact).join("; ")}.`;
+            }
+            if(currentProjectId){
+                const project = getProjects().find(p => p.id === currentProjectId);
+                if(project && project.instructions){
+                    note += ` You are working inside the "${project.name}" project. Project-specific instructions: ${project.instructions}`;
+                }
+            }
+        }
+        if(activeChatTool === "codex"){
+            note += " " + CODEX_SYSTEM_NOTE;
+        }
+        if(activeChatTool === "agent"){
+            note += " " + AGENT_MODE_SYSTEM_NOTE;
+        }
+        const activePersona = getPersonas().find(p => p.id === getActivePersonaId());
+        if(activePersona && !activePersona.builtin){
+            note += ` You are currently acting as the "${activePersona.name}" persona. ${activePersona.instructions}`;
+        } else if(activePersona && activePersona.instructions){
+            note += ` ${activePersona.instructions}`;
+        }
+        chatHistory.push({ role: "system", content: note });
+    }
+
+    chatHistory.push({ role: "user", content: historyContent });
+    logMessageToHistory("user", msg || (attachedDocument ? `[Document: ${attachedDocument.name}]` : "[Image attached]"));
+    bumpStat("conversations");
+    recordFreeMessage();
+
+    attachedImage = null;
+    attachedDocument = null;
+    document.getElementById("chatFileInput").value = "";
+    renderAttachPreview();
+
+    await streamAssistantReply();
+}
+
+// Generates and streams one assistant reply into a new message bubble,
+// using whatever's currently in chatHistory. Shared by normal sending
+// and by Regenerate (which truncates chatHistory back to just after the
+// user's message, then calls this again instead of duplicating all this
+// streaming/UI logic).
+async function streamAssistantReply(){
+    if(activeStreamController) return; // guard against two overlapping streams (e.g. Regenerate clicked mid-reply)
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "ai-message";
+    loadingDiv.dataset.historyIndex = String(chatHistory.length); // where this reply will land once pushed
+    const aiAvatar = document.createElement("img");
+    aiAvatar.src = "/favicon.png";
+    aiAvatar.alt = "";
+    aiAvatar.className = "ai-message-avatar";
+    const stepsDiv = document.createElement("div");
+    stepsDiv.className = "agent-steps";
+    stepsDiv.style.display = "none";
+    const aiContent = document.createElement("div");
+    aiContent.className = "ai-message-content";
+    renderThinkingIndicator(aiContent, researchModeEnabled ? "Researching" : (activeChatTool === "agent" ? "Starting up" : "Thinking"));
+    loadingDiv.appendChild(aiAvatar);
+    loadingDiv.appendChild(stepsDiv);
+    loadingDiv.appendChild(aiContent);
+    chatMessages.appendChild(loadingDiv);
+    chatAutoScroll();
+
+    let stepRows = [];
+    function onAgentStep(step){
+        stepsDiv.style.display = "flex";
+        if(step.phase === "start"){
+            aiContent.textContent = "";
+            const row = document.createElement("div");
+            row.className = "agent-step-row running";
+            const info = describeAgentStep(step.name, step.args);
+            row.innerHTML = `<span class="agent-step-icon">${info.icon}</span><span class="agent-step-label">${info.label}</span><span class="agent-step-spinner"></span>`;
+            stepsDiv.appendChild(row);
+            stepRows.push(row);
+            chatAutoScroll();
+        } else if(step.phase === "done" && stepRows.length){
+            const row = stepRows[stepRows.length - 1];
+            row.classList.remove("running");
+            row.classList.add(step.ok === false ? "failed" : "done");
+            const spinner = row.querySelector(".agent-step-spinner");
+            if(spinner) spinner.outerHTML = `<span class="agent-step-status">${step.ok === false ? "✕" : "✓"}</span>`;
+        }
+    }
+
+    let accumulated = "";
+    let usedSkills = [];
+    let firstChunkReceived = false;
+    const controller = new AbortController();
+    setGeneratingState(true, controller);
+
+    function finalizeReply(){
+        chatHistory.push({ role: "assistant", content: accumulated });
+        logMessageToHistory("assistant", accumulated);
+        loadingDiv.classList.add("done");
+        const bar = addMessageActionBar(aiContent, accumulated);
+        addRegenerateButton(bar, loadingDiv);
+        const aiTime = document.createElement("span");
+        aiTime.className = "msg-time";
+        aiTime.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        aiContent.appendChild(aiTime);
+        if(window.ZyntraSkills && usedSkills.length) ZyntraSkills.addChip(aiContent, usedSkills);
+        if(window.ZyntraActions && accumulated.indexOf("zyntra-action") !== -1) ZyntraActions.process(aiContent, accumulated);
+    }
+
+    try{
+        // Codex gets fresh platform / 3D / "this is an update" instructions on
+        // every request (kept out of the stored chat so they never go stale).
+        let outgoing = (activeChatTool === "codex" && window.ZyntraCreations) ? ZyntraCreations.withCodexRuntime(chatHistory) : chatHistory;
+        // Skills: load only the instruction packs that fit this request
+        if(window.ZyntraSkills){
+            try{ const sk = ZyntraSkills.inject(outgoing, activeChatTool); outgoing = sk.messages; usedSkills = sk.used; }catch(e){ console.warn("skills:", e); }
+        }
+        const { sources, memoryWrites, usage } = await streamChatAPI(outgoing, (chunk) => {
+            if(!firstChunkReceived){
+                aiContent.textContent = "";
+                firstChunkReceived = true;
+            }
+            accumulated += chunk;
+            aiContent.innerHTML = formatAIText(accumulated);
+            chatAutoScroll();
+        }, { research: researchModeEnabled, website: activeChatTool === "codex", agent: activeChatTool === "agent", signal: controller.signal }, onAgentStep);
+
+        rememberUsage(usage);
+        notifyGatedFeatures(usage);
+        maybeWarnLowMessageBalance(usage);
+
+        if(!accumulated){
+            aiContent.textContent = "Sorry, I didn't get a response. Please try again.";
+        } else {
+            finalizeReply();
+            addMemories(memoryWrites);
+            if(sources && sources.length){
+                aiContent.appendChild(buildSourcesRow(sources));
+            }
+
+            if(activeChatTool === "data" && dataAnalysisDataset){
+                runDataAnalysisCodeIfPresent(accumulated, aiContent);
+            }
+        }
+    }catch(err){
+        if(err.name === "AbortError"){
+            // The person hit Stop — keep whatever was written so far as a
+            // real, normal message (matches ChatGPT/Claude/Gemini: stopping
+            // never throws the partial answer away) rather than treating
+            // this as a failure.
+            if(accumulated){
+                finalizeReply();
+            } else {
+                loadingDiv.remove();
+            }
+        } else if(err.code === "limit_reached" || err.code === "guest_limit_reached"){
+            renderLimitReachedCard(aiContent, err);
+        } else if(err.code === "feature_locked"){
+            aiContent.textContent = err.message;
+            showFeatureLockedModal(err.feature || "agent");
+        } else {
+            aiContent.textContent = friendlyErrorMessage(err);
+        }
+    }
+    setGeneratingState(false, null);
+    chatAutoScroll();
+}
+
+// A small animated three-dot indicator instead of static "Thinking..."
+// text — the kind of detail that makes an AI chat feel like a real,
+// finished product rather than a placeholder string.
+function renderThinkingIndicator(container, label){
+    container.innerHTML = `<span class="thinking-indicator"><span class="thinking-label">${escapeForDisplay(label)}</span><span class="thinking-dots"><i></i><i></i><i></i></span></span>`;
+}
+
+// Toggles the composer between "Send" and "Stop generating" — the other
+// half of feeling like a real product: every mainstream AI chat lets you
+// interrupt a reply instead of being stuck waiting it out.
+let activeStreamController = null;
+function setGeneratingState(generating, controller){
+    activeStreamController = generating ? controller : null;
+    const sendBtn = document.getElementById("sendMessage");
+    if(!sendBtn) return;
+    sendBtn.classList.toggle("is-stop", generating);
+    sendBtn.innerHTML = generating ? "&#9632;" : "&#10148;"; // ■ stop / ➤ send
+    sendBtn.title = generating ? "Stop generating" : "Send";
+}
+
+// Special-cased instead of just plain error text, since this is the one
+// error that has an actual next step for the person to take. Reuses the
+// pricing modal/route that already exists rather than inventing new UI.
+// A quiet heads-up before someone hits the hard wall, not after — shown
+// at most once per calendar month (matches the quota's own reset), via
+// localStorage so refreshing the page doesn't spam it again immediately.
+const LOW_BALANCE_WARN_THRESHOLD = 5;
+function maybeWarnLowMessageBalance(usage){
+    if(!usage || typeof usage.remaining !== "number") return;
+    if(usage.remaining > LOW_BALANCE_WARN_THRESHOLD) return;
+    const month = new Date().toISOString().slice(0, 7);
+    const key = "zyntra-low-balance-warned-" + month;
+    if(localStorage.getItem(key)) return;
+    localStorage.setItem(key, "1");
+    const planLabel = planDisplayName(usage.plan);
+    if(usage.remaining <= 0){
+        showToast(`You're out of messages on your ${planLabel} plan this month.`);
+    } else {
+        showToast(`⚠️ Only ${usage.remaining} message${usage.remaining === 1 ? "" : "s"} left on your ${planLabel} plan this month.`);
+    }
+}
+
+function renderLimitReachedCard(container, err){
+    container.innerHTML = "";
+    const isGuest = err.code === "guest_limit_reached";
+    const plan = isGuest ? "guest" : (err.plan || getCachedPlan());
+    const offer = isGuest ? null : getUpgradeOffer(plan);
+
+    const card = document.createElement("div");
+    card.className = "limit-reached-card";
+    const resetLabel = formatLimitResetDate(err.resetsAt);
+    let text = err.message || "You've reached your monthly message limit.";
+    if(!isGuest && !offer){
+        // Top plan: nothing to upgrade to — it's a wait.
+        text = `You've used all ${err.limit ? err.limit.toLocaleString() : "your"} messages on your ${planDisplayName(plan)} plan this month. Your messages reset on ${resetLabel}.`;
+    }
+    card.innerHTML = `<p class="limit-reached-text">${escapeForDisplay(text)}</p>`;
+
+    if(isGuest){
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "limit-reached-upgrade-btn";
+        btn.textContent = "Sign in — it's free";
+        btn.addEventListener("click", () => {
+            if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+            openModal("signinModal");
+            navigateToRoute("login");
+        });
+        card.appendChild(btn);
+    } else if(offer){
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "limit-reached-upgrade-btn";
+        btn.textContent = "Upgrade to " + planDisplayName(offer.target);
+        btn.addEventListener("click", () => showLimitReachedModal(err));
+        card.appendChild(btn);
+    }
+    container.appendChild(card);
+
+    // Signed-in users also get the full "Upgrade to keep chatting" popup.
+    if(!isGuest) showLimitReachedModal(err);
+}
+
+// ---------- "Upgrade to keep chatting" popup ----------
+// Free & Starter are offered Pro, Pro is offered Ultra, Ultra can only wait.
+const UPGRADE_OFFERS = {
+    free:    { target: "pro",   base: "Free",    perks: ["500 AI messages/month", "More Web Search", "Bigger Memory", "Google tools", "Agent Mode", "Advanced Research", "Priority AI"] },
+    starter: { target: "pro",   base: "Starter", perks: ["500 AI messages/month", "Advanced Research", "Priority AI"] },
+    pro:     { target: "ultra", base: "Pro",     perks: ["1,500 AI messages/month", "Highest priority", "Premium features"] }
+};
+const UPGRADE_TARGET_INFO = {
+    starter: { tagline: "More room to work",   price: "₹99" },
+    pro:     { tagline: "Built for daily use", price: "₹199" },
+    ultra:   { tagline: "Maximum headroom",    price: "₹499" }
+};
+
+// ---------- What each plan includes (mirrors the server's PLAN_FEATURES) ----------
+const PLAN_RANK = { guest: 0, free: 1, starter: 2, pro: 3, ultra: 4 };
+function currentPlanKey(){ return isLoggedIn() ? (getCachedPlan() || "free") : "guest"; }
+function planAtLeast(min){ return (PLAN_RANK[currentPlanKey()] || 0) >= PLAN_RANK[min]; }
+const FEATURE_INFO = {
+    research: { name: "Advanced Research", plan: "pro" },
+    agent:    { name: "Agent Mode",        plan: "starter" },
+    google:   { name: "Google tools",      plan: "starter" },
+    webSearch:{ name: "More web searches", plan: "starter" },
+    projectPublish: { name: "Publishing under a project", plan: "starter" },
+    skills: { name: "More custom skills", plan: "starter" },
+    memory:   { name: "More memory",       plan: "starter" }
+};
+const FEATURE_PLAN_CARD = {
+    starter: { base: "Free",    perks: ["150 AI messages/month", "More Web Search", "Bigger Memory", "Google tools", "Agent Mode"] },
+    pro:     { base: "Starter", perks: ["500 AI messages/month", "Advanced Research", "Priority AI"] },
+    ultra:   { base: "Pro",     perks: ["1,500 AI messages/month", "Highest priority", "Premium features (largest app/game builds, biggest memory)"] }
+};
+// How many memories each plan keeps (matches the server's PLAN_FEATURES).
+const MEMORY_LIMITS = { guest: 5, free: 10, starter: 50, pro: 200, ultra: 1000 };
+
+// Re-reads the real plan from the server first, so someone who just
+// upgraded isn't told "locked" because of a stale cached plan.
+async function requirePlan(min, feature){
+    if(planAtLeast(min)) return true;
+    try{ if(isLoggedIn() && typeof refreshUserPlan === "function") await refreshUserPlan(); }catch(e){}
+    if(planAtLeast(min)) return true;
+    showFeatureLockedModal(feature);
+    return false;
+}
+
+function showFeatureLockedModal(feature){
+    const info = FEATURE_INFO[feature] || { name: "This feature", plan: "pro" };
+    const target = info.plan;
+    const card = FEATURE_PLAN_CARD[target];
+    const t = UPGRADE_TARGET_INFO[target];
+    const targetName = planDisplayName(target);
+    const check = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    closeLimitReachedModal();
+    const overlay = document.createElement("div");
+    overlay.className = "limit-modal-overlay";
+    overlay.innerHTML = `
+        <div class="limit-modal-box" role="dialog" aria-modal="true">
+            <button type="button" class="limit-modal-x" title="Close">✕</button>
+            <h2 class="limit-modal-title">${info.name} is on the ${targetName} plan</h2>
+            <p class="limit-modal-text">Upgrade to ${targetName} to unlock ${info.name}${isLoggedIn() ? "" : " — you'll sign in first"}.</p>
+            <div class="limit-plan-card">
+                <div class="limit-plan-head">
+                    <div class="limit-plan-name">${targetName}</div>
+                    <div class="limit-plan-tagline">${t.tagline}</div>
+                    <div class="limit-plan-price"><span class="limit-plan-amount">${t.price}</span><span class="limit-plan-per">INR / month</span></div>
+                </div>
+                <div class="limit-plan-perks">
+                    <div class="limit-plan-perks-title">Everything in ${card.base} and:</div>
+                    ${card.perks.map(p => `<div class="limit-plan-perk">${check}<span>${p}</span></div>`).join("")}
+                </div>
+                <button type="button" class="limit-plan-cta">Upgrade to ${targetName}</button>
+                <button type="button" class="limit-plan-link">See all plans</button>
+            </div>
+            <button type="button" class="limit-modal-later">Not now</button>
+        </div>`;
+    document.body.appendChild(overlay);
+    document.addEventListener("keydown", limitModalEscHandler);
+    overlay.addEventListener("mousedown", ev => { if(ev.target === overlay) closeLimitReachedModal(); });
+    overlay.querySelector(".limit-modal-x").addEventListener("click", closeLimitReachedModal);
+    overlay.querySelector(".limit-modal-later").addEventListener("click", closeLimitReachedModal);
+    const openPlans = () => {
+        closeLimitReachedModal();
+        openModal("pricingModal");
+        if(typeof resetPricingModalView === "function") resetPricingModalView();
+        if(typeof setPricingStatus === "function") setPricingStatus("");
+        if(typeof applyPlanToUI === "function") applyPlanToUI(getCachedPlan());
+        navigateToRoute("plans");
+    };
+    overlay.querySelector(".limit-plan-link").addEventListener("click", openPlans);
+    overlay.querySelector(".limit-plan-cta").addEventListener("click", () => { openPlans(); startPlanUpgrade(target); });
+}
+
+// A reply came back with features that this plan doesn't include.
+function notifyGatedFeatures(usage){
+    if(!usage || !Array.isArray(usage.gated) || !usage.gated.length) return;
+    const f = usage.gated[0];
+    const info = FEATURE_INFO[f];
+    if(!info) return;
+    showToast(`🔒 ${info.name} needs the ${planDisplayName(info.plan)} plan — this reply was answered without it.`);
+}
+
+function getUpgradeOffer(plan){
+    const o = UPGRADE_OFFERS[plan];
+    return o ? { ...o, ...UPGRADE_TARGET_INFO[o.target] } : null;
+}
+
+function formatLimitResetDate(iso){
+    let d = iso ? new Date(iso) : null;
+    if(!d || isNaN(d.getTime())){
+        const now = new Date();
+        d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+    }
+    return d.toLocaleDateString(undefined, { month: "long", day: "numeric" });
+}
+
+function closeLimitReachedModal(){
+    document.querySelector(".limit-modal-overlay")?.remove();
+    document.removeEventListener("keydown", limitModalEscHandler);
+}
+function limitModalEscHandler(e){ if(e.key === "Escape") closeLimitReachedModal(); }
+
+function showLimitReachedModal(err){
+    if(err.code === "guest_limit_reached") return;
+    closeLimitReachedModal();
+
+    const plan = err.plan || getCachedPlan();
+    const offer = getUpgradeOffer(plan);
+    const planName = planDisplayName(plan);
+    const used = err.limit ? err.limit.toLocaleString() : "all your";
+    const resetLabel = formatLimitResetDate(err.resetsAt);
+    const check = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 10.5l4 4 8-9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    const overlay = document.createElement("div");
+    overlay.className = "limit-modal-overlay";
+
+    let body;
+    if(offer){
+        const targetName = planDisplayName(offer.target);
+        body = `
+            <h2 class="limit-modal-title">Upgrade to keep chatting</h2>
+            <p class="limit-modal-text">You've used ${used} messages on your ${planName} plan this month. It resets on ${resetLabel}, or you can upgrade for a higher limit.</p>
+            <div class="limit-plan-card">
+                <div class="limit-plan-head">
+                    <div class="limit-plan-name">${targetName}</div>
+                    <div class="limit-plan-tagline">${offer.tagline}</div>
+                    <div class="limit-plan-price"><span class="limit-plan-amount">${offer.price}</span><span class="limit-plan-per">INR / month</span></div>
+                </div>
+                <div class="limit-plan-perks">
+                    <div class="limit-plan-perks-title">Everything in ${offer.base} and:</div>
+                    ${offer.perks.map(p => `<div class="limit-plan-perk">${check}<span>${p}</span></div>`).join("")}
+                </div>
+                <button type="button" class="limit-plan-cta">Upgrade to ${targetName}</button>
+                <button type="button" class="limit-plan-link">See all plans</button>
+            </div>
+            <button type="button" class="limit-modal-later">Not now</button>`;
+    } else {
+        body = `
+            <h2 class="limit-modal-title">You've reached your limit</h2>
+            <p class="limit-modal-text">You've used ${used} messages on your ${planName} plan this month. Your messages reset on <strong>${resetLabel}</strong>, so you can keep chatting then.</p>
+            <button type="button" class="limit-modal-later limit-modal-ok">Got it</button>`;
+    }
+
+    overlay.innerHTML = `
+        <div class="limit-modal-box" role="dialog" aria-modal="true">
+            <button type="button" class="limit-modal-x" title="Close">✕</button>
+            ${body}
+        </div>`;
+    document.body.appendChild(overlay);
+    document.addEventListener("keydown", limitModalEscHandler);
+
+    overlay.addEventListener("mousedown", ev => { if(ev.target === overlay) closeLimitReachedModal(); });
+    overlay.querySelector(".limit-modal-x").addEventListener("click", closeLimitReachedModal);
+    overlay.querySelector(".limit-modal-later")?.addEventListener("click", closeLimitReachedModal);
+
+    const openPlans = () => {
+        closeLimitReachedModal();
+        openModal("pricingModal");
+        if(typeof resetPricingModalView === "function") resetPricingModalView();
+        if(typeof setPricingStatus === "function") setPricingStatus("");
+        if(typeof applyPlanToUI === "function") applyPlanToUI(getCachedPlan());
+        navigateToRoute("plans");
+    };
+    overlay.querySelector(".limit-plan-link")?.addEventListener("click", openPlans);
+    overlay.querySelector(".limit-plan-cta")?.addEventListener("click", () => {
+        const target = offer.target;
+        openPlans();
+        startPlanUpgrade(target);
+    });
+}
+
+// Truncates chatHistory + the DOM back to right after the user message
+// that led to this reply, then regenerates a fresh one in its place.
+async function regenerateFromMessage(aiMessageDiv){
+    const idx = parseInt(aiMessageDiv.dataset.historyIndex, 10);
+    if(Number.isNaN(idx)) return;
+
+    chatHistory.length = idx;
+    let node = aiMessageDiv;
+    while(node){
+        const next = node.nextElementSibling;
+        node.remove();
+        node = next;
+    }
+
+    await streamAssistantReply();
+}
+
+function addRegenerateButton(bar, aiMessageDiv){
+    const btn = document.createElement("button");
+    btn.className = "msg-action-btn";
+    btn.title = "Regenerate response";
+    btn.innerHTML = MSG_ICONS.regenerate || "🔄";
+    btn.addEventListener("click", () => regenerateFromMessage(aiMessageDiv));
+    bar.appendChild(btn);
+}
+
+document.getElementById("sendMessage").addEventListener("click", () => {
+    if(activeStreamController){
+        activeStreamController.abort();
+        return;
+    }
+    sendChatMessage();
+});
+userInput.addEventListener("keydown", e => {
+    if(e.key === "Enter") sendChatMessage();
+});
+
+// ---------- Research mode ----------
+// A deliberate "go deep" toggle — when on, the agent runs several web
+// searches from different angles instead of one quick one, and writes a
+// longer, more thoroughly sourced answer. Off by default since most
+// messages don't need it.
+
+let researchModeEnabled = false;
+
+function setResearchButtonState(){
+    const btn = document.getElementById("researchBtn");
+    if(!btn) return;
+    btn.classList.toggle("active", researchModeEnabled);
+    btn.title = researchModeEnabled
+        ? "Research mode: ON — deeper, multi-source answers. Click to turn off"
+        : "Research mode — click for deeper, multi-source answers";
+}
+
+document.getElementById("researchBtn")?.addEventListener("click", async () => {
+    if(!researchModeEnabled && !(await requirePlan("pro", "research"))) return;
+    researchModeEnabled = !researchModeEnabled;
+    setResearchButtonState();
+    showToast(researchModeEnabled ? "🔎 Research mode turned on" : "🔎 Research mode turned off");
+});
+
+setResearchButtonState();
+
+// ---------- Homepage suggestion chips ----------
+// Fills the empty space below the greeting with a handful of clickable
+// starter prompts — a fresh random set each time the greeting screen
+// shows, pulled from a much bigger pool so it doesn't feel repetitive.
+
+const PROMPT_SUGGESTIONS = [
+    { icon: "💡", text: "Explain quantum computing in simple terms" },
+    { icon: "🐍", text: "Write a Python function to sort a list" },
+    { icon: "📈", text: "Give me 5 tips to be more productive" },
+    { icon: "🌍", text: "Write a short essay about climate change" },
+    { icon: "🥗", text: "Help me plan a healthy weekly meal plan" },
+    { icon: "💼", text: "Give me business ideas for a small budget" },
+    { icon: "⛓️", text: "Explain how blockchain works, simply" },
+    { icon: "✉️", text: "Write a friendly email asking for a deadline extension" },
+    { icon: "🎯", text: "Help me set achievable goals for this month" },
+    { icon: "🧠", text: "Quiz me on world capitals" },
+    { icon: "📝", text: "Summarize a book plot I describe to you" },
+    { icon: "🎁", text: "Give me creative gift ideas for a friend's birthday" },
+    { icon: "🏋️", text: "Build me a beginner home workout routine" },
+    { icon: "📊", text: "Explain the stock market like I'm 10 years old" },
+    { icon: "🧳", text: "Plan a 3-day budget-friendly trip itinerary" },
+    { icon: "🎬", text: "Recommend movies based on a mood I describe" }
+];
+
+function renderPromptSuggestions(){
+    const container = document.getElementById("promptSuggestions");
+    if(!container) return;
+
+    // Only makes sense on the plain chat homepage — other tools (Study,
+    // Business, Code, etc.) have their own focused greeting already.
+    if(activeChatTool && activeChatTool !== "chat"){
+        container.innerHTML = "";
+        return;
+    }
+
+    const pool = [...PROMPT_SUGGESTIONS];
+    const picks = [];
+    for(let i = 0; i < 4 && pool.length; i++){
+        const idx = Math.floor(Math.random() * pool.length);
+        picks.push(pool.splice(idx, 1)[0]);
+    }
+
+    container.innerHTML = "";
+    picks.forEach(({ icon, text }) => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "prompt-suggestion-chip";
+        chip.innerHTML = `<span class="chip-icon">${icon}</span><span>${text}</span>`;
+        chip.addEventListener("click", () => {
+            userInput.value = text;
+            sendChatMessage();
+        });
+        container.appendChild(chip);
+    });
+}
+
+// ==========================
+// Tool routing (sidebar nav, dropdown-less)
+// ==========================
+
+function setActiveNav(tool){
+    document.querySelectorAll(".nav-item").forEach(n => n.classList.remove("active"));
+    const el = document.querySelector(`.nav-item[data-tool="${tool}"]`) || document.querySelector(`.nav-item[data-panel="${tool}"]`);
+    if(el) el.classList.add("active");
+}
+
+// Instructions given to the model in Data Analysis mode — a pandas
+// DataFrame called `df` is pre-loaded in a real Python sandbox (Pyodide,
+// running in the browser) with the full uploaded dataset, so the model
+// writes code against it rather than eyeballing numbers from text.
+const DATA_ANALYSIS_INSTRUCTIONS = `You are Zyntra's Data Analysis assistant. A pandas DataFrame called df is already loaded in a real Python sandbox with the FULL dataset (not just the sample shown above) — the columns listed above are exactly df's columns. To answer the user's question: give a short explanation in plain English, then include exactly one \`\`\`python code fence with valid pandas code that computes the answer using df. Use print() for every value, table, or summary you want the user to see — printed output is captured and shown to the user automatically, so don't just compute silently. If a chart would genuinely help, build a dict called chart_data with keys "type" ("bar", "line", or "pie"), "labels" (a list of strings) and "values" (a list of numbers) — assign it as a variable, do not print it, and only include one per response. Never use matplotlib, plt, seaborn, or any plotting library — chart_data is the only way to produce a chart here. Never invent column names that aren't in the list above. If the question doesn't need code (e.g. asking what a column means), just answer directly with no code fence.`;
+
+// Design + behavior instructions for Codex mode, which merges what used to
+// be four separate tools (Poster Maker, Study Helper, Code with Zyntra,
+// Website Builder) into one option that handles both plain coding help and
+// full website/app builds — the model decides which per message, based on
+// this note, rather than a separate classifier call.
+const CODEX_SYSTEM_NOTE = `
+You are in Codex mode — Zyntra's unified coding and building assistant. Every message calls for ONE of these two response styles; figure out which and respond accordingly:
+
+1. BUILDING a full website, web app, game, or any other browser-based tool (e.g. "a portfolio site for a photographer", "make the header bigger", "change it to dark mode", "build me a simple calculator app", "make a snake game"): reply with a single, complete, working HTML file — inline <style> and <script> in the same file, no external files or build steps — wrapped in one \`\`\`html code block. After the code block, talk to the user like a real developer/designer handing off work: a couple of natural sentences on what you built, how to play/use it, and why you made the choices you did — not a cold one-liner, not a wall of text. When the user asks for a change to something you already built, regenerate the ENTIRE file again with the change applied — never send a diff or partial snippet, since the preview needs one complete file every time. The file must be COMPLETE: never stop mid-file, never leave TODOs, placeholders, "add logic here" comments or stub functions — every button, control and rule you show must actually work.
+
+   GAMES — a game is not a picture of a game. Build real, playable, addictive games:
+   - Real rules and a real game loop (requestAnimationFrame for action games, or clear turn logic for board/puzzle/card games) with scoring, a win condition and a lose condition, and difficulty that ramps up over time or across levels. Think through the rules before you write them: collisions, movement, turn order, edge cases, and what happens at game over must all be correct.
+   - Puzzle games must always be solvable: generate levels from a known solution or validate them, and give several levels with growing difficulty — never a random board that might be impossible. Check the win condition actually triggers.
+   - A title/start screen with a one-line goal and the controls, a pause option, a game-over screen with the final score, and a Play Again button. Save the high score and (for level games) the best level in localStorage and show it.
+   - Controls that work everywhere: keyboard (arrows/WASD/space) AND touch/mouse (on-screen buttons or swipe/tap). Prevent the page from scrolling while playing.
+   - Make it feel good: smooth animation, instant visual feedback on every action (particles, flashes, small shakes, score pop-ups), optional short sound effects with the Web Audio API behind a mute button, and a polished, cohesive look (one strong color palette, a nice font from Google Fonts, rounded shapes, soft shadows/glow).
+   - Moving camera: if the world is bigger than the screen (platformers, runners, adventures, shooters), the screen must MOVE with the player — keep the player near the middle/third of the screen and scroll the world (translate the canvas/camera by the player's position, smoothly with lerp), add parallax backgrounds (far layers move slower), and keep the camera inside the level bounds. A game where the player walks off a fixed screen is wrong.
+   - Fit the screen: the whole game, including its buttons and score, must be visible at once with NO page scrolling — size the board/canvas from the available space (use 100dvh/100vh, min(), vmin, and a resize handler) so it also works inside a small preview window and on phones.
+   - Keep the code organized (a state object, small functions) so it's reliable, and mentally play through a few rounds before you answer to catch bugs.
+
+   APPS & TOOLS (todo lists, trackers, calculators, quizzes, dashboards, planners, etc.) — build something people would actually keep using: a clear data model, full create/edit/delete flows, data saved in localStorage so it survives a refresh, helpful empty states, input validation, keyboard support, and small delightful touches (smooth transitions, instant feedback, a satisfying first-run experience with a little sample content clearly marked as sample). Every button must do something real.
+
+   Design like a thoughtful human designer, not a template generator: pick a typeface pairing and color palette that actually fits the subject (a masjid site, a photography portfolio, and a SaaS landing page should NOT look like the same template with different text) — load fonts from Google Fonts via a <link> tag. Vary layout structure between projects rather than defaulting to centered-hero-plus-three-cards every time. Use generous whitespace and a restrained palette (2-3 colors plus neutrals) over busy gradients everywhere. Make it responsive with plain CSS (flexbox/grid, media queries) — a CDN-hosted framework like Tailwind's play CDN is fine if it helps, but nothing that needs a build step. Add tasteful, restrained motion rather than heavy animation. Use real semantic HTML (header, nav, main, section, footer) and reasonable alt text/aria labels. If the user hasn't given specific facts (real prices, hours, addresses, phone numbers, testimonials, team names), do NOT invent specific-sounding fake details presented as real — use clearly generic placeholders or ask for the missing specifics instead.
+
+2. EVERYDAY CODING help — writing, debugging, explaining, refactoring, or answering questions about code in any language or context (a Python function, a React component meant to live inside a real project, a SQL query, fixing an error, code review, algorithms, etc.): just help directly and conversationally, with properly formatted code blocks in the relevant language. Do NOT wrap these into a single HTML file — that treatment is ONLY for full standalone browser builds from case 1. Most everyday coding questions belong here.
+
+If a message is just conversation (thanks, a question about something you already built, a greeting) — reply naturally and briefly, without generating any code at all.
+`;
+
+const AGENT_MODE_SYSTEM_NOTE = `
+You are in Agent Mode — the user has given you a goal, not a single question, and expects you to actually carry it out end-to-end using your tools rather than just describing what could be done.
+
+Work autonomously across as many tool calls and rounds as the goal genuinely needs (you have a much larger round budget than normal chat) — search, read, create, send, or update things using whichever real tools are available to you (web search, Gmail, Calendar, GitHub, Slack, Notion, Trello, Discord, Google Drive, Outlook, memory), chaining them together without stopping to ask "should I proceed?" between routine steps. Only pause to ask the user a direct question when you hit something genuinely ambiguous or high-stakes that you can't reasonably guess (e.g. which of several same-named contacts to email, or a destructive action with no clear target) — don't ask for permission to do the obviously-implied next step.
+
+If a tool you'd need isn't available (not connected, or the goal needs something you don't have access to), say so plainly and do as much of the rest of the goal as you actually can with what you do have, rather than refusing the whole thing.
+
+When you're done, give a clear, honest summary of exactly what you did (not what you "would" do) — what was found, created, sent, or changed, with concrete specifics (names, links, counts) — not a vague recap. If you could only partially complete the goal, say what's done and what's still missing.
+`;
+
+// ==========================================================
+// Custom Personas — save different AI personalities/instructions and
+// switch between them instantly. Fully client-side (localStorage) —
+// deliberately no new backend endpoint, since Zyntra's serverless
+// function count is already at Vercel's Hobby-plan cap.
+// ==========================================================
+
+const BUILTIN_PERSONAS = [
+    { id: "builtin-assistant", name: "Assistant", emoji: "🤖", instructions: "", builtin: true },
+    { id: "builtin-coding", name: "Coding Mentor", emoji: "🧑‍💻", instructions: "You are a patient, encouraging coding mentor. Explain concepts clearly with small examples, point out mistakes gently, and encourage best practices without being condescending.", builtin: true },
+    { id: "builtin-study", name: "Study Buddy", emoji: "📚", instructions: "You are a supportive study buddy. Break topics into simple, digestible steps, use analogies, quiz the user occasionally to check understanding, and stay encouraging even when they get things wrong.", builtin: true },
+    { id: "builtin-writer", name: "Creative Writer", emoji: "✍️", instructions: "You are an imaginative creative writing collaborator. Be vivid and expressive, offer creative alternatives, and help develop ideas rather than just correcting them.", builtin: true },
+    { id: "builtin-business", name: "Business Advisor", emoji: "💼", instructions: "You are a pragmatic business advisor. Be direct and specific, focus on actionable next steps, and think in terms of cost, risk, and real-world tradeoffs rather than abstract theory.", builtin: true }
+];
+
+function getPersonas(){
+    try{
+        const custom = JSON.parse(localStorage.getItem("zyntra-personas") || "[]");
+        return [...BUILTIN_PERSONAS, ...custom];
+    }catch{
+        return BUILTIN_PERSONAS;
+    }
+}
+
+function getCustomPersonas(){
+    try{
+        return JSON.parse(localStorage.getItem("zyntra-personas") || "[]");
+    }catch{
+        return [];
+    }
+}
+
+function saveCustomPersonas(list){
+    localStorage.setItem("zyntra-personas", JSON.stringify(list));
+}
+
+function getActivePersonaId(){
+    return localStorage.getItem("zyntra-active-persona") || "builtin-assistant";
+}
+
+function setActivePersonaId(id){
+    localStorage.setItem("zyntra-active-persona", id);
+    updatePersonaPill();
+}
+
+function updatePersonaPill(){
+    const persona = getPersonas().find(p => p.id === getActivePersonaId()) || BUILTIN_PERSONAS[0];
+    const emojiEl = document.getElementById("personaPillEmoji");
+    const nameEl = document.getElementById("personaPillName");
+    if(emojiEl) emojiEl.textContent = persona.emoji || "🤖";
+    if(nameEl) nameEl.textContent = persona.name;
+}
+
+function renderPersonaList(){
+    const list = document.getElementById("personaList");
+    if(!list) return;
+    list.innerHTML = "";
+    const activeId = getActivePersonaId();
+
+    getPersonas().forEach(persona => {
+        const row = document.createElement("div");
+        row.className = "persona-row" + (persona.id === activeId ? " active" : "");
+
+        const info = document.createElement("div");
+        info.className = "persona-row-info";
+        info.innerHTML = `<span class="persona-row-emoji">${persona.emoji || "🤖"}</span><span class="persona-row-name">${persona.name}</span>`;
+        info.addEventListener("click", () => {
+            setActivePersonaId(persona.id);
+            renderPersonaList();
+            closeModal("personaModal");
+        });
+        row.appendChild(info);
+
+        if(!persona.builtin){
+            const editBtn = document.createElement("button");
+            editBtn.className = "persona-row-edit";
+            editBtn.textContent = "✎";
+            editBtn.title = "Edit";
+            editBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                showPersonaForm(persona);
+            });
+            row.appendChild(editBtn);
+
+            const delBtn = document.createElement("button");
+            delBtn.className = "persona-row-delete";
+            delBtn.textContent = "🗑";
+            delBtn.title = "Delete";
+            delBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const remaining = getCustomPersonas().filter(p => p.id !== persona.id);
+                saveCustomPersonas(remaining);
+                if(activeId === persona.id) setActivePersonaId("builtin-assistant");
+                renderPersonaList();
+            });
+            row.appendChild(delBtn);
+        }
+
+        list.appendChild(row);
+    });
+}
+
+let personaEditingId = null;
+
+function showPersonaForm(persona){
+    personaEditingId = persona ? persona.id : null;
+    document.getElementById("personaFormName").value = persona ? persona.name : "";
+    document.getElementById("personaFormEmoji").value = persona ? persona.emoji : "";
+    document.getElementById("personaFormInstructions").value = persona ? persona.instructions : "";
+    document.getElementById("personaCreateForm").style.display = "flex";
+    document.getElementById("personaAddNewBtn").style.display = "none";
+}
+
+function hidePersonaForm(){
+    personaEditingId = null;
+    document.getElementById("personaCreateForm").style.display = "none";
+    document.getElementById("personaAddNewBtn").style.display = "block";
+}
+
+document.getElementById("personaPillBtn")?.addEventListener("click", () => {
+    renderPersonaList();
+    hidePersonaForm();
+    openModal("personaModal");
+    navigateToRoute("persona");
+});
+document.getElementById("personaModalClose")?.addEventListener("click", () => { closeModal("personaModal"); revertRouteToCurrentTool(); });
+document.getElementById("personaAddNewBtn")?.addEventListener("click", () => showPersonaForm(null));
+document.getElementById("personaFormCancelBtn")?.addEventListener("click", hidePersonaForm);
+
+document.getElementById("personaFormSaveBtn")?.addEventListener("click", () => {
+    const name = document.getElementById("personaFormName").value.trim();
+    const emoji = document.getElementById("personaFormEmoji").value.trim() || "🤖";
+    const instructions = document.getElementById("personaFormInstructions").value.trim();
+    if(!name || !instructions){
+        alert("Give it a name and some instructions for how it should behave.");
+        return;
+    }
+    const custom = getCustomPersonas();
+    if(personaEditingId){
+        const idx = custom.findIndex(p => p.id === personaEditingId);
+        if(idx !== -1) custom[idx] = { ...custom[idx], name, emoji, instructions };
+    } else {
+        custom.push({ id: "persona-" + Date.now(), name, emoji, instructions, builtin: false });
+    }
+    saveCustomPersonas(custom);
+    hidePersonaForm();
+    renderPersonaList();
+    updatePersonaPill();
+});
+
+updatePersonaPill();
+
+// ==========================================================
+// Notifications inbox — bell icon with unread badge. Notifications
+// themselves are written server-side (Admin SDK, bypasses rules) by
+// api/run-scheduled.js (a scheduled task finished) and api/share-project.js
+// (added to a project); the frontend only ever reads them and writes
+// back read/cleared state, riding the same per-user Firestore doc the
+// app already syncs everything else through (getSessions/getMemories/
+// etc.) — no new backend function needed.
+// ==========================================================
+
+function getNotifications(){
+    try{
+        return JSON.parse(localStorage.getItem("zyntra-notifications") || "[]");
+    }catch{
+        return [];
+    }
+}
+
+function saveNotificationsLocal(list){
+    localStorage.setItem("zyntra-notifications", JSON.stringify(list));
+    updateNotifBadge();
+}
+
+function updateNotifBadge(){
+    const badge = document.getElementById("notifBellBadge");
+    if(!badge) return;
+    const unread = getNotifications().filter(n => !n.read).length;
+    if(unread > 0){
+        badge.textContent = unread > 9 ? "9+" : String(unread);
+        badge.style.display = "flex";
+    } else {
+        badge.style.display = "none";
+    }
+}
+
+async function syncNotificationsToCloud(list){
+    const ref = zyntraUserDocRef();
+    if(!ref) return;
+    try{
+        await ref.set({ notifications: list }, { merge: true });
+    }catch(err){
+        console.error("Notification sync failed:", err);
+    }
+}
+
+function renderNotifPanel(){
+    const list = document.getElementById("notifPanelList");
+    if(!list) return;
+    const notifs = [...getNotifications()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if(notifs.length === 0){
+        list.innerHTML = `<p style="text-align:center;color:var(--text-3);font-size:13px;padding:24px 0;">No notifications yet.</p>`;
+        return;
+    }
+    list.innerHTML = "";
+    notifs.forEach(n => {
+        const row = document.createElement(n.link ? "a" : "div");
+        if(n.link) row.href = n.link;
+        row.className = "notif-row" + (n.read ? "" : " unread");
+        row.innerHTML = `
+            <p class="notif-row-title">${n.title || "Notification"}</p>
+            <p class="notif-row-message">${n.message || ""}</p>
+        `;
+        row.addEventListener("click", () => {
+            if(!n.read){
+                const updated = getNotifications().map(x => x.id === n.id ? { ...x, read: true } : x);
+                saveNotificationsLocal(updated);
+                syncNotificationsToCloud(updated);
+                row.classList.remove("unread");
+            }
+        });
+        list.appendChild(row);
+    });
+}
+
+function positionNotifPanel(){
+    const panel = document.getElementById("notifPanel");
+    const btn = document.getElementById("notifBellBtn");
+    if(!panel || !btn) return;
+    const rect = btn.getBoundingClientRect();
+    panel.style.top = (rect.bottom + 8) + "px";
+    panel.style.left = Math.max(8, rect.right - 320) + "px";
+}
+
+document.getElementById("notifBellBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const panel = document.getElementById("notifPanel");
+    const isOpen = panel.classList.contains("open");
+    if(isOpen){
+        panel.classList.remove("open");
+        return;
+    }
+    positionNotifPanel();
+    renderNotifPanel();
+    panel.classList.add("open");
+});
+
+document.addEventListener("click", (e) => {
+    const panel = document.getElementById("notifPanel");
+    if(!panel || !panel.classList.contains("open")) return;
+    if(!e.target.closest("#notifPanel") && !e.target.closest("#notifBellBtn")){
+        panel.classList.remove("open");
+    }
+});
+
+document.getElementById("notifClearAllBtn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    saveNotificationsLocal([]);
+    syncNotificationsToCloud([]);
+    renderNotifPanel();
+});
+
+updateNotifBadge();
+
+setInterval(() => {
+    if(isLoggedIn()) pullCloudToLocal();
+}, 5 * 60 * 1000);
+
+const AGENT_STEP_LABELS = {
+    web_search: { icon: "🔍", label: "Searching the web" },
+    get_current_datetime: { icon: "🕐", label: "Checking the date/time" },
+    remember_fact: { icon: "🧠", label: "Saving a memory" },
+    send_email: { icon: "📧", label: "Sending an email" },
+    search_emails: { icon: "📧", label: "Searching Gmail" },
+    read_email: { icon: "📧", label: "Reading an email" },
+    create_email_draft: { icon: "📧", label: "Drafting an email" },
+    create_calendar_event: { icon: "📅", label: "Creating a calendar event" },
+    list_calendar_events: { icon: "📅", label: "Checking your calendar" },
+    update_calendar_event: { icon: "📅", label: "Updating a calendar event" },
+    cancel_calendar_event: { icon: "📅", label: "Cancelling a calendar event" },
+    search_drive_files: { icon: "📁", label: "Searching Google Drive" },
+    read_drive_file: { icon: "📁", label: "Reading a Drive file" },
+    create_drive_file: { icon: "📁", label: "Creating a Drive file" },
+    list_github_repos: { icon: "🐙", label: "Checking GitHub repos" },
+    list_github_issues: { icon: "🐙", label: "Checking GitHub issues" },
+    create_github_issue: { icon: "🐙", label: "Creating a GitHub issue" },
+    list_github_pull_requests: { icon: "🐙", label: "Checking pull requests" },
+    create_github_pull_request: { icon: "🐙", label: "Opening a pull request" },
+    list_slack_channels: { icon: "💬", label: "Checking Slack channels" },
+    read_slack_messages: { icon: "💬", label: "Reading Slack messages" },
+    send_slack_message: { icon: "💬", label: "Sending a Slack message" },
+    search_slack_messages: { icon: "💬", label: "Searching Slack" },
+    list_slack_users: { icon: "💬", label: "Checking Slack members" },
+    list_discord_channels: { icon: "🎮", label: "Checking Discord channels" },
+    read_discord_messages: { icon: "🎮", label: "Reading Discord messages" },
+    send_discord_message: { icon: "🎮", label: "Sending a Discord message" },
+    search_notion: { icon: "📝", label: "Searching Notion" },
+    read_notion_page: { icon: "📝", label: "Reading a Notion page" },
+    create_notion_page: { icon: "📝", label: "Creating a Notion page" },
+    list_trello_boards: { icon: "📋", label: "Checking Trello boards" },
+    list_trello_lists: { icon: "📋", label: "Checking Trello lists" },
+    list_trello_cards: { icon: "📋", label: "Checking Trello cards" },
+    create_trello_card: { icon: "📋", label: "Creating a Trello card" },
+    search_outlook_emails: { icon: "📧", label: "Searching Outlook" },
+    read_outlook_email: { icon: "📧", label: "Reading an Outlook email" },
+    send_outlook_email: { icon: "📧", label: "Sending an Outlook email" },
+    create_outlook_draft: { icon: "📧", label: "Drafting an Outlook email" }
+};
+
+function describeAgentStep(name){
+    if(AGENT_STEP_LABELS[name]) return AGENT_STEP_LABELS[name];
+    // Unknown/future tool name — fall back to a readable version of the
+    // raw function name rather than a hardcoded label needing upkeep.
+    const label = (name || "tool").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    return { icon: "⚙️", label };
+}
+
+const TOOL_PLACEHOLDERS = {
+    chat: "Ask me anything...",
+    business: "Ask a business or growth question...",
+    image: "Describe the image you want to create...",
+    codex: "Ask me to code, debug, or build a website/app...",
+    agent: "Give me a goal and I'll carry it out — e.g. \"find 5 competitors and summarize them\"...",
+    data: "Upload a spreadsheet, then ask a question about it..."
+};
+
+const TOOL_GREETINGS = {
+    chat: {
+        heading: 'Hey, I\'m <span>Zyntra AI</span>',
+        subtitle: "Your personal AI assistant. Ask me anything!"
+    },
+    business: {
+        heading: 'Let\'s Grow Your <span>Business</span>!',
+        subtitle: "Ask me for ideas, strategy, or growth tips."
+    },
+    image: {
+        heading: 'Let\'s Create an <span>Image</span>!',
+        subtitle: "Describe what you want to see, and I'll bring it to life."
+    },
+    codex: {
+        heading: '<span>Codex</span>',
+        subtitle: "Write and debug code, or describe a website or app and watch it come to life."
+    },
+    agent: {
+        heading: '<span>Agent Mode</span>',
+        subtitle: "Give me a goal, not a question — I'll chain tools together and work it end-to-end."
+    },
+    data: {
+        heading: '<span>Data Analysis</span>',
+        subtitle: "Upload a CSV or Excel file, then ask questions — I'll write and run real Python to answer them."
+    }
+};
+
+// A first-time visitor (never seen the app before, not signed in) gets a
+// slightly longer greeting that actually explains what Zyntra AI does and
+// that there's no sign-up needed to try it — cold traffic from search
+// shouldn't land on the exact same bare "ask me anything" a returning
+// user sees. Shown once per browser, then reverts to the normal greeting.
+function isFirstTimeVisitor(){
+    return !isLoggedIn() && !localStorage.getItem("zyntra-visited-before");
+}
+
+function applyToolGreeting(tool){
+    const greeting = TOOL_GREETINGS[tool];
+    if(!greeting) return;
+
+    if(tool === "chat" && isFirstTimeVisitor()){
+        document.getElementById("greetingHeading").innerHTML = 'Hey, I\'m <span>Zyntra AI</span>';
+        document.getElementById("greetingSubtitle").textContent =
+            "Chat, generate AI images, talk hands-free with Jarvis, or get coding help — try up to 10 messages free, no sign-up needed.";
+        localStorage.setItem("zyntra-visited-before", "1");
+        return;
+    }
+
+    document.getElementById("greetingHeading").innerHTML = greeting.heading;
+    document.getElementById("greetingSubtitle").textContent = greeting.subtitle;
+}
+
+// Which chat-mode tool is currently open (chat / study / business / code)
+let activeChatTool = "chat";
+
+// Temporary Chat: when on, this conversation skips history logging,
+// memory read/write, and custom-instructions/personalization injection.
+let temporaryChatActive = false;
+
+function openTool(tool, prefix){
+    // Agent Mode needs the Starter plan or above.
+    if(tool === "agent" && !openTool._allow && !planAtLeast("starter")){
+        requirePlan("starter", "agent").then(ok => {
+            if(ok){ openTool._allow = true; try{ openTool(tool, prefix); } finally { openTool._allow = false; } }
+        });
+        return;
+    }
+    showPageView("chat");
+    if(TOOL_PLACEHOLDERS[tool]){
+        // Switching to a different chat mode starts a clean chat.
+        // The previous conversation is already saved in history (it was
+        // logged message-by-message as it happened), so this is safe.
+        // Checked against the actual displayed messages (not chatHistory)
+        // since Image-mode conversations don't populate chatHistory at all.
+        if(tool !== activeChatTool && chatMessages.children.length > 0){
+            resetChatView();
+        }
+        activeChatTool = tool;
+        applyToolGreeting(tool);
+        userInput.placeholder = TOOL_PLACEHOLDERS[tool];
+        document.getElementById("chatGreeting").style.display = chatMessages.children.length ? "none" : "";
+        renderPromptSuggestions();
+        userInput.value = prefix || "";
+        userInput.focus();
+        closeSidebarMobile();
+        if(typeof updateTempChatToggleVisibility === "function") updateTempChatToggleVisibility();
+         } else if(tool === "voice"){
+        showPageView("voice");
+        document.getElementById("jarvisPermissionGate").style.display = jarvisMicGranted ? "none" : "";
+        document.getElementById("jarvisInterface").style.display = jarvisMicGranted ? "" : "none";
+        document.getElementById("voiceMicBtn").style.display = "";
+        document.getElementById("jarvisStatusLabel").textContent = "Say \"repeat\" any time to hear the last answer again.";
+        closeSidebarMobile();
+    }
+    setActiveNav(tool);
+    navigateToRoute(TOOL_TO_SLUG[tool] !== undefined ? TOOL_TO_SLUG[tool] : "");
+}
+
+document.querySelectorAll("[data-tool]").forEach(el => {
+    el.addEventListener("click", e => {
+        e.preventDefault();
+        currentProjectId = null; // manually picking a sidebar tool always exits project context
+        openTool(el.dataset.tool, el.dataset.prefix);
+    });
+});
+
+// ==========================
+// Image modal (with optional reference image upload)
+// ==========================
+
+document.getElementById("imageModalClose").addEventListener("click", () => closeModal("imageModal"));
+
+let imgUploadedFile = null;
+
+document.getElementById("imgUploadBtn").addEventListener("click", () => {
+    document.getElementById("imgUploadInput").click();
+});
+
+document.getElementById("imgUploadInput").addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    if(!file.type.startsWith("image/")){
+        alert("Please select an image file.");
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        imgUploadedFile = reader.result;
+        renderImgUploadPreview();
+    };
+    reader.readAsDataURL(file);
+});
+
+function renderImgUploadPreview(){
+    const preview = document.getElementById("imgUploadPreview");
+    const removeBgBtn = document.getElementById("removeBgBtn");
+    preview.innerHTML = "";
+    if(!imgUploadedFile){
+        if(removeBgBtn) removeBgBtn.style.display = "none";
+        return;
+    }
+    if(removeBgBtn) removeBgBtn.style.display = "block";
+    const thumb = document.createElement("div");
+    thumb.className = "attach-thumb";
+    const img = document.createElement("img");
+    img.src = imgUploadedFile;
+    const removeBtn = document.createElement("button");
+    removeBtn.textContent = "✕";
+    removeBtn.addEventListener("click", () => {
+        imgUploadedFile = null;
+        document.getElementById("imgUploadInput").value = "";
+        renderImgUploadPreview();
+    });
+    thumb.appendChild(img);
+    thumb.appendChild(removeBtn);
+    preview.appendChild(thumb);
+}
+
+document.getElementById("removeBgBtn")?.addEventListener("click", async () => {
+    if(!imgUploadedFile) return;
+    const result = document.getElementById("imageResult");
+    const btn = document.getElementById("removeBgBtn");
+    const original = btn.textContent;
+    btn.textContent = "🪄 Removing background...";
+    btn.disabled = true;
+    showCreatingAnimation(result, "Removing background");
+
+    try{
+        const { removeBackground } = await import("https://esm.sh/@imgly/background-removal@1.5.5");
+        const response = await fetch(imgUploadedFile);
+        const sourceBlob = await response.blob();
+        const resultBlob = await removeBackground(sourceBlob);
+        const url = URL.createObjectURL(resultBlob);
+
+        // For history storage we need a URL that survives page reloads —
+        // blob: URLs are only valid for this page session, so convert to a
+        // data URL for anything we save.
+        const persistentUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(resultBlob);
+        });
+
+        const img = new Image();
+        img.className = "generated-img";
+        img.alt = "Background removed";
+        img.style.background = "repeating-conic-gradient(#2b3154 0% 25%, #171d3d 0% 50%) 50% / 20px 20px";
+        img.onload = () => {
+            result.innerHTML = "";
+            result.appendChild(img);
+
+            const actionsRow = document.createElement("div");
+            actionsRow.style.display = "flex";
+            actionsRow.style.gap = "8px";
+            actionsRow.style.marginTop = "8px";
+            result.appendChild(actionsRow);
+
+            const downloadBtn = document.createElement("button");
+            downloadBtn.className = "copy-btn";
+            downloadBtn.textContent = "⬇ Download PNG";
+            downloadBtn.addEventListener("click", () => {
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "zyntra-ai-no-background.png";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            });
+            actionsRow.appendChild(downloadBtn);
+            bumpStat("images");
+            logImageToHistory("Background removed from photo", persistentUrl);
+        };
+        img.src = url;
+    }catch(err){
+        result.innerHTML = '<p class="loading-text">Could not remove the background. Please try a different photo.</p>';
+    }
+
+    btn.textContent = original;
+    btn.disabled = false;
+});
+
+function showCreatingAnimation(container, label){
+    container.innerHTML = `
+        <div class="creating-box">
+            <p class="creating-label">${label}</p>
+            <div class="creating-dots"></div>
+        </div>
+    `;
+}
+
+async function describeUploadedImage(dataUrl){
+    const { content: reply } = await callChatAPI([
+        {
+            role: "user",
+            content: [
+                { type: "text", text: "Describe this image in one vivid sentence, focused on visual details useful for recreating a similar scene in a new AI-generated image." },
+                { type: "image_url", image_url: { url: dataUrl } }
+            ]
+        }
+    ]);
+    return reply.replace(/\*\*/g, "").trim();
+}
+
+document.getElementById("imageGenBtn").addEventListener("click", async () => {
+    const val = document.getElementById("imageInput").value.trim();
+    const result = document.getElementById("imageResult");
+    if(!val && !imgUploadedFile){ alert("Please describe the image or upload a reference image."); return; }
+
+    const waitLabel = "Creating image";
+    showCreatingAnimation(result, waitLabel);
+
+    let finalPrompt = val;
+
+    if(imgUploadedFile){
+        try{
+            const description = await describeUploadedImage(imgUploadedFile);
+            finalPrompt = val ? `${description}. ${val}` : description;
+        }catch(err){
+            // fall back to just the typed prompt if description fails
+        }
+    }
+
+    if(!finalPrompt){
+        result.innerHTML = '<p class="loading-text">Please describe the image or upload a reference image.</p>';
+        return;
+    }
+
+    const wantsRealistic = document.getElementById("imageRealisticToggle")?.checked;
+    if(wantsRealistic){
+        finalPrompt += ", photorealistic, ultra realistic, highly detailed, sharp focus, natural lighting, shot on DSLR, 8k";
+    }
+
+    function attemptGenerate(retryCount){
+        const img = new Image();
+        img.className = "generated-img";
+        img.alt = finalPrompt;
+        img.style.cursor = "zoom-in";
+        img.title = "Click to view full size";
+        img.onload = () => {
+            result.innerHTML = "";
+
+            const wrap = document.createElement("div");
+            wrap.className = "generated-img-wrap" + (isCroppedImageUrl(img.src) ? " zc" : "");
+            wrap.appendChild(img);
+            result.appendChild(wrap);
+            img.addEventListener("click", () => openImageViewer(img.src, finalPrompt));
+
+            bumpStat("images");
+            logImageToHistory(val || finalPrompt, img.src);
+
+            const actionsRow = document.createElement("div");
+            actionsRow.style.display = "flex";
+            actionsRow.style.gap = "8px";
+            actionsRow.style.marginTop = "8px";
+            result.appendChild(actionsRow);
+
+            const downloadBtn = document.createElement("button");
+            downloadBtn.className = "copy-btn";
+            downloadBtn.textContent = "⬇ Download";
+            downloadBtn.addEventListener("click", () => {
+                downloadBtn.textContent = "Downloading...";
+                downloadWatermarkedImage(img.src, "zyntra-ai-image.png").then(() => {
+                    downloadBtn.textContent = "⬇ Download";
+                });
+            });
+            actionsRow.appendChild(downloadBtn);
+
+            addReportButton(actionsRow, "Generated image for prompt: \"" + finalPrompt + "\"");
+
+            imgUploadedFile = null;
+            document.getElementById("imgUploadInput").value = "";
+            renderImgUploadPreview();
+        };
+        img.onerror = () => {
+            if(retryCount < 2){
+                showCreatingAnimation(result, waitLabel);
+                setTimeout(() => attemptGenerate(retryCount + 1), 800);
+            } else {
+                result.innerHTML = '<p class="loading-text">Could not generate image right now. Please try again in a moment.</p>';
+            }
+        };
+        const seed = Math.floor(Math.random() * 1000000);
+        img.src = buildImageUrl(finalPrompt, seed);
+    }
+
+    const waitMs = 2000;
+    setTimeout(() => attemptGenerate(0), waitMs);
+});
+
+// ==========================
+// Poster Maker
+// ==========================
+
+document.getElementById("posterModalClose")?.addEventListener("click", () => closeModal("posterModal"));
+
+const POSTER_SIZES = {
+    portrait: { w: 900, h: 1200 },
+    square: { w: 1000, h: 1000 },
+    landscape: { w: 1200, h: 900 }
+};
+
+// Wraps text inside maxWidth, drawing top-down starting at (x, y). Returns lines drawn.
+function wrapCanvasTextTop(ctx, text, x, y, maxWidth, lineHeight){
+    const words = text.split(" ");
+    let line = "";
+    let linesDrawn = 0;
+    words.forEach(word => {
+        const testLine = line ? line + " " + word : word;
+        if(ctx.measureText(testLine).width > maxWidth && line){
+            ctx.fillText(line, x, y + linesDrawn * lineHeight);
+            linesDrawn++;
+            line = word;
+        } else {
+            line = testLine;
+        }
+    });
+    if(line){
+        ctx.fillText(line, x, y + linesDrawn * lineHeight);
+        linesDrawn++;
+    }
+    return linesDrawn;
+}
+
+document.getElementById("posterGenBtn")?.addEventListener("click", () => {
+    const title = document.getElementById("posterTitleInput").value.trim();
+    const subtitle = document.getElementById("posterSubtitleInput").value.trim();
+    const theme = document.getElementById("posterThemeInput").value.trim();
+    const aspect = document.getElementById("posterAspect").value;
+    const result = document.getElementById("posterResult");
+
+    if(!title && !theme){
+        alert("Please add a title or describe the background style.");
+        return;
+    }
+
+    const size = POSTER_SIZES[aspect] || POSTER_SIZES.portrait;
+    const waitLabel = "Designing poster";
+    showCreatingAnimation(result, waitLabel);
+
+    const wantsRealistic = document.getElementById("posterRealisticToggle")?.checked;
+    const realismSuffix = wantsRealistic
+        ? ", photorealistic, ultra realistic, highly detailed, sharp focus, natural lighting, shot on DSLR, 8k"
+        : "";
+    const promptText = (theme || "abstract poster background") + ", poster background art, no text, no watermark, high detail" + realismSuffix;
+    const seed = Math.floor(Math.random() * 1000000);
+    const bgUrl = "https://image.pollinations.ai/prompt/" + encodeURIComponent(promptText)
+        + "?width=" + size.w + "&height=" + size.h + "&model=flux&enhance=true&seed=" + seed;
+
+    function drawPoster(){
+        fetch(bgUrl)
+            .then(res => res.blob())
+            .then(blob => {
+                const objectUrl = URL.createObjectURL(blob);
+                const bgImg = new Image();
+
+                bgImg.onload = () => {
+                    const canvas = document.createElement("canvas");
+                    canvas.width = size.w;
+                    canvas.height = size.h;
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(bgImg, 0, 0, size.w, size.h);
+                    URL.revokeObjectURL(objectUrl);
+
+                    // Dark gradient at the bottom so text stays readable
+                    const gradient = ctx.createLinearGradient(0, size.h * 0.55, 0, size.h);
+                    gradient.addColorStop(0, "rgba(5,6,16,0)");
+                    gradient.addColorStop(1, "rgba(5,6,16,0.85)");
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, size.h * 0.55, size.w, size.h * 0.45);
+
+                    const padding = size.w * 0.08;
+                    const maxTextWidth = size.w - padding * 2;
+                    let cursorY = size.h * 0.62;
+                    ctx.textBaseline = "top";
+
+                    if(title){
+                        const titleFontSize = Math.round(size.w * 0.075);
+                        ctx.font = "800 " + titleFontSize + "px Inter, sans-serif";
+                        ctx.fillStyle = "#ffffff";
+                        const lineHeight = titleFontSize * 1.15;
+                        const linesUsed = wrapCanvasTextTop(ctx, title, padding, cursorY, maxTextWidth, lineHeight);
+                        cursorY += linesUsed * lineHeight + titleFontSize * 0.4;
+                    }
+
+                    if(subtitle){
+                        const subFontSize = Math.round(size.w * 0.035);
+                        ctx.font = "600 " + subFontSize + "px Inter, sans-serif";
+                        ctx.fillStyle = "#c9a8ff";
+                        wrapCanvasTextTop(ctx, subtitle, padding, cursorY, maxTextWidth, subFontSize * 1.3);
+                    }
+
+                    result.innerHTML = "";
+                    const previewImg = document.createElement("img");
+                    previewImg.className = "generated-img";
+                    previewImg.alt = title || "Generated poster";
+                    const posterDataUrl = canvas.toDataURL("image/png");
+                    previewImg.src = posterDataUrl;
+                    result.appendChild(previewImg);
+                    bumpStat("images");
+                    logPosterToHistory(title || theme, posterDataUrl);
+
+                    const actionsRow = document.createElement("div");
+                    actionsRow.style.display = "flex";
+                    actionsRow.style.gap = "8px";
+                    actionsRow.style.marginTop = "8px";
+                    result.appendChild(actionsRow);
+
+                    const downloadBtn = document.createElement("button");
+                    downloadBtn.className = "copy-btn";
+                    downloadBtn.textContent = "⬇ Download Poster";
+                    downloadBtn.addEventListener("click", () => {
+                        const a = document.createElement("a");
+                        a.href = canvas.toDataURL("image/png");
+                        a.download = "zyntra-ai-poster.png";
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                    });
+                    actionsRow.appendChild(downloadBtn);
+
+                    addReportButton(actionsRow, "Generated poster for: \"" + (title || theme) + "\"");
+                };
+
+                bgImg.onerror = () => {
+                    result.innerHTML = '<p class="loading-text">Could not generate the poster background. Please try again.</p>';
+                };
+
+                bgImg.src = objectUrl;
+            })
+            .catch(() => {
+                result.innerHTML = '<p class="loading-text">Could not generate the poster background. Please try again.</p>';
+            });
+    }
+
+    const waitMs = 2000;
+    setTimeout(drawPoster, waitMs);
+});
+
+// ==========================
+// Voice modal
+// ==========================
+
+document.getElementById("voiceBackBtn")?.addEventListener("click", () => {
+    if(typeof window.stopJarvisConversation === "function") window.stopJarvisConversation();
+    showPageView("chat");
+    setActiveNav("chat");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+});
+
+const voiceBox = document.getElementById("voiceBox");
+const voiceMicBtn = document.getElementById("voiceMicBtn");
+
+// ---------- Jarvis in-app voice commands ----------
+// Real, working navigation commands — NOT a claim of OS-level control.
+// A browser tab can never launch or control desktop apps (Chrome, etc.);
+// this only navigates within Zyntra itself. Checked BEFORE sending
+// anything to the AI, so a recognized command never becomes a chat message.
+const JARVIS_COMMANDS = [
+    { patterns: ["open chat", "open ai chat", "go to chat"], run: () => openTool("chat") },
+    { patterns: ["open image generator", "open images", "open image"], run: () => openTool("image") },
+    { patterns: ["open codex"], run: () => openTool("codex") },
+    { patterns: ["open business tools", "open business"], run: () => openTool("business") },
+    { patterns: ["open plugins"], run: () => document.getElementById("navPlugins")?.click() },
+    { patterns: ["open projects"], run: () => document.getElementById("navProjects")?.click() },
+    { patterns: ["open scheduled"], run: () => document.getElementById("navScheduled")?.click() }
+];
+
+function matchJarvisCommand(said){
+    const text = said.toLowerCase().trim();
+    for(const cmd of JARVIS_COMMANDS){
+        if(cmd.patterns.some(p => text.includes(p))) return cmd;
+    }
+    return null;
+}
+
+// ---------- Microphone permission gate ----------
+// Requested explicitly when the user opens Jarvis (not silently on first
+// mic tap), with plain context on why it's needed — the actual browser
+// permission prompt still comes from getUserMedia itself.
+let jarvisMicGranted = false;
+
+async function requestJarvisMicPermission(){
+    const errorEl = document.getElementById("jarvisPermissionError");
+    errorEl.style.display = "none";
+    try{
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop()); // only needed the permission prompt, not an open mic stream
+        jarvisMicGranted = true;
+        document.getElementById("jarvisPermissionGate").style.display = "none";
+        document.getElementById("jarvisInterface").style.display = "";
+    }catch(err){
+        errorEl.textContent = err.name === "NotAllowedError"
+            ? "Microphone access was denied. You can allow it from your browser's site settings, then try again."
+            : "Couldn't access your microphone: " + err.message;
+        errorEl.style.display = "block";
+    }
+}
+document.getElementById("jarvisEnableMicBtn")?.addEventListener("click", requestJarvisMicPermission);
+
+function addVoiceMsg(text, who){
+    const p = document.createElement("p");
+    p.className = "chat-msg " + who;
+    p.textContent = text;
+    voiceBox.appendChild(p);
+    voiceBox.scrollTop = voiceBox.scrollHeight;
+}
+
+const hasMediaRecorderSupport = !!(navigator.mediaDevices && window.MediaRecorder);
+let voiceHistory = [];
+
+// Records one utterance from an already-open mic stream, auto-stopping
+// once the person stops talking (rather than a fixed duration or a tap
+// to stop) — this is what makes the call feel continuous instead of
+// walkie-talkie. Uses raw volume (RMS) off an AnalyserNode as a simple,
+// dependency-free voice-activity detector.
+function recordJarvisUtterance(stream){
+    return new Promise((resolve, reject) => {
+        const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
+            : (MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "");
+        let recorder;
+        try{
+            recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        }catch(err){
+            reject(err);
+            return;
+        }
+        const chunks = [];
+        recorder.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
+
+        const AudioContextAPI = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContextAPI();
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+
+        const SILENCE_THRESHOLD = 8;      // tuned for typical mic gain/noise floor
+        const SILENCE_DURATION_MS = 900;  // stop this long after speech trails off
+        const MAX_DURATION_MS = 20000;    // hard cap so one long ramble can't hang forever
+        const NO_SPEECH_TIMEOUT_MS = 7000; // give up if nothing is said at all
+
+        let spokeAtLeastOnce = false;
+        let silenceStart = null;
+        const startedAt = Date.now();
+        let stopped = false;
+        let rafId = null;
+
+        function cleanup(){
+            stopped = true;
+            if(rafId) cancelAnimationFrame(rafId);
+            try{ source.disconnect(); }catch{}
+            try{ audioCtx.close(); }catch{}
+        }
+
+        function finish(){
+            if(stopped) return;
+            cleanup();
+            if(recorder.state !== "inactive") recorder.stop();
+            else resolve({ blob: new Blob(chunks, { type: mimeType || "audio/webm" }), spoke: spokeAtLeastOnce });
+        }
+
+        function tick(){
+            if(stopped) return;
+            analyser.getByteTimeDomainData(data);
+            let sumSquares = 0;
+            for(let i = 0; i < data.length; i++){
+                const v = data[i] - 128;
+                sumSquares += v * v;
+            }
+            const rms = Math.sqrt(sumSquares / data.length);
+            const now = Date.now();
+
+            if(rms > SILENCE_THRESHOLD){
+                spokeAtLeastOnce = true;
+                silenceStart = null;
+            } else if(spokeAtLeastOnce){
+                if(silenceStart === null) silenceStart = now;
+                if(now - silenceStart > SILENCE_DURATION_MS){ finish(); return; }
+            }
+
+            if(!spokeAtLeastOnce && now - startedAt > NO_SPEECH_TIMEOUT_MS){ finish(); return; }
+            if(now - startedAt > MAX_DURATION_MS){ finish(); return; }
+            rafId = requestAnimationFrame(tick);
+        }
+
+        recorder.onstop = () => resolve({ blob: new Blob(chunks, { type: mimeType || "audio/webm" }), spoke: spokeAtLeastOnce });
+        recorder.onerror = (e) => { cleanup(); reject(e.error || new Error("Recording failed")); };
+
+        recorder.start();
+        rafId = requestAnimationFrame(tick);
+    });
+}
+
+const ACK_PHRASES = {
+    hi: "ठीक है।", gu: "ઠીક છે.", mr: "ठीक आहे.", bn: "ঠিক আছে।", ta: "சரி.", te: "సరే.",
+    es: "Voy.", fr: "Je m'en occupe.", de: "Mache ich.", pt: "Já estou fazendo.", it: "Subito.",
+    ru: "Сейчас.", ja: "了解しました。", ko: "알겠습니다.", zh: "好的。", ar: "حسناً."
+};
+
+async function transcribeAudioBlob(blob){
+    const res = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": blob.type || "audio/webm" },
+        body: blob
+    });
+    if(!res.ok) throw new Error("Transcription failed");
+    const data = await res.json();
+    const heard = whisperLangToBcp47(data.language);
+    if(heard) lastUserSpeechLang = heard;
+    return (data.text || "").trim();
+}
+
+if(!hasMediaRecorderSupport){
+    voiceMicBtn.addEventListener("click", () => {
+        document.getElementById("jarvisStatusLabel").textContent = "Voice calls aren't supported in this browser.";
+    });
+} else {
+    let jarvisContinuousMode = false;
+    let jarvisStream = null;
+    let lastJarvisSpoken = null; // { text, lang } — for the "repeat" voice command
+    let jarvisSpeechQueue = [];
+    let jarvisSpeaking = false;
+    let jarvisStreamDone = false;
+    let jarvisOnTurnDone = null;
+    let jarvisTurnId = 0; // bumped on interrupt so late chunks from an old turn get ignored
+    let jarvisBargeInRaf = null;
+    let jarvisBargeInCtx = null;
+    const jarvisStatusLabel = document.getElementById("jarvisStatusLabel");
+    const REPEAT_PATTERNS = ["repeat that", "repeat again", "say that again", "can you repeat", "repeat it", "repeat"];
+
+    function setJarvisStatus(text){
+        if(jarvisStatusLabel) jarvisStatusLabel.textContent = text;
+    }
+
+    async function getJarvisStream(){
+        if(jarvisStream && jarvisStream.active) return jarvisStream;
+        jarvisStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true }
+        });
+        return jarvisStream;
+    }
+
+    async function startJarvisListening(){
+        setJarvisStatus("Listening…");
+        document.getElementById("jarvisOrb")?.classList.add("listening");
+        try{
+            const stream = await getJarvisStream();
+            const { blob, spoke } = await recordJarvisUtterance(stream);
+            document.getElementById("jarvisOrb")?.classList.remove("listening");
+
+            if(!jarvisContinuousMode) return; // call was ended while recording
+
+            if(!spoke){
+                // Routine silence timeout, not a real failure — just listen again.
+                setJarvisStatus("Listening…");
+                if(jarvisContinuousMode) startJarvisListening();
+                return;
+            }
+
+            setJarvisStatus("Thinking…");
+            const said = await transcribeAudioBlob(blob);
+            if(!said){
+                if(jarvisContinuousMode) startJarvisListening();
+                return;
+            }
+            handleJarvisTranscript(said);
+        }catch(err){
+            document.getElementById("jarvisOrb")?.classList.remove("listening");
+            if(jarvisContinuousMode){
+                setJarvisStatus("Listening…");
+                setTimeout(() => { if(jarvisContinuousMode) startJarvisListening(); }, 400);
+            } else {
+                setJarvisStatus('Say "Tap to speak" below to start.');
+            }
+        }
+    }
+
+    voiceMicBtn.addEventListener("click", () => {
+        // Only needed once — this first tap is the user gesture browsers
+        // require before mic access / audio playback is allowed. After
+        // this, listening restarts itself automatically after each reply,
+        // so the call continues without any more taps — a real back-and-
+        // forth instead of a walkie-talkie.
+        jarvisContinuousMode = true;
+        voiceMicBtn.style.display = "none";
+        startJarvisListening();
+    });
+
+    // Splits a running text buffer into complete sentences plus whatever
+    // incomplete tail is still being generated. Used to start speaking
+    // each sentence as soon as it's ready instead of waiting for the
+    // whole reply — the main latency win.
+    function extractCompleteSentences(buffer){
+        const matches = buffer.match(/[^.!?]+[.!?]+(\s+|$)/g);
+        if(!matches) return { sentences: [], rest: buffer };
+        const joined = matches.join("");
+        return { sentences: matches.map(s => s.trim()).filter(Boolean), rest: buffer.slice(joined.length) };
+    }
+
+    function enqueueJarvisSpeech(text, lang){
+        if(!text || !text.trim()) return;
+        jarvisSpeechQueue.push({ text, lang });
+        if(!jarvisSpeaking) runJarvisSpeechQueue();
+    }
+
+    function runJarvisSpeechQueue(){
+        if(jarvisSpeechQueue.length === 0){
+            jarvisSpeaking = false;
+            stopBargeInMonitor();
+            maybeFinishJarvisTurn();
+            return;
+        }
+        jarvisSpeaking = true;
+        startBargeInMonitor();
+        const { text, lang } = jarvisSpeechQueue.shift();
+        speakText(text, lang, runJarvisSpeechQueue);
+    }
+
+    function maybeFinishJarvisTurn(){
+        if(jarvisSpeechQueue.length === 0 && !jarvisSpeaking && jarvisStreamDone){
+            const cb = jarvisOnTurnDone;
+            jarvisOnTurnDone = null;
+            if(cb) cb();
+        }
+    }
+
+    function clearJarvisSpeechQueue(){
+        jarvisSpeechQueue = [];
+        jarvisSpeaking = false;
+        stopBargeInMonitor();
+        if(currentJarvisAudio){ currentJarvisAudio.pause(); }
+        speechSynthesis.cancel();
+    }
+
+    // Keeps a light watch on the mic while Zyntra is talking. Real
+    // barge-in — sustained speech cuts the reply off immediately instead
+    // of waiting for it to finish. Uses a stricter threshold/longer
+    // sustain than normal listening to avoid false triggers from any
+    // echo of Zyntra's own voice bleeding back into the mic.
+    function startBargeInMonitor(){
+        if(jarvisBargeInRaf || !jarvisStream) return;
+
+        const AudioContextAPI = window.AudioContext || window.webkitAudioContext;
+        jarvisBargeInCtx = new AudioContextAPI();
+        const source = jarvisBargeInCtx.createMediaStreamSource(jarvisStream);
+        const analyser = jarvisBargeInCtx.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+
+        const BARGE_IN_THRESHOLD = 14;
+        const BARGE_IN_SUSTAIN_MS = 280;
+        let aboveSince = null;
+
+        function tick(){
+            if(!jarvisSpeaking){ jarvisBargeInRaf = null; return; }
+            analyser.getByteTimeDomainData(data);
+            let sumSquares = 0;
+            for(let i = 0; i < data.length; i++){
+                const v = data[i] - 128;
+                sumSquares += v * v;
+            }
+            const rms = Math.sqrt(sumSquares / data.length);
+            const now = Date.now();
+
+            if(rms > BARGE_IN_THRESHOLD){
+                if(aboveSince === null) aboveSince = now;
+                if(now - aboveSince > BARGE_IN_SUSTAIN_MS){
+                    handleJarvisInterrupt();
+                    return;
+                }
+            } else {
+                aboveSince = null;
+            }
+            jarvisBargeInRaf = requestAnimationFrame(tick);
+        }
+        jarvisBargeInRaf = requestAnimationFrame(tick);
+    }
+
+    function stopBargeInMonitor(){
+        if(jarvisBargeInRaf){ cancelAnimationFrame(jarvisBargeInRaf); jarvisBargeInRaf = null; }
+        if(jarvisBargeInCtx){ jarvisBargeInCtx.close().catch(() => {}); jarvisBargeInCtx = null; }
+    }
+
+    function handleJarvisInterrupt(){
+        jarvisTurnId++; // any still-arriving chunks/finish handler from the cut-off turn become stale and get ignored
+        jarvisOnTurnDone = null;
+        clearJarvisSpeechQueue();
+        setJarvisStatus("Listening…");
+        if(jarvisContinuousMode) startJarvisListening();
+    }
+
+    async function handleJarvisTranscript(said){
+        if(REPEAT_PATTERNS.some(p => said.toLowerCase().trim().includes(p))){
+            if(lastJarvisSpoken){
+                setJarvisStatus("Repeating…");
+                speakText(lastJarvisSpoken.text, lastJarvisSpoken.lang, () => {
+                    if(jarvisContinuousMode) startJarvisListening();
+                });
+            } else {
+                setJarvisStatus("I haven't said anything yet.");
+                if(jarvisContinuousMode) startJarvisListening();
+            }
+            return;
+        }
+
+        const command = matchJarvisCommand(said);
+        if(command){
+            command.run();
+            setJarvisStatus("Opening that now…");
+            const ackLang = lastUserSpeechLang || detectSpeechLang(said);
+            speakText(ACK_PHRASES[langPrefix(ackLang)] || "On it.", ACK_PHRASES[langPrefix(ackLang)] ? ackLang : "en-US", () => {
+                if(jarvisContinuousMode) startJarvisListening();
+            });
+            return; // recognized as a command, never sent to the AI
+        }
+
+        if(voiceHistory.length === 0){
+            voiceHistory.push({
+                role: "system",
+                content: "Always reply in the same language the user speaks in (for example, reply in Hindi if they speak Hindi, in Spanish if they speak Spanish, and so on — support any language naturally). If the user explicitly asks you to reply or speak in a specific language (for example \"talk in Gujarati\" or \"reply in French\"), you MUST switch to writing your entire response in that requested language from that point on, using its native script, not English. Pay attention to the emotional tone of what the user says (happy, sad, frustrated, excited, worried, etc.) and respond with matching empathy and tone — be warm and supportive if they seem upset or stressed, and match their energy if they're happy or excited. Answer naturally and conversationally — do not include headings like \"Reasoning behind my answer\", do not explain your reasoning process, and do not add unnecessary meta-commentary. Keep replies fairly brief since they will be read aloud."
+            });
+        }
+        voiceHistory.push({ role: "user", content: said });
+        logVoiceMessageToHistory("user", said);
+        addVoiceMsg(said, "user"); // kept invisible (voiceBox is hidden) — still logs for session history/replay elsewhere
+        addVoiceMsg("Thinking...", "ai-loading");
+        setJarvisStatus("Thinking…");
+
+        const myTurnId = ++jarvisTurnId;
+        jarvisStreamDone = false;
+        jarvisOnTurnDone = () => { if(jarvisContinuousMode) startJarvisListening(); };
+
+        let accumulated = "";
+        let sentenceBuffer = "";
+        let detectedLang = null;
+        let spokeYet = false;
+
+        try{
+            await streamChatAPI(voiceHistory, (chunk) => {
+                if(myTurnId !== jarvisTurnId) return; // this turn was interrupted — drop stale chunks
+                accumulated += chunk;
+                sentenceBuffer += chunk;
+
+                const { sentences, rest } = extractCompleteSentences(sentenceBuffer);
+                sentenceBuffer = rest;
+                sentences.forEach(sentenceRaw => {
+                    const spoken = stripForSpeech(sentenceRaw);
+                    if(!spoken.trim()) return;
+                    if(!detectedLang) detectedLang = detectSpeechLang(spoken, lastUserSpeechLang);
+                    enqueueJarvisSpeech(spoken, detectedLang);
+                    if(!spokeYet){ spokeYet = true; setJarvisStatus("Speaking…"); }
+                });
+            }, {});
+
+            if(myTurnId !== jarvisTurnId) return; // interrupted while the stream was still going
+
+            if(sentenceBuffer.trim()){
+                const spoken = stripForSpeech(sentenceBuffer);
+                if(spoken.trim()){
+                    if(!detectedLang) detectedLang = detectSpeechLang(spoken, lastUserSpeechLang);
+                    enqueueJarvisSpeech(spoken, detectedLang);
+                }
+            }
+            jarvisStreamDone = true;
+
+            voiceHistory.push({ role: "assistant", content: accumulated });
+            logVoiceMessageToHistory("assistant", accumulated);
+            voiceBox.removeChild(voiceBox.lastChild);
+            const clean = accumulated.replace(/\*\*/g, "");
+            const fullSpoken = stripForSpeech(accumulated);
+            lastJarvisSpoken = { text: fullSpoken, lang: detectedLang || detectSpeechLang(fullSpoken, lastUserSpeechLang) };
+            const aiDiv = document.createElement("div");
+            aiDiv.className = "chat-msg ai";
+            voiceBox.appendChild(aiDiv);
+            typeOutText(aiDiv, clean, voiceBox, () => {
+                aiDiv.classList.add("done");
+                const bar = addMessageActionBar(aiDiv, clean);
+                addSpeakRepeatButton(bar, lastJarvisSpoken.text, lastJarvisSpoken.lang);
+            });
+
+            maybeFinishJarvisTurn();
+        }catch(err){
+            if(myTurnId !== jarvisTurnId) return;
+            voiceBox.removeChild(voiceBox.lastChild);
+            clearJarvisSpeechQueue();
+            if(err.code === "limit_reached" || err.code === "guest_limit_reached"){
+                const spokenLimitMsg = err.message || "You've reached your monthly message limit. You can upgrade your plan from the menu.";
+                setJarvisStatus(spokenLimitMsg);
+                enqueueJarvisSpeech(spokenLimitMsg, "en");
+            } else {
+                setJarvisStatus("Sorry, I couldn't process that.");
+            }
+            jarvisStreamDone = true;
+            jarvisOnTurnDone = null;
+            if(jarvisContinuousMode) startJarvisListening();
+        }
+    }
+
+    window.stopJarvisConversation = () => {
+        jarvisContinuousMode = false;
+        jarvisTurnId++; // invalidate any in-flight turn so late chunks are ignored
+        jarvisOnTurnDone = null;
+        clearJarvisSpeechQueue();
+        if(jarvisStream){
+            jarvisStream.getTracks().forEach(track => track.stop());
+            jarvisStream = null;
+        }
+        document.getElementById("jarvisOrb")?.classList.remove("listening");
+    };
+}
+
+// ---------- Initial render ----------
+
+renderSidebarHistory();
+renderPromptSuggestions();
+applyToolGreeting("chat");
+
+// ==========================================================
+// Scroll-to-latest-message floating button
+// ==========================================================
+(function initScrollToLatestBtn(){
+    const area = document.getElementById("chatArea");
+    const btn = document.getElementById("scrollToLatestBtn");
+    if(!area || !btn) return;
+
+    function positionBtn(){
+        const rect = area.getBoundingClientRect();
+        btn.style.left = (rect.left + rect.width / 2) + "px";
+        btn.style.bottom = (window.innerHeight - rect.bottom + 16) + "px";
+    }
+
+    function updateVisibility(){
+        const distanceFromBottom = area.scrollHeight - area.scrollTop - area.clientHeight;
+        if(distanceFromBottom > 220){
+            btn.classList.add("show");
+        } else {
+            btn.classList.remove("show");
+        }
+        positionBtn();
+    }
+
+    area.addEventListener("scroll", updateVisibility, { passive: true });
+    window.addEventListener("resize", positionBtn);
+
+    // Catch new messages being appended even when scroll position
+    // doesn't change on its own (e.g. streaming replies growing the box).
+    const chatMessagesEl = document.getElementById("chatMessages");
+    if(chatMessagesEl && "MutationObserver" in window){
+        new MutationObserver(updateVisibility).observe(chatMessagesEl, { childList: true, subtree: true });
+    }
+
+    btn.addEventListener("click", () => {
+        area.scrollTo({ top: area.scrollHeight, behavior: "smooth" });
+    });
+
+    positionBtn();
+    updateVisibility();
+})();
+
+// ==========================================================
+// Offline overlay + offline mini-game ("Orb Dash")
+// ==========================================================
+(function initOfflineExperience(){
+    const overlay = document.getElementById("offlineOverlay");
+    if(!overlay) return;
+
+    const mainView = document.getElementById("offlineMainView");
+    const backOnlineView = document.getElementById("offlineBackOnlineView");
+    const gameWrap = document.getElementById("offlineGameWrap");
+    const playBtn = document.getElementById("offlinePlayBtn");
+    const retryBtn = document.getElementById("offlineRetryBtn");
+    const startChatBtn = document.getElementById("offlineStartChatBtn");
+    const gameBackBtn = document.getElementById("offlineGameBackBtn");
+    const statusMsg = document.getElementById("offlineStatusMsg");
+
+    let wasOffline = false;
+
+    function showView(view){
+        mainView.style.display = view === "main" ? "flex" : "none";
+        backOnlineView.style.display = view === "backOnline" ? "flex" : "none";
+        gameWrap.style.display = view === "game" ? "flex" : "none";
+        if(view === "game"){
+            startGame();
+        } else {
+            stopGame();
+        }
+    }
+
+    function openOverlay(){
+        wasOffline = true;
+        overlay.classList.add("show");
+        statusMsg.textContent = "";
+        showView("main");
+    }
+
+    function closeOverlay(){
+        overlay.classList.remove("show");
+        stopGame();
+    }
+
+    window.addEventListener("offline", openOverlay);
+    window.addEventListener("online", () => {
+        if(!wasOffline) return; // only react if we were actually showing the offline screen
+        statusMsg.textContent = "";
+        showView("backOnline");
+    });
+
+    retryBtn.addEventListener("click", () => {
+        if(navigator.onLine){
+            statusMsg.textContent = "";
+            showView("backOnline");
+        } else {
+            statusMsg.textContent = "Still offline — check your connection and try again.";
+        }
+    });
+
+    startChatBtn.addEventListener("click", () => {
+        wasOffline = false;
+        closeOverlay();
+    });
+
+    playBtn.addEventListener("click", () => showView("game"));
+    gameBackBtn.addEventListener("click", () => showView("main"));
+
+    // Check immediately on load in case the app was opened while offline.
+    if(!navigator.onLine){
+        openOverlay();
+    }
+
+    // ---------------- Mini game: Orb Dash ----------------
+    // Tiny original canvas endless-runner: a jumping orb dodges
+    // incoming bars. No external assets, pure canvas drawing.
+    const canvas = document.getElementById("offlineGameCanvas");
+    const scoreEl = document.getElementById("offlineGameScore");
+    const bestEl = document.getElementById("offlineGameBest");
+    const hintEl = document.getElementById("offlineGameHint");
+    let ctx = null;
+    let rafId = null;
+    let gameRunning = false;
+    let gameOver = false;
+    let W = 320, H = 400;
+
+    const GROUND_Y_RATIO = 0.82;
+    let player, obstacles, speed, spawnTimer, score, best;
+
+    function loadBest(){
+        try{ return parseInt(localStorage.getItem("zyntraOfflineGameBest") || "0", 10) || 0; }
+        catch(e){ return 0; }
+    }
+    function saveBest(val){
+        try{ localStorage.setItem("zyntraOfflineGameBest", String(val)); }
+        catch(e){ /* ignore */ }
+    }
+
+    function resizeCanvas(){
+        if(!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        W = rect.width;
+        H = rect.height;
+        canvas.width = W * dpr;
+        canvas.height = H * dpr;
+        ctx = canvas.getContext("2d");
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function resetGame(){
+        best = loadBest();
+        bestEl.textContent = best;
+        score = 0;
+        scoreEl.textContent = "0";
+        speed = 4.2;
+        spawnTimer = 0;
+        obstacles = [];
+        const groundY = H * GROUND_Y_RATIO;
+        player = { x: W * 0.22, y: groundY - 26, size: 26, vy: 0, onGround: true };
+        gameOver = false;
+        hintEl.textContent = "Tap, click or press Space to jump";
+    }
+
+    function jump(){
+        if(!gameRunning) return;
+        if(gameOver){
+            resetGame();
+            return;
+        }
+        if(player.onGround){
+            player.vy = -10.5;
+            player.onGround = false;
+        }
+    }
+
+    function spawnObstacle(){
+        const groundY = H * GROUND_Y_RATIO;
+        const h = 22 + Math.random() * 26;
+        obstacles.push({ x: W + 10, y: groundY - h, w: 16 + Math.random() * 10, h });
+    }
+
+    function update(){
+        const groundY = H * GROUND_Y_RATIO;
+
+        // player physics
+        player.vy += 0.55;
+        player.y += player.vy;
+        if(player.y >= groundY - player.size){
+            player.y = groundY - player.size;
+            player.vy = 0;
+            player.onGround = true;
+        }
+
+        // obstacles
+        spawnTimer -= 1;
+        if(spawnTimer <= 0){
+            spawnObstacle();
+            spawnTimer = 55 - Math.min(25, speed * 4) + Math.random() * 35;
+        }
+        for(let i = obstacles.length - 1; i >= 0; i--){
+            obstacles[i].x -= speed;
+            if(obstacles[i].x + obstacles[i].w < 0){
+                obstacles.splice(i, 1);
+                score += 1;
+                scoreEl.textContent = String(score);
+            }
+        }
+
+        // collision (simple AABB)
+        for(const o of obstacles){
+            const px = player.x, py = player.y, ps = player.size;
+            if(px < o.x + o.w && px + ps > o.x && py < o.y + o.h && py + ps > o.y){
+                gameOver = true;
+                if(score > best){
+                    best = score;
+                    saveBest(best);
+                    bestEl.textContent = best;
+                }
+                hintEl.textContent = "Game over — tap to try again";
+            }
+        }
+
+        speed += 0.0025;
+    }
+
+    function draw(){
+        ctx.clearRect(0, 0, W, H);
+
+        // ground line
+        const groundY = H * GROUND_Y_RATIO;
+        ctx.strokeStyle = "rgba(255,255,255,.14)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, groundY);
+        ctx.lineTo(W, groundY);
+        ctx.stroke();
+
+        // obstacles
+        ctx.fillStyle = "#b45cff";
+        obstacles.forEach(o => {
+            const grad = ctx.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
+            grad.addColorStop(0, "#ff59b0");
+            grad.addColorStop(1, "#6e5cff");
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.roundRect ? ctx.roundRect(o.x, o.y, o.w, o.h, 4) : ctx.rect(o.x, o.y, o.w, o.h);
+            ctx.fill();
+        });
+
+        // player orb
+        const grad2 = ctx.createRadialGradient(
+            player.x + player.size/2, player.y + player.size/2, 2,
+            player.x + player.size/2, player.y + player.size/2, player.size
+        );
+        grad2.addColorStop(0, "#ffffff");
+        grad2.addColorStop(0.4, "#6e5cff");
+        grad2.addColorStop(1, "#b45cff");
+        ctx.fillStyle = grad2;
+        ctx.beginPath();
+        ctx.arc(player.x + player.size/2, player.y + player.size/2, player.size/2, 0, Math.PI * 2);
+        ctx.fill();
+
+        if(gameOver){
+            ctx.fillStyle = "rgba(5,5,7,.55)";
+            ctx.fillRect(0, 0, W, H);
+            ctx.fillStyle = "#f5f5f7";
+            ctx.textAlign = "center";
+            ctx.font = "700 20px sans-serif";
+            ctx.fillText("Game Over", W/2, H/2 - 8);
+            ctx.font = "500 13px sans-serif";
+            ctx.fillText("Score: " + score, W/2, H/2 + 16);
+        }
+    }
+
+    function loop(){
+        if(!gameRunning) return;
+        if(!gameOver) update();
+        draw();
+        rafId = requestAnimationFrame(loop);
+    }
+
+    function startGame(){
+        if(!canvas) return;
+        resizeCanvas();
+        resetGame();
+        gameRunning = true;
+        if(rafId) cancelAnimationFrame(rafId);
+        loop();
+    }
+
+    function stopGame(){
+        gameRunning = false;
+        if(rafId){ cancelAnimationFrame(rafId); rafId = null; }
+    }
+
+    if(canvas){
+        canvas.addEventListener("pointerdown", jump);
+        window.addEventListener("keydown", (e) => {
+            if(gameWrap.style.display === "flex" && (e.code === "Space" || e.key === " ")){
+                e.preventDefault();
+                jump();
+            }
+        });
+        window.addEventListener("resize", () => {
+            if(gameWrap.style.display === "flex"){
+                resizeCanvas();
+            }
+        });
+    }
+})();
+
+// ==========================================================
+// Temporary Chat
+// ==========================================================
+function setTemporaryChatActive(active){
+    temporaryChatActive = active;
+    const btn = document.getElementById("tempChatToggleBtn");
+    const disclaimer = document.getElementById("tempChatDisclaimer");
+    const suggestions = document.getElementById("promptSuggestions");
+    if(btn) btn.classList.toggle("active", active);
+    if(disclaimer) disclaimer.style.display = active ? "" : "none";
+    if(active){
+        document.getElementById("greetingHeading").textContent = "Temporary chat";
+        document.getElementById("greetingSubtitle").textContent = "This chat will ignore memory, plugins, and custom instructions, and it won't appear in your history.";
+        if(suggestions) suggestions.style.display = "none";
+        navigateToRoute("incognito");
+    } else {
+        applyToolGreeting(activeChatTool);
+        if(suggestions) suggestions.style.display = "";
+        if(window.location.pathname === "/incognito") revertRouteToCurrentTool();
+    }
+}
+
+function updateTempChatToggleVisibility(){
+    const btn = document.getElementById("tempChatToggleBtn");
+    const greeting = document.getElementById("chatGreeting");
+    if(!btn || !greeting) return;
+    const isNewChat = greeting.style.display !== "none" && chatMessages.children.length === 0;
+    btn.style.display = (isNewChat && activeChatTool === "chat") ? "flex" : "none";
+}
+
+document.getElementById("tempChatToggleBtn")?.addEventListener("click", () => {
+    setTemporaryChatActive(!temporaryChatActive);
+});
+
+// Keep the toggle's visibility in sync with the greeting screen — it
+// should only ever be offered before the first message of a brand-new
+// chat, on the main Chat tool (matches setTemporaryChatActive's reset
+// path in resetChatView, and openTool's tab switches below).
+(function watchTempChatToggleVisibility(){
+    const greeting = document.getElementById("chatGreeting");
+    if(!greeting) return;
+    if("MutationObserver" in window){
+        new MutationObserver(updateTempChatToggleVisibility)
+            .observe(greeting, { attributes: true, attributeFilter: ["style"] });
+        if(chatMessages){
+            new MutationObserver(updateTempChatToggleVisibility)
+                .observe(chatMessages, { childList: true });
+        }
+    }
+    updateTempChatToggleVisibility();
+})();
+
+// ==========================================================
+// Sidebar collapse/expand toggle (desktop)
+// ==========================================================
+(function initSidebarToggle(){
+    const innerBtn = document.getElementById("sidebarToggleBtnInner");
+    const outerBtn = document.getElementById("sidebarToggleBtnOuter");
+    if(!innerBtn && !outerBtn) return;
+
+    function applyCollapsed(collapsed){
+        document.body.classList.toggle("sidebar-collapsed", collapsed);
+        localStorage.setItem("zyntra-sidebar-collapsed", collapsed ? "1" : "0");
+    }
+
+    // Restore the user's last choice, but only on desktop widths — the
+    // mobile sidebar already has its own separate open/close handling.
+    applyCollapsed(window.innerWidth > 900 && localStorage.getItem("zyntra-sidebar-collapsed") === "1");
+
+    function toggle(){
+        applyCollapsed(!document.body.classList.contains("sidebar-collapsed"));
+    }
+    innerBtn?.addEventListener("click", toggle);
+    outerBtn?.addEventListener("click", toggle);
+
+    // If the window shrinks into mobile range while collapsed, undo the
+    // collapse so the mobile slide-over sidebar isn't left hidden/broken.
+    window.addEventListener("resize", () => {
+        if(window.innerWidth <= 900 && document.body.classList.contains("sidebar-collapsed")){
+            document.body.classList.remove("sidebar-collapsed");
+        }
+    });
+})();
+
+// ==========================================================
+// Settings: Chat Behavior
+// ==========================================================
+function chatAutoScroll(){
+    if(localStorage.getItem("zyntra-autoscroll") === "0") return;
+    chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function renderChatBehaviorSettings(){
+    const toggle = document.getElementById("settingsAutoScrollToggle");
+    if(!toggle) return;
+    toggle.checked = localStorage.getItem("zyntra-autoscroll") !== "0";
+}
+
+document.getElementById("settingsAutoScrollToggle")?.addEventListener("change", e => {
+    localStorage.setItem("zyntra-autoscroll", e.target.checked ? "1" : "0");
+});
+
+// ==========================================================
+// Settings: Notifications
+// ==========================================================
+function playNotifSound(){
+    try{
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.4);
+    } catch(e){ /* audio not available — ignore */ }
+}
+
+function notifyAIReply(text){
+    if(!document.hidden) return; // only nudge the user when they're not looking at the tab
+
+    if(localStorage.getItem("zyntra-notif-sound") === "1"){
+        playNotifSound();
+    }
+    if(localStorage.getItem("zyntra-notif-desktop") === "1" && "Notification" in window && Notification.permission === "granted"){
+        const plain = String(text || "").replace(/[#*`_>\[\]]/g, "").trim().slice(0, 120);
+        try{
+            new Notification("Zyntra AI replied", { body: plain || "New message", icon: "/favicon.png" });
+        } catch(e){ /* ignore */ }
+    }
+}
+
+function renderNotificationSettings(){
+    const soundToggle = document.getElementById("settingsSoundToggle");
+    const desktopToggle = document.getElementById("settingsDesktopNotifToggle");
+    if(!soundToggle || !desktopToggle) return;
+    soundToggle.checked = localStorage.getItem("zyntra-notif-sound") === "1";
+    desktopToggle.checked = localStorage.getItem("zyntra-notif-desktop") === "1" && "Notification" in window && Notification.permission === "granted";
+}
+
+document.getElementById("settingsSoundToggle")?.addEventListener("change", e => {
+    localStorage.setItem("zyntra-notif-sound", e.target.checked ? "1" : "0");
+    if(e.target.checked) playNotifSound();
+});
+
+document.getElementById("settingsDesktopNotifToggle")?.addEventListener("change", async e => {
+    const hint = document.getElementById("notifPermissionHint");
+    if(!("Notification" in window)){
+        e.target.checked = false;
+        if(hint){ hint.style.display = "block"; hint.textContent = "Your browser doesn't support desktop notifications."; }
+        return;
+    }
+    if(e.target.checked){
+        const permission = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+        if(permission !== "granted"){
+            e.target.checked = false;
+            localStorage.setItem("zyntra-notif-desktop", "0");
+            if(hint){ hint.style.display = "block"; hint.textContent = "Notifications are blocked for this site — enable them in your browser's site settings to turn this on."; }
+            return;
+        }
+        if(hint) hint.style.display = "none";
+    }
+    localStorage.setItem("zyntra-notif-desktop", e.target.checked ? "1" : "0");
+});
+
+// ==========================================================
+// Settings: Data export
+// ==========================================================
+document.getElementById("settingsExportDataBtn")?.addEventListener("click", () => {
+    const data = {
+        exportedAt: new Date().toISOString(),
+        profile: getProfile(),
+        sessions: getSessions(),
+        memories: getMemories(),
+        projects: getProjects()
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "zyntra-ai-data-export.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    const btn = document.getElementById("settingsExportDataBtn");
+    const original = btn.textContent;
+    btn.textContent = "Downloaded ✓";
+    setTimeout(() => { btn.textContent = original; }, 1800);
+});
+
+// ==========================================================
+// Settings: Security (change password / delete account)
+// ==========================================================
+function renderSecuritySettings(){
+    const user = (typeof firebase !== "undefined") ? activeAuth().currentUser : null;
+    const passwordSection = document.getElementById("securityPasswordSection");
+    const googleNote = document.getElementById("securityGoogleOnlyNote");
+    if(!passwordSection || !googleNote) return;
+
+    const hasPasswordProvider = !!user?.providerData?.some(p => p.providerId === "password");
+    passwordSection.style.display = hasPasswordProvider ? "block" : "none";
+    googleNote.style.display = hasPasswordProvider ? "none" : "block";
+
+    document.getElementById("securityCurrentPassword").value = "";
+    document.getElementById("securityNewPassword").value = "";
+    document.getElementById("securityConfirmPassword").value = "";
+    document.getElementById("securityPasswordMsg").textContent = "";
+    document.getElementById("securityDeleteMsg").textContent = "";
+}
+
+document.getElementById("securityChangePasswordBtn")?.addEventListener("click", () => {
+    const msg = document.getElementById("securityPasswordMsg");
+    const user = activeAuth().currentUser;
+    const current = document.getElementById("securityCurrentPassword").value;
+    const next = document.getElementById("securityNewPassword").value;
+    const confirm = document.getElementById("securityConfirmPassword").value;
+
+    if(!current || !next || !confirm){
+        msg.style.color = "#ff8fa8";
+        msg.textContent = "Fill in all three fields.";
+        return;
+    }
+    if(next.length < 6){
+        msg.style.color = "#ff8fa8";
+        msg.textContent = "New password must be at least 6 characters.";
+        return;
+    }
+    if(next !== confirm){
+        msg.style.color = "#ff8fa8";
+        msg.textContent = "New password and confirmation don't match.";
+        return;
+    }
+
+    const btn = document.getElementById("securityChangePasswordBtn");
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Updating…";
+
+    const credential = firebase.auth.EmailAuthProvider.credential(user.email, current);
+    user.reauthenticateWithCredential(credential)
+        .then(() => user.updatePassword(next))
+        .then(() => {
+            msg.style.color = "#7ee7a8";
+            msg.textContent = "Password updated ✓";
+            document.getElementById("securityCurrentPassword").value = "";
+            document.getElementById("securityNewPassword").value = "";
+            document.getElementById("securityConfirmPassword").value = "";
+        })
+        .catch(err => {
+            msg.style.color = "#ff8fa8";
+            msg.textContent = firebaseErrorMessage(err.code, err.message);
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = original;
+        });
+});
+
+document.getElementById("securityDeleteAccountBtn")?.addEventListener("click", () => {
+    const user = activeAuth().currentUser;
+    const needsPassword = !!user && (user.providerData?.[0]?.providerId || "password") === "password";
+    const pw = document.getElementById("deleteAccountPassword");
+    pw.value = "";
+    pw.style.display = needsPassword ? "" : "none";
+    document.getElementById("deleteAccountConfirmInput").value = "";
+    document.getElementById("deleteAccountError").style.display = "none";
+    document.getElementById("deleteAccountConfirm").disabled = true;
+    openModal("deleteAccountModal");
+});
+document.getElementById("deleteAccountModalClose")?.addEventListener("click", () => closeModal("deleteAccountModal"));
+document.getElementById("deleteAccountCancel")?.addEventListener("click", () => closeModal("deleteAccountModal"));
+document.getElementById("deleteAccountConfirmInput")?.addEventListener("input", (e) => {
+    document.getElementById("deleteAccountConfirm").disabled = e.target.value.trim().toUpperCase() !== "DELETE";
+});
+
+// Deletes everything server-side (api/payment.js action=delete-account) and
+// only then the sign-in record. Right before, the person proves it's them
+// again (password / Google / Microsoft popup) — the server insists on a
+// sign-in from the last 5 minutes.
+document.getElementById("deleteAccountConfirm")?.addEventListener("click", async () => {
+    const user = activeAuth().currentUser;
+    if(!user) return;
+    const btn = document.getElementById("deleteAccountConfirm");
+    const errEl = document.getElementById("deleteAccountError");
+    const original = btn.textContent;
+    const fail = (msg) => {
+        btn.disabled = false;
+        btn.textContent = original;
+        errEl.textContent = msg;
+        errEl.style.display = "block";
+    };
+    errEl.style.display = "none";
+
+    const providerId = user.providerData?.[0]?.providerId || "password";
+    let reauth;
+    if(providerId === "password"){
+        const pw = document.getElementById("deleteAccountPassword").value;
+        if(!pw) return fail("Enter your password to confirm it's you.");
+        reauth = () => user.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(user.email, pw));
+    } else if(providerId === "google.com"){
+        reauth = () => user.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider());
+    } else if(providerId === "microsoft.com"){
+        reauth = () => user.reauthenticateWithPopup(new firebase.auth.OAuthProvider("microsoft.com"));
+    } else {
+        reauth = () => Promise.resolve(); // other providers: the server will say if a fresh sign-in is needed
+    }
+
+    btn.disabled = true;
+    btn.textContent = "Deleting…";
+    try{
+        await reauth(); // first await in the click handler, so a popup isn't blocked
+        const idToken = await user.getIdToken(true);
+        const resp = await fetch("/api/payment?action=delete-account", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: JSON.stringify({ confirm: "DELETE" })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if(!resp.ok){
+            return fail(data.code === "reauth_required"
+                ? "For your security, please sign out, sign back in, and try again right away."
+                : (data.error || "Couldn't delete your account. Please try again."));
+        }
+        try{ await activeAuth().signOut(); }catch(e){}
+        localStorage.clear();
+        try{ sessionStorage.clear(); }catch(e){}
+        closeModal("deleteAccountModal");
+        closeModal("profileModal");
+        window.location.href = "/?guest=1"; // fresh start (skips the welcome screen once)
+    }catch(err){
+        if(err && (err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request")){
+            return fail("Confirmation was cancelled — your account wasn't deleted.");
+        }
+        fail(err && err.code ? firebaseErrorMessage(err.code, err.message) : ((err && err.message) || "Couldn't delete your account."));
+    }
+});
+
+// ==========================================================
+// Multi-account: add + switch between two signed-in accounts
+// ==========================================================
+
+function initSecondaryFirebaseApp(){
+    if(!firebase.apps.some(a => a.name === "secondary")){
+        const secondaryApp = firebase.initializeApp(window.zyntraFirebaseConfig, "secondary");
+        attachAuthStateListener(secondaryApp.auth(), "secondary");
+    }
+    return firebase.app("secondary");
+}
+
+function getKnownAccounts(){
+    try{
+        return JSON.parse(localStorage.getItem("zyntra-known-accounts") || "{}");
+    } catch(e){
+        return {};
+    }
+}
+function saveKnownAccount(slot, email){
+    if(!email) return;
+    const known = getKnownAccounts();
+    known[slot] = { email, letter: email.charAt(0).toUpperCase() };
+    localStorage.setItem("zyntra-known-accounts", JSON.stringify(known));
+    renderAccountSwitcher();
+}
+function removeKnownAccount(slot){
+    const known = getKnownAccounts();
+    delete known[slot];
+    localStorage.setItem("zyntra-known-accounts", JSON.stringify(known));
+    renderAccountSwitcher();
+}
+
+// Kicks off adding a second account: stashes which slot is currently
+// active (in case the user backs out), spins up the secondary Firebase
+// app if this is the first time, marks it as the one about to be signed
+// into, then opens the existing sign-in modal — every sign-in path in
+// that modal already goes through activeAuth(), so it transparently
+// signs into the secondary app without any changes to the modal itself.
+function startAddAccountFlow(){
+    accountAddPreviousSlot = activeAccountSlot;
+    localStorage.setItem("zyntra-account-add-previous-slot", accountAddPreviousSlot);
+    initSecondaryFirebaseApp();
+    activeAccountSlot = "secondary";
+    localStorage.setItem("zyntra-active-slot", "secondary");
+    document.getElementById("signinContext").style.display = "none";
+    resetSigninModalUI();
+    openModal("signinModal");
+    navigateToRoute("login");
+}
+
+document.getElementById("addAccountBtn")?.addEventListener("click", startAddAccountFlow);
+
+// If the sign-in modal gets closed without completing the add-account
+// flow, put the active slot back so nothing changes underneath the user.
+document.getElementById("signinModalClose")?.addEventListener("click", () => {
+    if(accountAddPreviousSlot !== null){
+        const secondaryUser = firebase.apps.some(a => a.name === "secondary") ? firebase.app("secondary").auth().currentUser : null;
+        if(!secondaryUser){
+            activeAccountSlot = accountAddPreviousSlot;
+            localStorage.setItem("zyntra-active-slot", activeAccountSlot);
+        }
+        accountAddPreviousSlot = null;
+        localStorage.removeItem("zyntra-account-add-previous-slot");
+        openModal("profileModal");
+        renderProfileModal();
+        navigateToRoute("settings", "general");
+    }
+});
+
+async function switchToSlot(slot){
+    if(slot === activeAccountSlot) return;
+    const msg = document.getElementById("accountSwitcherMsg");
+    if(msg) msg.textContent = "Switching…";
+
+    await pushLocalToCloud(); // save whatever's active right now before leaving it
+
+    activeAccountSlot = slot;
+    localStorage.setItem("zyntra-active-slot", slot);
+
+    const user = activeAuth().currentUser;
+    if(user) localStorage.setItem("zyntra-user", user.email);
+
+    await pullCloudToLocal();
+    refreshProjectsCache();
+    resetChatView();
+    renderAuthNav();
+    renderSidebarHistory();
+    applyPluginVisibility();
+    renderProfileModal();
+
+    if(msg) msg.textContent = "";
+}
+
+function renderAccountSwitcher(){
+    const list = document.getElementById("accountSwitcherList");
+    if(!list) return;
+    let known = getKnownAccounts();
+
+    // Self-heal a duplicate from before this was blocked: if both slots
+    // ended up pointing at the same email, there's nothing to actually
+    // switch to — drop the non-active one and sign its background
+    // session out so it doesn't linger pointlessly.
+    if(known.default && known.secondary && known.default.email.toLowerCase() === known.secondary.email.toLowerCase()){
+        const staleSlot = activeAccountSlot === "secondary" ? "default" : "secondary";
+        if(staleSlot === "secondary" && firebase.apps.some(a => a.name === "secondary")){
+            firebase.app("secondary").auth().signOut().catch(() => {});
+        }
+        delete known[staleSlot];
+        localStorage.setItem("zyntra-known-accounts", JSON.stringify(known));
+    }
+
+    list.innerHTML = "";
+
+    ["default", "secondary"].forEach(slot => {
+        const account = known[slot];
+        if(!account) return;
+
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid #232a4d; border-radius:12px;";
+        const isActive = slot === activeAccountSlot;
+
+        row.innerHTML = `
+            <div style="width:34px; height:34px; border-radius:50%; background:var(--accent-grad); display:flex; align-items:center; justify-content:center; font-weight:700; color:#fff; flex-shrink:0;">${account.letter}</div>
+            <p style="flex:1; margin:0; font-size:14px; color:#e8e9f5; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${account.email}</p>
+        `;
+
+        if(isActive){
+            const badge = document.createElement("span");
+            badge.textContent = "Active";
+            badge.style.cssText = "font-size:12px; color:#7ee7a8; font-weight:700; flex-shrink:0;";
+            row.appendChild(badge);
+        } else {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = "Switch";
+            btn.style.cssText = "padding:7px 14px; border:1px solid #2b3154; border-radius:10px; background:#171d3d; color:white; font-weight:600; cursor:pointer; flex-shrink:0;";
+            btn.addEventListener("click", () => switchToSlot(slot));
+            row.appendChild(btn);
+        }
+
+        list.appendChild(row);
+    });
+}
+
+// ==========================================================
+// Deep-link into a specific tool via ?tool=image / ?tool=voice / etc.
+// Used by the dedicated SEO landing pages (/image-generator, /jarvis,
+// /codex, /business-tools) so their "Open in Zyntra AI" button lands
+// the visitor straight in that tool instead of the plain chat screen.
+// ==========================================================
+// ==========================================================
+// Clean URL routing (like ChatGPT's /c/... — one app, the address
+// bar just reflects what's showing). No separate HTML files involved;
+// Vercel's catch-all already serves index.html for any path, so this
+// just needs to sync the app's state with the visible URL both ways.
+// ==========================================================
+
+const ROUTE_META = {
+    "play": { title: "Play — Zyntra AI", description: "Play an app or game made with Zyntra AI." },
+    "dashboard": { title: "Creator dashboard — Zyntra AI", description: "Your published apps and games, plays and ratings." },
+    "": { title: "Zyntra AI — AI Chat, Image Generator & Jarvis Voice Assistant", description: "Zyntra AI is your all-in-one AI assistant — chat with AI, generate AI images, talk to Zyntra Jarvis (voice assistant), get coding help with Codex, and grow your business, all in one place." },
+    "chat": { title: "Zyntra AI — AI Chat, Image Generator & Jarvis Voice Assistant", description: "Zyntra AI is your all-in-one AI assistant — chat with AI, generate AI images, talk to Zyntra Jarvis (voice assistant), get coding help with Codex, and grow your business, all in one place." },
+    "image-generator": { title: "AI Image Generator — Zyntra AI", description: "Generate AI images for free with Zyntra AI's Image Generator. Turn any text description into a realistic photo, illustration, or poster in seconds." },
+    "jarvis": { title: "Zyntra Jarvis — AI Voice Assistant | Zyntra AI", description: "Talk to Zyntra Jarvis, a hands-free AI voice assistant. Speak naturally and get spoken answers back." },
+    "codex": { title: "Codex — AI Code Assistant | Zyntra AI", description: "Zyntra Codex is your AI code assistant — write, debug, and explain code, or build a full website from a description." },
+    "business-tools": { title: "AI Business Tools — Zyntra AI", description: "Zyntra AI's Business Tools help you write business plans, pitch ideas, marketing copy, and get startup advice from AI." },
+    "data-analysis": { title: "Data Analysis — Zyntra AI", description: "Upload a spreadsheet and ask questions — Zyntra AI writes and runs real Python to analyze it." },
+    "plugins": { title: "Plugins — Zyntra AI", description: "Turn Zyntra AI's capabilities on or off, and connect apps like Google, GitHub, Slack, and Notion." },
+    "projects": { title: "Projects — Zyntra AI", description: "Organize related chats together in Zyntra AI, with shared instructions and easy sharing." },
+    "scheduled": { title: "Scheduled Tasks — Zyntra AI", description: "Set up recurring AI tasks in Zyntra AI that run automatically and wait for you." },
+    "about": { title: "About — Zyntra AI", description: "Zyntra AI is a personal AI assistant built by Ghanchi Moin — AI chat, image generation, a voice assistant, coding help, and business tools, all in one place." },
+    "privacy": { title: "Privacy Policy — Zyntra AI", description: "Zyntra AI's privacy policy — what data we collect, how it's processed, and your choices." },
+    "contact": { title: "Contact — Zyntra AI", description: "Get in touch with the Zyntra AI team — questions, feedback, or bug reports welcome." },
+    "plans": { title: "Plans & Pricing — Zyntra AI", description: "Compare Zyntra AI plans and upgrade for a higher monthly message limit." },
+    "login": { title: "Sign in — Zyntra AI", description: "Sign in to Zyntra AI to sync your chats, memory, and settings across devices." },
+    "search": { title: "Search Chats — Zyntra AI", description: "Search across your Zyntra AI chat history." },
+    "shares": { title: "My Shared Chats — Zyntra AI", description: "Chats and projects you've shared from Zyntra AI." },
+    "persona": { title: "Personas — Zyntra AI", description: "Create and switch between custom AI personas in Zyntra AI." },
+    "incognito": { title: "Temporary Chat — Zyntra AI", description: "A Zyntra AI chat that skips memory, history, and personalization." },
+    "invite": { title: "Invite Friends — Zyntra AI", description: "Share your Zyntra AI referral link and earn bonus messages." },
+    "admin": { title: "Admin — Zyntra AI", description: "Owner-only overview of Zyntra AI." }
+};
+
+const TOOL_TO_SLUG = { chat: "chat", image: "image-generator", voice: "jarvis", codex: "codex", agent: "agent-mode", business: "business-tools", data: "data-analysis" };
+const SLUG_TO_TOOL = { "": "chat", "chat": "chat", "image-generator": "image", "jarvis": "voice", "codex": "codex", "agent-mode": "agent", "business-tools": "business", "data-analysis": "data" };
+
+function setRouteMeta(slug){
+    const meta = ROUTE_META[slug] || ROUTE_META[""];
+    document.title = meta.title;
+    const descTag = document.querySelector('meta[name="description"]');
+    if(descTag) descTag.setAttribute("content", meta.description);
+}
+
+let firstRouteSync = true;
+function navigateToRoute(slug, id){
+    let path = slug ? "/" + slug : "/";
+    if(id) path += "/" + id;
+    if(window.location.pathname !== path || firstRouteSync){
+        if(firstRouteSync){
+            window.history.replaceState({ slug, id }, "", path);
+        } else {
+            window.history.pushState({ slug, id }, "", path);
+        }
+    }
+    firstRouteSync = false;
+    setRouteMeta(slug);
+}
+
+// Modals whose open/close should be reflected in the URL (plans, login,
+// search, shares, persona, contact, settings). Closing any of these
+// falls back to whatever tool the person was actually on.
+const ROUTED_MODAL_SLUGS = {
+    pricingModal: "plans",
+    signinModal: "login",
+    searchChatsModal: "search",
+    mySharesModal: "shares",
+    personaModal: "persona",
+    contactModal: "contact",
+    profileModal: "settings",
+    referralModal: "invite"
+};
+function revertRouteToCurrentTool(){
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+}
+
+function openSessionById(id){
+    const session = getSessions().find(s => String(s.id) === String(id));
+    if(session){
+        openSession(session);
+        return true;
+    }
+    return false;
+}
+
+function applyRouteFromPath(){
+    const parts = window.location.pathname.replace(/^\/+|\/+$/g, "").split("/");
+    const slug = parts[0] || "";
+    const subId = parts[1] || null;
+
+    // Apps & games pages (/play/<name>) and the creator dashboard (/dashboard)
+    if(window.ZyntraCreations && window.ZyntraCreations.route(slug, subId)) return;
+
+    // Zyntra Moments
+    if(window.ZyntraMoments && window.ZyntraMoments.route(slug, subId)) return;
+
+    // Close any routed modal that isn't the one this path calls for, and
+    // drop temporary-chat mode if we've navigated away from /incognito —
+    // otherwise a Back/Forward navigation would leave the old modal (or
+    // temp-chat state) sitting on top of whatever the new path shows.
+    Object.keys(ROUTED_MODAL_SLUGS).forEach(id => {
+        if(ROUTED_MODAL_SLUGS[id] !== slug) document.getElementById(id)?.classList.remove("show");
+    });
+    if(slug !== "incognito" && typeof temporaryChatActive !== "undefined" && temporaryChatActive){
+        setTemporaryChatActive(false);
+    }
+
+    if(slug === "share" && subId){
+        loadSharedChat(subId);
+        return;
+    }
+    if(slug === "plugins" && subId){
+        document.getElementById("navPlugins")?.click();
+        const def = CONNECTORS.find(c => c.key === subId) || PLUGIN_DEFS.find(p => p.key === subId);
+        if(def){
+            openPluginDetail(CONNECTORS.includes(def) ? "connector" : "plugin", subId);
+        }
+        return;
+    }
+    if(slug === "settings" && subId){
+        openModal("profileModal");
+        renderProfileModal();
+        switchSettingsSection(subId);
+        return;
+    }
+    if(Object.prototype.hasOwnProperty.call(SLUG_TO_TOOL, slug) && subId){
+        // Deep link to one specific conversation within a tool, like
+        // /image-generator/<id> or /codex/<id> (not just /chat/<id>).
+        if(!openSessionById(subId)){
+            // That session doesn't exist (wrong id, or a guest with
+            // nothing saved locally) — fall back to that tool's normal
+            // empty state instead of a dead end.
+            openTool(SLUG_TO_TOOL[slug]);
+        }
+        setRouteMeta(slug);
+        return;
+    }
+    if(slug === "about"){
+        showPageView("about");
+        setActiveNav("about");
+        setRouteMeta("about");
+        return;
+    }
+    if(slug === "discover"){
+        showPageView("discover");
+        loadDiscoverList();
+        setRouteMeta("discover");
+        return;
+    }
+    if(slug === "privacy"){
+        showPageView("privacy");
+        setActiveNav("privacy");
+        setRouteMeta("privacy");
+        return;
+    }
+    if(slug === "contact"){
+        openModal("contactModal");
+        setRouteMeta("contact");
+        return;
+    }
+    if(slug === "admin"){
+        openAdminDashboard();
+        return;
+    }
+    if(slug === "plans"){
+        openModal("pricingModal");
+        if(typeof resetPricingModalView === "function") resetPricingModalView();
+        if(typeof setPricingStatus === "function") setPricingStatus("");
+        if(typeof applyPlanToUI === "function") applyPlanToUI(getCachedPlan());
+        setRouteMeta("plans");
+        return;
+    }
+    if(slug === "login"){
+        if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+        openModal("signinModal");
+        setRouteMeta("login");
+        return;
+    }
+    if(slug === "search"){
+        if(typeof openSearchChatsModal === "function") openSearchChatsModal();
+        else openModal("searchChatsModal");
+        setRouteMeta("search");
+        return;
+    }
+    if(slug === "shares"){
+        if(!isLoggedIn()){
+            if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+            openModal("signinModal");
+            setRouteMeta("login");
+            return;
+        }
+        openModal("mySharesModal");
+        if(typeof loadMyShares === "function") loadMyShares();
+        setRouteMeta("shares");
+        return;
+    }
+    if(slug === "persona"){
+        if(typeof renderPersonaList === "function") renderPersonaList();
+        if(typeof hidePersonaForm === "function") hidePersonaForm();
+        openModal("personaModal");
+        setRouteMeta("persona");
+        return;
+    }
+    if(slug === "incognito"){
+        setTemporaryChatActive(true);
+        setRouteMeta("incognito");
+        return;
+    }
+    if(slug === "invite"){
+        openReferralModal();
+        setRouteMeta("invite");
+        return;
+    }
+    if(slug === "r" && subId){
+        // Not a page of its own — just the trigger. Stash the code, then
+        // immediately go back to "/" so the URL doesn't stay on a route
+        // with nothing to actually show.
+        stashPendingReferral(subId);
+        if(isLoggedIn()){
+            showToast("You're already signed in on this device.");
+        } else {
+            if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+            openModal("signinModal");
+            document.getElementById("signinContext").textContent = "🎁 Sign up to claim your referral bonus.";
+            document.getElementById("signinContext").style.display = "";
+        }
+        window.history.replaceState({}, "", isLoggedIn() ? "/" : "/login");
+        setRouteMeta(isLoggedIn() ? "" : "login");
+        return;
+    }
+    if(slug === "plugins"){
+        document.getElementById("navPlugins")?.click();
+        return;
+    }
+    if(slug === "projects"){
+        document.getElementById("navProjects")?.click();
+        return;
+    }
+    if(slug === "scheduled"){
+        document.getElementById("navScheduled")?.click();
+        return;
+    }
+    if(Object.prototype.hasOwnProperty.call(SLUG_TO_TOOL, slug)){
+        openTool(SLUG_TO_TOOL[slug]);
+        return;
+    }
+    // Unrecognized path — just show the normal home screen without
+    // touching browser history (avoids redirect loops on stray URLs).
+    setRouteMeta("");
+}
+
+window.addEventListener("popstate", applyRouteFromPath);
+
+// Initial route resolution now happens via tryApplyInitialRoute (see
+// attachAuthStateListener above), which waits for the first cloud sync
+// so a pasted /chat/<id> link is checked against real data, not
+// whatever was left over in localStorage before this page load.
+
+// ==========================================================
+// Data Analysis — real Python execution in the browser (Pyodide/WASM),
+// so questions about an uploaded spreadsheet get computed answers
+// instead of the model guessing at numbers from text.
+// ==========================================================
+
+// Pyodide is ~10MB, so it's only fetched the first time someone actually
+// uses Data Analysis mode, not on every page load.
+async function ensurePyodide(){
+    if(window.zyntraPyodideReady) return window.zyntraPyodideReady;
+    window.zyntraPyodideReady = (async () => {
+        if(!window.loadPyodide){
+            await new Promise((resolve, reject) => {
+                const s = document.createElement("script");
+                s.src = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";
+                s.onload = resolve;
+                s.onerror = () => reject(new Error("Failed to load the Python engine"));
+                document.head.appendChild(s);
+            });
+        }
+        const pyodide = await window.loadPyodide();
+        await pyodide.loadPackage(["pandas", "numpy"]);
+        return pyodide;
+    })();
+    return window.zyntraPyodideReady;
+}
+
+function extractPythonCode(text){
+    const match = text.match(/```python\s*([\s\S]*?)```/i);
+    return match ? match[1].trim() : null;
+}
+
+async function runDataAnalysisCodeIfPresent(text, containerEl){
+    const code = extractPythonCode(text);
+    if(!code || !dataAnalysisDataset) return;
+
+    const box = document.createElement("div");
+    box.className = "data-exec-box";
+    box.innerHTML = `<div class="data-exec-status">⚙️ Running Python on your data…</div>`;
+    containerEl.appendChild(box);
+    chatAutoScroll();
+
+    try{
+        const pyodide = await ensurePyodide();
+
+        pyodide.globals.set("__zyntra_rows_json", JSON.stringify(dataAnalysisDataset.rows));
+        await pyodide.runPythonAsync(`
+import pandas as pd, json, sys, io
+df = pd.DataFrame(json.loads(__zyntra_rows_json))
+__zyntra_stdout = io.StringIO()
+sys.stdout = __zyntra_stdout
+`);
+
+        let errorMsg = null;
+        try{
+            await pyodide.runPythonAsync(code);
+        } catch(pyErr){
+            // Keep just the last few lines — the actual error, not Pyodide's
+            // whole internal traceback, which is mostly noise to a user.
+            errorMsg = String(pyErr).trim().split("\n").slice(-4).join("\n");
+        }
+
+        const stdout = pyodide.runPython("__zyntra_stdout.getvalue()");
+        pyodide.runPython("sys.stdout = sys.__stdout__");
+
+        let chartData = null;
+        try{
+            const hasChart = pyodide.runPython("'chart_data' in globals()");
+            if(hasChart){
+                const raw = pyodide.globals.get("chart_data");
+                chartData = raw && raw.toJs ? raw.toJs({ dict_converter: Object.fromEntries }) : raw;
+            }
+        } catch(e){ /* no chart_data this time — fine */ }
+
+        box.innerHTML = "";
+        if(errorMsg){
+            box.innerHTML = `<div class="data-exec-error">⚠️ The code hit an error:<pre>${escapeForDisplay(errorMsg)}</pre></div>`;
+        } else {
+            let wroteSomething = false;
+            if(stdout && stdout.trim()){
+                box.innerHTML += `<div class="data-exec-output"><pre>${escapeForDisplay(stdout.trim())}</pre></div>`;
+                wroteSomething = true;
+            }
+            if(chartData && chartData.labels && chartData.values){
+                const canvas = document.createElement("canvas");
+                canvas.className = "data-exec-chart";
+                box.appendChild(canvas);
+                renderDataChart(canvas, chartData);
+                wroteSomething = true;
+            }
+            if(!wroteSomething){
+                box.innerHTML = `<div class="data-exec-output"><em>Code ran with no printed output.</em></div>`;
+            }
+        }
+    } catch(err){
+        console.error("Pyodide execution failed:", err);
+        box.innerHTML = `<div class="data-exec-error">⚠️ Couldn't run Python in your browser (${escapeForDisplay(err.message || "unknown error")}). Try again in a moment.</div>`;
+    }
+    chatAutoScroll();
+}
+
+function renderDataChart(canvas, chartData){
+    if(!window.Chart){
+        canvas.replaceWith(document.createTextNode("Chart library didn't load."));
+        return;
+    }
+    const palette = ["#6e5cff","#b45cff","#ff59b0","#ff9e5c","#5ce0ff","#7effa0","#ffd95c","#ff7676"];
+    new Chart(canvas, {
+        type: chartData.type === "pie" ? "pie" : (chartData.type === "line" ? "line" : "bar"),
+        data: {
+            labels: chartData.labels,
+            datasets: [{
+                data: chartData.values,
+                backgroundColor: palette,
+                borderColor: chartData.type === "line" ? "#6e5cff" : "transparent",
+                borderWidth: chartData.type === "line" ? 2 : 0,
+                fill: chartData.type === "line" ? false : true
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: chartData.type === "pie", labels: { color: "#c8cae0" } } },
+            scales: chartData.type === "pie" ? {} : {
+                x: { ticks: { color: "#a8abc8" }, grid: { color: "rgba(255,255,255,.05)" } },
+                y: { ticks: { color: "#a8abc8" }, grid: { color: "rgba(255,255,255,.05)" } }
+            }
+        }
+    });
+}
+
+
+// ==========================================================
+// Table "Copy" buttons + long pasted text shown as a card
+// ==========================================================
+
+// ---- Copy a table (tab-separated, so it pastes straight into Excel / Sheets) ----
+document.addEventListener("click", e => {
+    const btn = e.target.closest(".table-copy-btn");
+    if(!btn) return;
+    const card = btn.closest(".table-card");
+    const table = card && card.querySelector("table");
+    if(!table) return;
+    const tsv = [...table.rows].map(r => [...r.cells].map(c => c.innerText.replace(/\s+/g, " ").trim()).join("\t")).join("\n");
+    const done = () => {
+        btn.textContent = "Copied ✓";
+        btn.classList.add("copied");
+        setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 1600);
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(tsv).then(done).catch(() => { fallbackCopyText(tsv); done(); });
+    } else {
+        fallbackCopyText(tsv); done();
+    }
+});
+
+function fallbackCopyText(text){
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;opacity:0;top:0;left:0;";
+    document.body.appendChild(ta);
+    ta.select();
+    try{ document.execCommand("copy"); }catch(err){}
+    ta.remove();
+}
+
+// ---- Long pasted text ----
+const PASTE_MIN_CHARS = 700;      // paste at least this long → becomes a card
+const PASTE_MIN_LINES = 10;       // ...or at least this many lines
+const LONG_BUBBLE_CHARS = 1200;   // a sent message this long is shown as a card too
+const PASTE_OPEN = "[Pasted text]";
+const PASTE_CLOSE = "[/Pasted text]";
+let pastedChunk = "";
+
+const PASTE_EDIT_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>';
+
+function pastePreviewText(t){
+    return t.replace(/\s+/g, " ").trim().slice(0, 150);
+}
+
+function composeMessageWithPaste(typed){
+    if(!pastedChunk) return typed;
+    return (typed ? typed + "\n\n" : "") + PASTE_OPEN + "\n" + pastedChunk + "\n" + PASTE_CLOSE;
+}
+
+function clearPastedChunk(){
+    pastedChunk = "";
+    renderPasteCard();
+}
+
+// Pop-up that shows ALL of the text (and lets the composer card edit it).
+function openPasteViewer(opts){
+    const old = document.querySelector(".paste-viewer-overlay");
+    if(old) old.remove();
+
+    const overlay = document.createElement("div");
+    overlay.className = "paste-viewer-overlay";
+    overlay.innerHTML = `
+        <div class="paste-viewer-box" role="dialog" aria-modal="true">
+            <div class="paste-viewer-head">
+                <span class="paste-viewer-title">${opts.editable ? "Edit pasted text" : "Pasted text"}</span>
+                <span class="paste-viewer-count"></span>
+                <button type="button" class="paste-viewer-x" title="Close">✕</button>
+            </div>
+            <textarea class="paste-viewer-text" spellcheck="false"></textarea>
+            <div class="paste-viewer-actions">
+                <button type="button" class="paste-viewer-btn paste-viewer-copy">Copy</button>
+                ${opts.editable ? '<button type="button" class="paste-viewer-btn paste-viewer-remove">Remove</button><button type="button" class="paste-viewer-btn paste-viewer-save">Save</button>' : ''}
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+
+    const ta = overlay.querySelector(".paste-viewer-text");
+    const count = overlay.querySelector(".paste-viewer-count");
+    ta.value = opts.text;
+    ta.readOnly = !opts.editable;
+    const updateCount = () => { count.textContent = ta.value.length.toLocaleString() + " characters · " + ta.value.split(/\n/).length.toLocaleString() + " lines"; };
+    updateCount();
+    ta.addEventListener("input", updateCount);
+
+    const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); };
+    const onKey = ev => { if(ev.key === "Escape") close(); };
+    document.addEventListener("keydown", onKey);
+
+    overlay.addEventListener("mousedown", ev => { if(ev.target === overlay) close(); });
+    overlay.querySelector(".paste-viewer-x").addEventListener("click", close);
+    overlay.querySelector(".paste-viewer-copy").addEventListener("click", ev => {
+        const b = ev.currentTarget;
+        const text = ta.value;
+        if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).catch(() => fallbackCopyText(text));
+        else fallbackCopyText(text);
+        b.textContent = "Copied ✓";
+        setTimeout(() => { b.textContent = "Copy"; }, 1500);
+    });
+    if(opts.editable){
+        overlay.querySelector(".paste-viewer-save").addEventListener("click", () => {
+            const v = ta.value;
+            if(opts.onSave) opts.onSave(v);
+            close();
+        });
+        overlay.querySelector(".paste-viewer-remove").addEventListener("click", () => {
+            if(opts.onRemove) opts.onRemove();
+            close();
+        });
+    }
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(0, 0); ta.scrollTop = 0; }, 30);
+}
+
+// The card that sits above the input box while a long paste is waiting to be sent.
+function renderPasteCard(){
+    const bar = document.querySelector(".chat-input-bar");
+    if(!bar) return;
+    let host = document.getElementById("pasteCardHost");
+    if(!host){
+        host = document.createElement("div");
+        host.id = "pasteCardHost";
+        bar.insertBefore(host, bar.querySelector(".chat-input-inner"));
+    }
+    if(!pastedChunk){
+        host.innerHTML = "";
+        host.style.display = "none";
+        return;
+    }
+    host.style.display = "";
+    host.innerHTML = "";
+
+    const card = document.createElement("div");
+    card.className = "paste-card";
+    card.tabIndex = 0;
+    card.title = "Click to view all of it";
+
+    const prev = document.createElement("div");
+    prev.className = "paste-card-preview";
+    prev.textContent = pastePreviewText(pastedChunk);
+
+    const foot = document.createElement("div");
+    foot.className = "paste-card-foot";
+    foot.innerHTML = '<span class="paste-badge">PASTED</span>';
+
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "paste-card-edit";
+    edit.title = "View / edit";
+    edit.innerHTML = PASTE_EDIT_ICON;
+    foot.appendChild(edit);
+
+    const rm = document.createElement("button");
+    rm.type = "button";
+    rm.className = "paste-card-remove";
+    rm.title = "Remove";
+    rm.textContent = "✕";
+
+    card.appendChild(rm);
+    card.appendChild(prev);
+    card.appendChild(foot);
+    host.appendChild(card);
+
+    const openIt = () => openPasteViewer({
+        text: pastedChunk,
+        editable: true,
+        onSave: v => { pastedChunk = v.trim() ? v : ""; renderPasteCard(); },
+        onRemove: () => clearPastedChunk()
+    });
+    card.addEventListener("click", ev => {
+        if(ev.target.closest(".paste-card-remove")) return;
+        openIt();
+    });
+    card.addEventListener("keydown", ev => { if(ev.key === "Enter"){ ev.preventDefault(); ev.stopPropagation(); openIt(); } });
+    rm.addEventListener("click", ev => { ev.stopPropagation(); clearPastedChunk(); userInput.focus(); });
+}
+
+userInput.addEventListener("paste", e => {
+    const cd = e.clipboardData || window.clipboardData;
+    const text = cd ? cd.getData("text") : "";
+    if(!text) return;
+    const lines = text.split(/\r\n|\r|\n/).length;
+    if(text.length >= PASTE_MIN_CHARS || lines >= PASTE_MIN_LINES){
+        e.preventDefault();
+        pastedChunk = pastedChunk ? pastedChunk + "\n\n" + text : text;
+        renderPasteCard();
+    }
+});
+
+// Enter on an empty box with a paste card waiting should still send.
+// (sendChatMessage already folds the paste in; nothing extra needed here.)
+
+// ---- Sent messages: show long / pasted text as the same card ----
+function splitPastedMessage(text){
+    const m = text.match(/^([\s\S]*?)\[Pasted text\]\n([\s\S]*?)\n\[\/Pasted text\]\s*$/);
+    if(m) return { typed: m[1].trim(), pasted: m[2] };
+    if(text.length >= LONG_BUBBLE_CHARS) return { typed: "", pasted: text };
+    return null;
+}
+
+function decorateUserMessage(div){
+    if(div.dataset.pasteDone) return;
+    const p = div.querySelector(":scope > p");
+    if(!p) return;
+    div.dataset.pasteDone = "1";
+    const parts = splitPastedMessage(p.textContent || "");
+    if(!parts) return;
+
+    p.classList.add("user-msg-collapsed");
+
+    const card = document.createElement("div");
+    card.className = "paste-card paste-card-sent";
+    card.tabIndex = 0;
+    card.title = "Click to view all of it";
+    const prev = document.createElement("div");
+    prev.className = "paste-card-preview";
+    prev.textContent = pastePreviewText(parts.pasted);
+    const foot = document.createElement("div");
+    foot.className = "paste-card-foot";
+    foot.innerHTML = '<span class="paste-badge">PASTED</span><span class="paste-card-size">' + parts.pasted.length.toLocaleString() + ' chars</span>';
+    card.appendChild(prev);
+    card.appendChild(foot);
+    const openIt = () => openPasteViewer({ text: parts.pasted, editable: false });
+    card.addEventListener("click", openIt);
+    card.addEventListener("keydown", ev => { if(ev.key === "Enter") openIt(); });
+    div.insertBefore(card, p);
+
+    if(parts.typed){
+        const typedP = document.createElement("p");
+        typedP.className = "paste-typed";
+        typedP.style.margin = "8px 0 0";
+        typedP.textContent = parts.typed;
+        div.insertBefore(typedP, p);
+    }
+}
+
+(function watchUserMessages(){
+    const scan = root => (root || document).querySelectorAll(".user-message").forEach(decorateUserMessage);
+    const obs = new MutationObserver(muts => {
+        for(const mu of muts){
+            mu.addedNodes.forEach(n => {
+                if(n.nodeType !== 1) return;
+                if(n.classList && n.classList.contains("user-message")) decorateUserMessage(n);
+                else if(n.querySelectorAll) n.querySelectorAll(".user-message").forEach(decorateUserMessage);
+            });
+        }
+    });
+    obs.observe(chatMessages, { childList: true, subtree: true });
+    scan(chatMessages);
+})();
+
+
+// ==========================================================
+// Keyboard shortcuts + cheat sheet
+// ==========================================================
+const IS_MAC_KEYS = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || "");
+const MOD_LABEL = IS_MAC_KEYS ? "⌘" : "Ctrl";
+const SHORTCUT_LIST = [
+    { keys: [MOD_LABEL, "K"],            what: "Search chats" },
+    { keys: [MOD_LABEL, "Shift", "O"],   what: "Start a new chat" },
+    { keys: [MOD_LABEL, "B"],            what: "Show / hide the sidebar" },
+    { keys: ["/"],                       what: "Jump to the message box" },
+    { keys: ["?"],                       what: "Show this list" },
+    { keys: ["Enter"],                   what: "Send your message" },
+    { keys: ["Esc"],                     what: "Close pop-ups and menus" }
+];
+
+function isTypingTarget(el){
+    if(!el) return false;
+    const tag = (el.tagName || "").toLowerCase();
+    return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable;
+}
+
+function closeShortcutsSheet(){
+    document.querySelector(".shortcuts-overlay")?.remove();
+}
+
+function openShortcutsSheet(){
+    if(document.querySelector(".shortcuts-overlay")){ closeShortcutsSheet(); return; }
+    document.getElementById("accountMenu")?.classList.remove("show");
+    document.getElementById("accountMenuBackdrop")?.classList.remove("show");
+
+    const overlay = document.createElement("div");
+    overlay.className = "shortcuts-overlay";
+    const rows = SHORTCUT_LIST.map(item => `
+        <div class="shortcuts-row">
+            <span class="shortcuts-what">${item.what}</span>
+            <span class="shortcuts-keys">${item.keys.map(k => `<kbd>${k}</kbd>`).join("")}</span>
+        </div>`).join("");
+    overlay.innerHTML = `
+        <div class="shortcuts-box" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+            <div class="shortcuts-head">
+                <span class="shortcuts-title">Keyboard shortcuts</span>
+                <button type="button" class="shortcuts-x" title="Close">✕</button>
+            </div>
+            <div class="shortcuts-list">${rows}</div>
+        </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("mousedown", ev => { if(ev.target === overlay) closeShortcutsSheet(); });
+    overlay.querySelector(".shortcuts-x").addEventListener("click", closeShortcutsSheet);
+}
+
+function toggleSidebarShortcut(){
+    const sidebar = document.getElementById("sidebar");
+    if(window.innerWidth <= 900){
+        if(sidebar && sidebar.classList.contains("show")) closeSidebarMobile();
+        else if(typeof openSidebarMobile === "function") openSidebarMobile();
+        return;
+    }
+    const collapsed = document.body.classList.contains("sidebar-collapsed");
+    document.getElementById(collapsed ? "sidebarToggleBtnOuter" : "sidebarToggleBtnInner")?.click();
+}
+
+document.addEventListener("keydown", e => {
+    if(e.key === "Escape" && document.querySelector(".shortcuts-overlay")){
+        closeShortcutsSheet();
+        return;
+    }
+
+    const mod = e.ctrlKey || e.metaKey;
+    const key = (e.key || "").toLowerCase();
+
+    if(mod && !e.altKey){
+        if(key === "k" && !e.shiftKey){
+            e.preventDefault();
+            closeShortcutsSheet();
+            openSearchChatsModal();
+            return;
+        }
+        if(key === "o" && e.shiftKey){
+            e.preventDefault();
+            closeShortcutsSheet();
+            document.getElementById("newChatBtn")?.click();
+            return;
+        }
+        if(key === "b" && !e.shiftKey){
+            e.preventDefault();
+            toggleSidebarShortcut();
+            return;
+        }
+    }
+
+    // Plain-key shortcuts only when you're not typing somewhere.
+    if(mod || e.altKey || isTypingTarget(e.target)) return;
+    if(document.querySelector(".modal-overlay.show")) return;
+
+    if(e.key === "/"){
+        e.preventDefault();
+        userInput?.focus();
+    } else if(e.key === "?"){
+        e.preventDefault();
+        openShortcutsSheet();
+    }
+});
+
+document.getElementById("accountMenuShortcuts")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openShortcutsSheet();
+});
+
+// Hints on the buttons the shortcuts trigger.
+document.getElementById("newChatBtn")?.setAttribute("title", `New chat (${MOD_LABEL}+Shift+O)`);
+document.getElementById("searchChatsBtn")?.setAttribute("title", `Search chats (${MOD_LABEL}+K)`);
+
+
+// ==========================================================
+// Admin dashboard (owner only)
+// The REAL protection is server-side: /api/payment?action=admin-stats
+// verifies the Firebase ID token and compares the uid to the ADMIN_UID
+// env var, returning 403 to everyone else. Hiding the menu item below
+// is cosmetic only.
+// ==========================================================
+var adminFlag = { uid: null, value: false };
+
+async function refreshAdminFlag(){
+    try {
+        const user = activeAuth().currentUser;
+        if(!user){ adminFlag = { uid: null, value: false }; return false; }
+        if(adminFlag.uid === user.uid) return adminFlag.value;
+        const idToken = await user.getIdToken();
+        const resp = await fetch("/api/payment?action=admin-check", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: "{}"
+        });
+        const data = await resp.json().catch(() => ({}));
+        adminFlag = { uid: user.uid, value: !!data.admin };
+        return adminFlag.value;
+    } catch(e){
+        return false;
+    }
+}
+
+function applyAdminMenuItem(){
+    const el = document.getElementById("accountMenuAdmin");
+    if(el) el.style.display = adminFlag.value ? "" : "none";
+}
+
+function admFmt(n){
+    return (Number(n) || 0).toLocaleString("en-IN");
+}
+function admEsc(t){
+    return String(t == null ? "" : t).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function admCard(label, value, sub){
+    return '<div class="adm-card"><p class="adm-card-label">' + admEsc(label) + '</p><p class="adm-card-value">' + value + '</p>' +
+        (sub ? '<p class="adm-card-sub">' + sub + '</p>' : '') + '</div>';
+}
+function admBars(rows, colorClass){
+    const max = Math.max(1, ...rows.map(r => r.value));
+    return '<div class="adm-bars">' + rows.map(r =>
+        '<div class="adm-bar-row"><span class="adm-bar-name">' + admEsc(r.label) + '</span>' +
+        '<div class="adm-bar-track"><div class="adm-bar-fill ' + (colorClass || "") + '" style="width:' + Math.round((r.value / max) * 100) + '%"></div></div>' +
+        '<span class="adm-bar-num">' + admFmt(r.value) + '</span></div>'
+    ).join("") + '</div>';
+}
+
+function renderAdminStats(d){
+    const planLabel = { free: "Free", starter: "Starter", pro: "Pro", ultra: "Ultra" };
+    const mom = d.usage.prevMonthMessages
+        ? Math.round(((d.usage.messages - d.usage.prevMonthMessages) / d.usage.prevMonthMessages) * 100)
+        : null;
+    const paid = d.plans.starter + d.plans.pro + d.plans.ultra;
+    const convPct = d.users.total ? ((paid / d.users.total) * 100).toFixed(1) : "0.0";
+    const maxSignup = Math.max(1, ...d.users.signupsByDay.map(x => x.count));
+
+    let html = '<div class="adm-grid">';
+    html += admCard("Total users", admFmt(d.users.total) + (d.users.truncated ? "+" : ""), "+" + admFmt(d.users.new7) + " this week · +" + admFmt(d.users.new30) + " in 30 days");
+    html += admCard("Signed in (7d)", admFmt(d.users.signedIn7), "last sign-in within a week");
+    html += admCard("Messages (" + admEsc(d.month) + ")", admFmt(d.usage.messages),
+        mom === null ? "no earlier month to compare" : (mom >= 0 ? "▲ " : "▼ ") + Math.abs(mom) + "% vs last month");
+    html += admCard("Active users", admFmt(d.usage.activeUsers), "avg " + admFmt(d.usage.avgPerActive) + " msgs each");
+    html += admCard("Paid users", admFmt(paid), convPct + "% of all users");
+    html += admCard("Revenue", "₹" + admFmt(d.revenue.total), admFmt(d.revenue.payments) + " payment" + (d.revenue.payments === 1 ? "" : "s") + (d.razorpayTestMode ? " · <b>TEST mode</b>" : ""));
+    if(d.daily){
+        html += admCard("Active today", admFmt(d.daily.today.active), admFmt(d.daily.today.messages) + " messages today (UTC)");
+        html += admCard("Active this week", admFmt(d.daily.weeklyActive), "~" + admFmt(d.daily.avgPerDay7) + " messages a day");
+    }
+    html += '</div>';
+
+    if(d.usage.hitLimit > 0){
+        html += '<div class="adm-note">💡 <b>' + admFmt(d.usage.hitLimit) + '</b> user' + (d.usage.hitLimit === 1 ? " has" : "s have") +
+            ' hit their monthly message limit — your most likely upgrade prospects.</div>';
+    }
+
+    if(d.planHealth && (d.planHealth.expiring7 > 0 || d.planHealth.expired > 0)){
+        html += '<div class="adm-note">🔔 <b>' + admFmt(d.planHealth.expiring7) + '</b> paid plan' + (d.planHealth.expiring7 === 1 ? "" : "s") +
+            ' expire within 7 days · <b>' + admFmt(d.planHealth.expired) + '</b> already expired (good people to remind to renew).</div>';
+    }
+
+    // Per-day charts (messages + active users)
+    if(d.daily){
+        const mkChart = (rows, key, title) => {
+            const max = Math.max(1, ...rows.map(r => r[key]));
+            return '<div class="adm-panel"><h3>' + title + '</h3><div class="adm-chart">' +
+                rows.map(r => '<div class="adm-chart-col" title="' + admEsc(r.date) + ': ' + r[key] + '"><div class="adm-chart-bar" style="height:' +
+                    Math.max(r[key] ? 6 : 2, Math.round((r[key] / max) * 100)) + '%"></div></div>').join("") + '</div>' +
+                '<div class="adm-chart-axis"><span>' + admEsc(rows[0].date.slice(5)) + '</span><span>' + admEsc(rows[rows.length - 1].date.slice(5)) + '</span></div></div>';
+        };
+        html += '<div class="adm-two">' + mkChart(d.daily.series, "messages", "Messages per day — last 30 days") +
+            mkChart(d.daily.series, "active", "Active users per day — last 30 days") + '</div>';
+        if(!d.daily.hasData){
+            html += '<p class="adm-sub" style="margin:-4px 0 16px;">Per-day data starts from the day this update went live, so these charts fill in over the next few days.</p>';
+        }
+    }
+
+    // Signups chart
+    html += '<div class="adm-panel"><h3>New signups — last 30 days</h3><div class="adm-chart">' +
+        d.users.signupsByDay.map(x =>
+            '<div class="adm-chart-col" title="' + admEsc(x.date) + ': ' + x.count + '"><div class="adm-chart-bar" style="height:' + Math.max(x.count ? 6 : 2, Math.round((x.count / maxSignup) * 100)) + '%"></div></div>'
+        ).join("") + '</div>' +
+        '<div class="adm-chart-axis"><span>' + admEsc(d.users.signupsByDay[0].date.slice(5)) + '</span><span>' + admEsc(d.users.signupsByDay[d.users.signupsByDay.length - 1].date.slice(5)) + '</span></div></div>';
+
+    html += '<div class="adm-two">';
+    html += '<div class="adm-panel"><h3>Plans</h3>' + admBars(Object.keys(planLabel).map(k => ({ label: planLabel[k], value: d.plans[k] || 0 }))) + '</div>';
+    html += '<div class="adm-panel"><h3>Sign-in methods</h3>' + admBars(Object.entries(d.users.providers).map(([k, v]) => ({
+        label: ({ "google.com": "Google", "password": "Email", "microsoft.com": "Microsoft", "other": "Other" }[k]) || k, value: v
+    })), "adm-fill-alt") + '</div>';
+    html += '</div>';
+
+    html += '<div class="adm-two">';
+    html += '<div class="adm-panel"><h3>AI usage this month</h3><div class="adm-kv">' +
+        '<span>Groq requests</span><b>' + admFmt(d.usage.groq) + '</b>' +
+        '<span>Input tokens</span><b>' + admFmt(d.usage.input) + '</b>' +
+        '<span>Output tokens</span><b>' + admFmt(d.usage.output) + '</b>' +
+        '<span>Web searches</span><b>' + admFmt(d.usage.searches) + '</b>' +
+        '<span>Research runs</span><b>' + admFmt(d.usage.research) + '</b>' +
+        '<span>Guest messages</span><b>' + admFmt(d.guests.messages) + ' <small>(' + admFmt(d.guests.visitors) + ' visitors)</small></b></div></div>';
+    html += '<div class="adm-panel"><h3>Model usage</h3>' +
+        (d.models.length ? admBars(d.models.slice(0, 6).map(m => ({ label: m.model.replace(/^.*\//, ""), value: m.count })), "adm-fill-alt") : '<p class="adm-sub">No data yet.</p>') + '</div>';
+    html += '</div>';
+
+    if(d.modelHealth && !d.modelHealth.length){
+        const info = d.modelStatsInfo || {};
+        html += '<div class="adm-panel"><h3>Model reliability — last 30 days</h3><p class="adm-sub">No model data yet. ' +
+            (info.error ? 'Reading it failed: ' + admEsc(info.error) : (info.days ? admFmt(info.days) + ' day record(s) found but none had model counts.' : 'It fills in after the next few chat messages.')) + '</p></div>';
+    }
+    if(d.modelHealth && d.modelHealth.length){
+        html += '<div class="adm-panel"><h3>Model reliability — last 30 days</h3><table class="adm-table"><tr><th>Model</th><th>Success</th><th>Last 7d</th><th>Attempts</th><th>Avg time</th><th>Failures (why)</th></tr>' +
+            d.modelHealth.map(m => {
+                const why = [m.rateLimited ? m.rateLimited + " rate-limited" : "", m.unavailable ? m.unavailable + " unavailable" : "", m.serverError ? m.serverError + " server" : "", m.other ? m.other + " other" : ""].filter(Boolean).join(", ") || "none";
+                return '<tr><td>' + admEsc(m.name) + (m.visionAttempts ? ' <small>(' + admFmt(m.visionAttempts) + ' with images)</small>' : '') + '</td><td>' + m.successPct + '%</td><td>' +
+                    (m.successPct7 == null ? "—" : m.successPct7 + "%") + '</td><td>' + admFmt(m.attempts) + '</td><td>' + (m.avgMs ? admFmt(m.avgMs) + ' ms' : "—") + '</td><td>' + admEsc(why) + '</td></tr>';
+            }).join("") + '</table></div>';
+    }
+
+    html += '<div class="adm-two">';
+    html += '<div class="adm-panel"><h3>Top users this month</h3>' +
+        (d.topUsers.length ? '<table class="adm-table"><tr><th>User</th><th>Plan</th><th>Msgs</th></tr>' +
+            d.topUsers.map(u => '<tr><td>' + admEsc(u.user) + '</td><td>' + admEsc(planLabel[u.plan] || u.plan) + '</td><td>' + admFmt(u.messages) + '</td></tr>').join("") + '</table>'
+            : '<p class="adm-sub">No usage yet.</p>') + '</div>';
+    html += '<div class="adm-panel"><h3>Content &amp; growth</h3><div class="adm-kv">' +
+        '<span>Shared chats</span><b>' + (d.content.sharedChats == null ? "—" : admFmt(d.content.sharedChats)) + ' <small>(' + (d.content.sharedPublic == null ? "—" : admFmt(d.content.sharedPublic)) + ' public)</small></b>' +
+        '<span>Published sites</span><b>' + (d.content.publishedSites == null ? "—" : admFmt(d.content.publishedSites)) + '</b>' +
+        '<span>Ratings</span><b>' + (d.content.ratings == null ? "—" : admFmt(d.content.ratings)) + '</b>' +
+        '<span>Reports</span><b>' + (d.content.reports == null ? "—" : admFmt(d.content.reports)) + '</b>' +
+        '<span>Referral joins</span><b>' + admFmt(d.referrals.joins) + '</b>' +
+        '<span>Bonus msgs given</span><b>' + admFmt(d.referrals.bonusMessages) + '</b></div></div>';
+    html += '</div>';
+
+    if(d.revenue.byMonth.length){
+        html += '<div class="adm-panel"><h3>Revenue by month</h3>' + admBars(d.revenue.byMonth.map(r => ({ label: r.month, value: r.amount })), "adm-fill-green") + '</div>';
+    }
+    html += '<p class="adm-foot">Revenue counts the last 20 payments per user. Only totals and masked emails are shown — never chat contents.</p>';
+    return html;
+}
+
+async function loadAdminStats(refresh){
+    const body = document.getElementById("adminBody");
+    const upd = document.getElementById("adminUpdated");
+    if(!body) return;
+    if(!refresh) body.innerHTML = '<p class="adm-sub">Loading…</p>';
+    try {
+        const user = activeAuth().currentUser;
+        const idToken = await user.getIdToken();
+        const resp = await fetch("/api/payment?action=admin-stats", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + idToken },
+            body: JSON.stringify({ refresh: !!refresh })
+        });
+        if(resp.status === 403){
+            showToast("The admin dashboard is owner-only.");
+            showPageView("chat");
+            setActiveNav("chat");
+            navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+            return;
+        }
+        const data = await resp.json();
+        if(!resp.ok) throw new Error(data.error || "Couldn't load stats.");
+        body.innerHTML = renderAdminStats(data);
+        if(upd) upd.textContent = "Updated " + new Date(data.generatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch(err){
+        body.innerHTML = '<div class="adm-note">⚠️ ' + admEsc(err.message || "Couldn't load stats.") + '</div>' +
+            '<p class="adm-sub">If this says ADMIN_UID or Firebase isn\'t configured, check your Vercel environment variables.</p>';
+    }
+}
+
+function openAdminDashboard(){
+    if(!isLoggedIn()){
+        if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+        openModal("signinModal");
+        setRouteMeta("login");
+        return;
+    }
+    showPageView("admin");
+    setActiveNav("admin");
+    navigateToRoute("admin");
+    closeSidebarMobile();
+    loadAdminStats(false);
+}
+
+document.getElementById("accountMenuAdmin")?.addEventListener("click", () => {
+    toggleAccountMenu(false);
+    openAdminDashboard();
+});
+document.getElementById("adminBackBtn")?.addEventListener("click", () => {
+    showPageView("chat");
+    setActiveNav("chat");
+    navigateToRoute(TOOL_TO_SLUG[activeChatTool] || "");
+});
+document.getElementById("adminRefreshBtn")?.addEventListener("click", () => loadAdminStats(true));
+
+
+// ==========================================================
+// Welcome screen + guest message counter
+// Visitors who aren't signed in see a sign-in screen first, with
+// "Continue as guest" as the way past it. The guest choice lasts for this
+// browser session only, so the next visit offers sign-in again. Shared
+// links, game/app pages, /login and OAuth return trips skip the screen.
+// Guests also get a small "messages left" counter above the message box
+// (the server already counts guest messages per month).
+// ==========================================================
+function getGuestChosen(){
+    try{ return !!sessionStorage.getItem("zyntra-guest-chosen"); }catch(e){ return false; }
+}
+function setGuestChosen(){
+    try{ sessionStorage.setItem("zyntra-guest-chosen", "1"); }catch(e){}
+}
+function clearGuestChosen(){
+    try{ sessionStorage.removeItem("zyntra-guest-chosen"); }catch(e){}
+}
+
+function welcomeGateActive(){
+    const g = document.getElementById("welcomeGate");
+    return !!g && g.classList.contains("show");
+}
+
+function shouldShowWelcomeGate(){
+    if(isLoggedIn()) return false;
+    if(getGuestChosen()) return false;
+    if(/bot|crawl|spider|slurp|lighthouse|headless/i.test(navigator.userAgent || "")) return false;
+    const params = new URLSearchParams(window.location.search);
+    if(params.has("guest")) return false; // ?guest=1 skips the screen (handy for shared demo links)
+    if([...params.keys()].some(k => /_connected$/.test(k) || k === "error")) return false; // coming back from a connect/OAuth trip
+    const slug = window.location.pathname.replace(/^\/+|\/+$/g, "").split("/")[0];
+    if(["share", "login", "play", "s"].includes(slug)) return false;
+    return true;
+}
+
+function showWelcomeGate(){
+    const g = document.getElementById("welcomeGate");
+    if(!g || isLoggedIn()) return;
+    // Reuse the real sign-in buttons' look so the logos stay in one place.
+    const gb = document.getElementById("gateGoogleBtn"), mb = document.getElementById("gateMicrosoftBtn");
+    if(gb && !gb.innerHTML) gb.innerHTML = document.getElementById("googleSigninBtn")?.innerHTML || "Continue with Google";
+    if(mb && !mb.innerHTML) mb.innerHTML = document.getElementById("microsoftSigninBtn")?.innerHTML || "Continue with Microsoft";
+    const fine = document.getElementById("gateFine");
+    if(fine){
+        fine.textContent = `Guests get ${PROFILE_PLAN_INFO.guest.limit} free messages a month. Sign in free for ${PROFILE_PLAN_INFO.free.limit}, saved chat history and sync across your devices.`;
+    }
+    const err = document.getElementById("gateError");
+    if(err) err.style.display = "none";
+    g.classList.add("show");
+    document.body.classList.add("gate-open");
+    setTimeout(() => document.getElementById("gateGoogleBtn")?.focus({ preventScroll: true }), 50);
+}
+
+function hideWelcomeGate(){
+    const g = document.getElementById("welcomeGate");
+    if(g) g.classList.remove("show");
+    document.body.classList.remove("gate-open");
+}
+
+document.getElementById("gateGoogleBtn")?.addEventListener("click", () => document.getElementById("googleSigninBtn")?.click());
+document.getElementById("gateMicrosoftBtn")?.addEventListener("click", () => document.getElementById("microsoftSigninBtn")?.click());
+document.getElementById("gateEmailBtn")?.addEventListener("click", () => {
+    if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+    openModal("signinModal"); // sits above the welcome screen; closing it returns here
+});
+document.getElementById("gateGuestBtn")?.addEventListener("click", () => {
+    setGuestChosen();
+    hideWelcomeGate();
+    tryApplyInitialRoute();
+    showToast("You're in as a guest — sign in anytime to save your chats.");
+});
+
+// ---- guest messages-left counter ----
+function renderGuestMeter(){
+    const el = document.getElementById("guestMeter");
+    if(!el) return;
+    if(isLoggedIn()){ el.style.display = "none"; return; }
+    const limit = PROFILE_PLAN_INFO.guest.limit;
+    const u = readRememberedUsage("guest");
+    const left = u ? Math.max(0, Math.min(limit, u.remaining)) : limit;
+    el.classList.toggle("low", left <= 3 && left > 0);
+    el.classList.toggle("out", left === 0);
+    const msg = left === 0
+        ? `You've used all ${limit} free guest messages this month.`
+        : `👤 <b>${left}</b> of ${limit} free guest messages left`;
+    el.innerHTML = `<span>${msg}</span> <a href="#" id="guestMeterSignin">Sign in for ${PROFILE_PLAN_INFO.free.limit} a month →</a>`;
+    el.style.display = "";
+    document.getElementById("guestMeterSignin")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        if(typeof resetSigninModalUI === "function") resetSigninModalUI();
+        openModal("signinModal");
+        navigateToRoute("login");
+    });
+}
+
+if(shouldShowWelcomeGate()) showWelcomeGate();
+renderGuestMeter();
+
+
 // ===== ZYNTRA MOMENTS START =====
 // ==========================================================
 // Zyntra Moments — video sharing + creator channels.
