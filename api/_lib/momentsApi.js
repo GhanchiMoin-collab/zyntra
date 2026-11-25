@@ -1,6 +1,7 @@
 import { getAdminAuth, getAdminDb, getAdminBucket, increment, deleteField } from "./firebaseAdmin.js";
 import { computeNextPlan } from "./plan.js";
 import * as L from "./momentsLogic.js";
+import { purgeMomentsChannel } from "./momentsPurge.js";
 
 // ----------------------------------------------------------------------
 // Zyntra Moments — ONE serverless function for the whole feature (the
@@ -401,7 +402,7 @@ function buildApi(deps) {
     const related = (await col("videos").orderBy("listedAt", "desc").limit(30).get()).docs.map(withId).filter((x) => x.listed && x.id !== v.id).slice(0, 8);
     return ok(res, {
       video: { id: v.id, title: v.title, description: v.description, tags: v.tags || [], visibility: v.visibility, status: v.status, publishedAt: v.publishedAt || null, durationSec: v.durationSec || 0, verifiedViews: v.verifiedViews || 0, plays: v.views || 0, likes: v.likes || 0, comments: v.comments || 0 },
-      videoUrl: await signedRead(v.videoPath, 3600), posterUrl: v.thumbPath ? mediaUrl("thumb", v.id) : null,
+      videoUrl: await signedRead(v.videoPath, 3600), posterUrl: v.thumbPath ? (v.status === "approved" && v.visibility === "public" ? mediaUrl("thumb", v.id) : await signedRead(v.thumbPath, 3600)) : null,
       channel: Object.assign(channelCard(ch), { subscribers: ch.showSubscriberCount === false && !owner ? null : ch.subscribers || 0, commentsEnabled: ch.commentsEnabled !== false }),
       liked, subscribed, owner, related: await cardsFor(related)
     }, "private, no-store");
@@ -481,7 +482,7 @@ function buildApi(deps) {
       col("dailyStats").where("kind", "==", "c").where("id", "==", user.uid).limit(120).get(),
       col("rewardClaims").where("channelId", "==", user.uid).limit(50).get()
     ]);
-    const vids = vsnap.docs.map(withId).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const vids = vsnap.docs.map(withId).filter((v) => v.status !== "removed").sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     const videos = await Promise.all(vids.slice(0, 50).map(async (v) => ({ id: v.id, title: v.title, status: v.status, visibility: v.visibility, createdAt: v.createdAt, publishedAt: v.publishedAt || null, durationSec: v.durationSec, plays: v.views || 0, verifiedViews: v.verifiedViews || 0, likes: v.likes || 0, comments: v.comments || 0, watchSeconds: Math.round(v.watchSeconds || 0), rejection: v.rejection || null, appeal: v.appeal ? { status: v.appeal.status, note: v.appeal.note || null } : null, thumbUrl: v.thumbPath ? await signedRead(v.thumbPath, 300) : null })));
     const cfg = await rewardSettings();
     const totals = { subscribers: ch.subscribers || 0, videos: ch.videos || 0, plays: vids.reduce((s, v) => s + (v.views || 0), 0), verifiedViews: ch.verifiedViews || 0, likes: ch.likes || 0, comments: vids.reduce((s, v) => s + (v.comments || 0), 0), watchSeconds: Math.round(ch.watchSeconds || 0) };
@@ -603,6 +604,18 @@ function buildApi(deps) {
     rejectSecrets(patch.name || "", patch.description || "");
     await col("channels").doc(user.uid).update(patch);
     return ok(res, { ok: true, handle: ch.handle });
+  };
+
+  // Permanently deletes the caller's channel and all its videos. The user must type the handle.
+  post["channel-delete"] = async (req, res, b) => {
+    const user = await getUser(req, true);
+    limitMem("chdel:" + user.uid, 3, 60000);
+    const cs = await col("channels").doc(user.uid).get();
+    if (!cs.exists) throw fail(404, "You don't have a channel.");
+    if (String(b.confirmHandle || "").trim().toLowerCase().replace(/^@/, "") !== cs.data().handle) throw fail(400, "Type your channel handle exactly to confirm.");
+    await purgeMomentsChannel({ db, inc, getBucket: () => bucket }, user.uid);
+    await logModeration({ channelId: user.uid, decision: "channel_deleted_by_owner", source: "creator" });
+    return ok(res, { ok: true });
   };
 
   // ---------------- videos ----------------
