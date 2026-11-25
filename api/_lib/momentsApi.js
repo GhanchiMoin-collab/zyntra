@@ -695,6 +695,9 @@ function buildApi(deps) {
       else if (!want && l.exists) { tx.delete(lref); tx.update(vref, { likes: inc(-1), engagement: inc(-3) }); tx.update(cref, { likes: inc(-1) }); changed = -1; }
     });
     if (changed) await bumpDaily(vs.id, v.channelId, { likes: changed });
+    // per-user index so account deletion can find this user's likes without a collection-group index
+    if (changed === 1) await col("momentsMyLikes").doc(`${vs.id}__${user.uid}`).set({ uid: user.uid, videoId: vs.id, at: now() });
+    if (changed === -1) await col("momentsMyLikes").doc(`${vs.id}__${user.uid}`).delete();
     if (changed === 1 && v.channelId !== user.uid) await notify(v.channelId, "like", { videoId: vs.id, title: v.title }, `like_${vs.id}_${user.uid}`);
     return ok(res, { liked: want });
   };
@@ -715,6 +718,7 @@ function buildApi(deps) {
     const mine = await col("channels").doc(user.uid).get();
     const authorName = mine.exists ? mine.data().name : (user.name ? String(user.name).slice(0, 30) : "Zyntra user");
     const ref = await vref.collection("comments").add({ uid: user.uid, authorName, authorHandle: mine.exists ? mine.data().handle : null, text, createdAt: now() });
+    await col("momentsMyComments").doc(ref.id).set({ uid: user.uid, videoId: vs.id, at: now() });
     await vref.update({ comments: inc(1), engagement: inc(2) });
     await bumpDaily(vs.id, v.channelId, { comments: 1 });
     if (v.channelId !== user.uid) await notify(v.channelId, "comment", { videoId: vs.id, title: v.title, preview: text.slice(0, 80) });
@@ -729,6 +733,7 @@ function buildApi(deps) {
     if (!cs.exists) throw fail(404, "Not found.");
     if (cs.data().uid !== user.uid && vs.data().channelId !== user.uid && !isAdmin(user.uid)) throw fail(403, "You can't delete this comment.");
     await cref.delete();
+    await col("momentsMyComments").doc(cs.id).delete();
     await vref.update({ comments: inc(-1), engagement: inc(-2) });
     return ok(res, { ok: true });
   };
