@@ -10911,7 +10911,40 @@ function dialog(title, body){
     const f = bg.querySelector("input,select,textarea,button"); if(f) f.focus();
     return bg;
 }
-function toast(msg){ if(typeof showToast === "function") try { showToast(msg); return; } catch(e){} const t = document.createElement("div"); t.textContent = msg; t.setAttribute("role", "status"); t.style.cssText = "position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#222;color:#fff;padding:10px 18px;border-radius:999px;z-index:9500"; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
+function toast(msg, kind){
+    let box = document.getElementById("moToasts");
+    if(!box){ box = document.createElement("div"); box.id = "moToasts"; box.className = "mo-toasts"; box.setAttribute("aria-live", "polite"); document.body.appendChild(box); }
+    const t = document.createElement("div"); t.className = "mo-toast" + (kind ? " " + kind : ""); t.setAttribute("role", "status"); t.textContent = msg; box.appendChild(t);
+    setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 300); }, 2800);
+}
+// A styled replacement for window.confirm(). Resolves true/false. `typeToConfirm` makes the user type a phrase first.
+function confirmBox(o){
+    return new Promise(resolve => {
+        const bg = document.createElement("div"); bg.className = "mo-dialog-bg";
+        bg.innerHTML = `<div class="mo-dialog mo-form" role="alertdialog" aria-modal="true" aria-label="${esc(o.title)}">
+          <h3 style="margin-top:0">${esc(o.title)}</h3><p style="color:var(--mo-dim);line-height:1.5;margin:6px 0 4px">${esc(o.message || "")}</p>
+          ${o.typeToConfirm ? `<label for="cbType">Type <b>${esc(o.typeToConfirm)}</b> to confirm</label><input type="text" id="cbType" autocomplete="off" autocapitalize="none">` : ""}
+          <div class="mo-row" style="margin-top:18px;justify-content:flex-end"><button class="mo-btn mo-confirm-no">Cancel</button><button class="mo-btn ${o.danger === false ? "pri" : "danger"} mo-confirm-yes" ${o.typeToConfirm ? "disabled" : ""}>${esc(o.yes || "Confirm")}</button></div></div>`;
+        const done = v => { bg.remove(); document.removeEventListener("keydown", onKey); resolve(v); };
+        const onKey = e => { if(e.key === "Escape") done(false); };
+        document.addEventListener("keydown", onKey);
+        bg.addEventListener("click", e => { if(e.target === bg) done(false); });
+        bg.querySelector(".mo-confirm-no").onclick = () => done(false);
+        const yes = bg.querySelector(".mo-confirm-yes"); yes.onclick = () => done(true);
+        const inp = bg.querySelector("#cbType");
+        if(inp) inp.addEventListener("input", () => { yes.disabled = inp.value.trim().replace(/^@/, "").toLowerCase() !== String(o.typeToConfirm).replace(/^@/, "").toLowerCase(); });
+        document.body.appendChild(bg); (inp || bg.querySelector(".mo-confirm-no")).focus();
+    });
+}
+async function copyText(t){ try { await navigator.clipboard.writeText(t); toast("Link copied"); } catch(e){ prompt("Copy this link:", t); } }
+function heroHTML(){
+    const ch = me && me.channel;
+    return `<section class="mo-hero"><div><h1>Create. <span>Share.</span> Discover.</h1><p>Watch what people are building with Zyntra AI — and share your own creations, tutorials and discoveries with the community.</p>
+      <div class="mo-row">${ch ? '<a class="mo-btn pri" href="/moments/upload" data-go>⬆ Upload a video</a><a class="mo-btn" href="/moments/studio" data-go>Open Studio</a>' : '<a class="mo-btn pri" href="/moments/create-channel" data-go>✨ Create your channel</a>'}</div></div></section>`;
+}
+function gettingStarted(){
+    return `<div class="mo-panel mo-start"><h3>👋 Welcome to your Studio</h3><p class="mo-sub" style="margin:0 0 12px">Three steps to your first video:</p><ol><li><b>Upload</b> a short video (MP4, WebM or MOV).</li><li>We <b>review</b> it before it goes public — you'll get a notification.</li><li>Once approved, <b>share</b> the link and watch your analytics grow.</li></ol><a class="mo-btn pri" href="/moments/upload" data-go>⬆ Upload your first video</a></div>`;
+}
 const skeletons = n => '<div class="mo-grid">' + Array.from({ length: n }, () => '<div class="mo-skel"></div>').join("") + "</div>";
 const emptyBox = (icon, msg) => `<div class="mo-empty"><div style="font-size:40px">${icon}</div><p>${esc(msg)}</p></div>`;
 const avatar = (ch, cls) => ch && ch.avatarUrl ? `<img class="mo-av ${cls || ""}" src="${esc(ch.avatarUrl)}" alt="" loading="lazy">` : `<span class="mo-av ${cls || ""}" aria-hidden="true">${esc(((ch && (ch.name || ch.handle)) || "Z")[0].toUpperCase())}</span>`;
@@ -10930,7 +10963,7 @@ function chart(series, key, label){
     const vals = series.map(d => d[key] || 0); const max = Math.max(1, ...vals);
     const W = 560, H = 190, pad = 24, bw = (W - pad * 2) / vals.length;
     const bars = vals.map((v, i) => { const bh = Math.round((H - pad * 2) * v / max); return `<rect x="${(pad + i * bw + 1).toFixed(1)}" y="${H - pad - bh}" width="${Math.max(2, bw - 2).toFixed(1)}" height="${v ? Math.max(bh, 1) : 0}" rx="2"><title>${fmtDay(series[i].day)}: ${v}</title></rect>`; }).join("");
-    return `<svg class="mo-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}, last ${vals.length} days">${bars}<text x="${pad}" y="${H - 6}">${fmtDay(series[0].day)}</text><text x="${W - pad}" y="${H - 6}" text-anchor="end">${fmtDay(series[series.length - 1].day)}</text><text x="${pad}" y="12">peak ${fmtNum(max)}</text></svg>`;
+    return `<svg class="mo-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}, last ${vals.length} days"><defs><linearGradient id="mog" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b45cff"/><stop offset="1" stop-color="#6e5cff"/></linearGradient></defs>${bars}<text x="${pad}" y="${H - 6}">${fmtDay(series[0].day)}</text><text x="${W - pad}" y="${H - 6}" text-anchor="end">${fmtDay(series[series.length - 1].day)}</text><text x="${pad}" y="12">peak ${fmtNum(max)}</text></svg>`;
 }
 
 // ---------------- shell ----------------
@@ -10939,10 +10972,10 @@ function shell(inner){
     root.innerHTML = `<header class="mo-top">
       <button class="mo-brand" data-go-home aria-label="Zyntra Moments home"><span>🎬</span><span class="g">Zyntra Moments</span></button>
       <form class="mo-search" role="search" id="moSearch"><input type="search" placeholder="Search videos and channels" aria-label="Search" maxlength="60" value="${esc(new URLSearchParams(location.search).get("q") || "")}"><button aria-label="Search">🔍</button></form>
-      ${ch ? '<a class="mo-btn pri" href="/moments/upload" data-go>⬆ Upload</a><a class="mo-btn" href="/moments/studio" data-go>Studio</a>' : '<a class="mo-btn pri" href="/moments/create-channel" data-go>Create channel</a>'}
+      ${ch ? '<a class="mo-btn pri" href="/moments/upload" data-go aria-label="Upload" title="Upload">⬆<span class="mo-lbl"> Upload</span></a><a class="mo-btn" href="/moments/studio" data-go aria-label="Studio" title="Studio">🎛<span class="mo-lbl"> Studio</span></a>' : '<a class="mo-btn pri" href="/moments/create-channel" data-go>Create channel</a>'}
       <a class="mo-btn" href="/moments/notifications" data-go aria-label="Notifications">🔔${me && me.unread ? `<span class="mo-badge">${me.unread > 49 ? "50+" : me.unread}</span>` : ""}</a>
-      <a class="mo-btn" href="/moments/bugs" data-go>🐞 Bug reports</a>
-      ${me && me.isAdmin ? '<a class="mo-btn" href="/moments/admin" data-go>🛡 Admin</a>' : ""}
+      <a class="mo-btn" href="/moments/bugs" data-go aria-label="Bug reports" title="Bug reports">🐞<span class="mo-lbl"> Bug reports</span></a>
+      ${me && me.isAdmin ? '<a class="mo-btn" href="/moments/admin" data-go aria-label="Admin" title="Admin">🛡<span class="mo-lbl"> Admin</span></a>' : ""}
     </header><main id="moMain">${inner}</main>`;
     const f = $("moSearch");
     f.addEventListener("submit", e => { e.preventDefault(); const q = f.querySelector("input").value.trim(); go(q.length >= 2 ? "/moments?q=" + encodeURIComponent(q) : "/moments"); });
@@ -10959,8 +10992,8 @@ async function viewHome(){
     const q = new URLSearchParams(location.search).get("q");
     if(q) return viewSearch(q);
     setTitle("");
-    let sort = user() ? "recommended" : "trending";
-    shell(`<div class="mo-tabs" role="tablist" aria-label="Feed">
+    let sort = "trending";
+    shell(`${heroHTML()}<div class="mo-tabs" role="tablist" aria-label="Feed">
       <button class="mo-tab" role="tab" data-sort="trending">🔥 Trending</button><button class="mo-tab" role="tab" data-sort="new">🆕 New</button><button class="mo-tab" role="tab" data-sort="recommended">✨ For you</button></div>
       <div id="moGrid" class="mo-grid"></div><div id="moMore" style="text-align:center;margin:24px 0"></div>`);
     let cursor = null, loading = false, io = null;
@@ -11088,7 +11121,7 @@ async function viewChannel(handle){
       <div class="mo-sub">@${esc(ch.handle)}${ch.subscribers != null ? " · " + fmtNum(ch.subscribers) + " subscribers" : ""} · ${fmtNum(ch.videos)} videos · ${fmtNum(ch.verifiedViews)} verified views</div></div>
       <div class="mo-row">${d.owner ? '<a class="mo-btn pri" href="/moments/studio" data-go>Open Studio</a>' : `<button class="mo-btn ${d.subscribed ? "on" : "pri"}" id="moSub">${d.subscribed ? "Subscribed ✓" : "Subscribe"}</button><button class="mo-btn" id="moRepCh">⚑ Report</button>`}</div></div>
     ${ch.description ? `<div class="mo-panel"><p style="white-space:pre-wrap;margin:0">${esc(ch.description)}</p>${(ch.links || []).length ? `<p class="mo-row">${ch.links.map(l => `<a class="mo-btn" href="${esc(l)}" target="_blank" rel="noopener noreferrer nofollow">${esc(l.replace(/^https:\/\//, "").slice(0, 40))}</a>`).join("")}</p>` : ""}</div>` : ""}
-    ${d.videos.length ? `<div class="mo-grid">${d.videos.map(card).join("")}</div>` : emptyBox("🎞", "No public videos yet.")}`;
+    ${d.owner ? '<div class="mo-note">This is your public page. Private, unlisted and pending videos aren\'t shown here — manage them in <a href="/moments/studio#videos" data-go style="text-decoration:underline">Studio</a>.</div>' : ""}${d.videos.length ? `<div class="mo-grid">${d.videos.map(card).join("")}</div>` : emptyBox("🎞", "No public videos yet.")}`;
     const sub = $("moSub"); if(sub){ let on = d.subscribed; sub.onclick = async () => { if(needSignIn()) return; try { const r = await api("POST", "channel-subscribe", { channelId: ch.id, subscribe: !on }); on = r.subscribed; sub.textContent = on ? "Subscribed ✓" : "Subscribe"; sub.className = "mo-btn " + (on ? "on" : "pri"); } catch(e){ toast(e.message); } }; }
     const rp = $("moRepCh"); if(rp) rp.onclick = () => { if(needSignIn()) return; reportDialog("channel", ch.id, null); };
 }
@@ -11250,7 +11283,7 @@ async function viewStudio(){
     function tOverview(el){
         const t = d.totals; let key = "verified";
         const series = d.series.map(x => Object.assign({ watchMin: Math.round(x.watchSeconds / 60) }, x));
-        el.innerHTML = `<div class="mo-stats">
+        el.innerHTML = (d.videos.length ? "" : gettingStarted()) + `<div class="mo-stats">
           <div class="mo-stat"><small>Verified views</small><b>${fmtNum(t.verifiedViews)}</b></div><div class="mo-stat"><small>Plays started</small><b>${fmtNum(t.plays)}</b></div>
           <div class="mo-stat"><small>Subscribers</small><b>${fmtNum(t.subscribers)}</b></div><div class="mo-stat"><small>Watch time</small><b>${fmtWatch(t.watchSeconds)}</b></div>
           <div class="mo-stat"><small>Likes</small><b>${fmtNum(t.likes)}</b></div><div class="mo-stat"><small>Comments</small><b>${fmtNum(t.comments)}</b></div>
@@ -11261,16 +11294,54 @@ async function viewStudio(){
     }
     function tVideos(el){
         if(!d.videos.length){ el.innerHTML = emptyBox("🎞", "No videos yet.") + '<p style="text-align:center"><a class="mo-btn pri" href="/moments/upload" data-go>Upload your first video</a></p>'; return; }
-        el.innerHTML = `<div class="mo-table-wrap"><table class="mo-table"><thead><tr><th>Video</th><th>Status</th><th>Visibility</th><th>Verified</th><th>Plays</th><th>👍</th><th>💬</th><th></th></tr></thead><tbody>${d.videos.map(v => `<tr>
-          <td><div class="mo-row">${v.thumbUrl ? `<img src="${esc(v.thumbUrl)}" alt="" style="width:96px;border-radius:8px">` : ""}<div><a href="/moments/watch/${esc(v.id)}" data-go><b>${esc(v.title)}</b></a><div class="mo-sub">${timeAgo(v.createdAt)} · ${fmtDur(v.durationSec)}</div></div></div></td>
-          <td><span class="mo-pill ${esc(v.status)}">${esc(v.status.replace("_", " "))}</span>${v.rejection ? `<div class="mo-sub" style="max-width:260px">${esc(REASONS[v.rejection.category] || "")}: ${esc(v.rejection.reason)}</div>` : ""}${v.appeal ? `<div class="mo-sub">Appeal: ${esc(v.appeal.status)}${v.appeal.note ? " — " + esc(v.appeal.note) : ""}</div>` : ""}</td>
-          <td><select class="mo-in" style="width:auto" data-vis="${esc(v.id)}" aria-label="Visibility"><option ${v.visibility === "public" ? "selected" : ""}>public</option><option ${v.visibility === "unlisted" ? "selected" : ""}>unlisted</option><option ${v.visibility === "private" ? "selected" : ""}>private</option></select></td>
-          <td>${fmtNum(v.verifiedViews)}</td><td>${fmtNum(v.plays)}</td><td>${fmtNum(v.likes)}</td><td>${fmtNum(v.comments)}</td>
-          <td><div class="mo-row"><button class="mo-btn" data-an="${esc(v.id)}">Analytics</button>${v.status === "rejected" && !v.appeal ? `<button class="mo-btn" data-ap="${esc(v.id)}">Appeal</button>` : ""}<button class="mo-btn danger" data-rm="${esc(v.id)}">Delete</button></div></td></tr>`).join("")}</tbody></table></div>`;
-        el.querySelectorAll("[data-vis]").forEach(s => s.onchange = async () => { try { const r = await api("POST", "video-update", { id: s.dataset.vis, visibility: s.value }); toast(r.needsReview ? "Saved — needs review again." : "Visibility updated"); } catch(e){ toast(e.message); } });
-        el.querySelectorAll("[data-rm]").forEach(b => b.onclick = async () => { if(!confirm("Delete this video permanently?")) return; try { await api("POST", "video-delete", { id: b.dataset.rm }); d = await api("GET", "studio"); draw(); } catch(e){ toast(e.message); } });
-        el.querySelectorAll("[data-ap]").forEach(b => b.onclick = () => { const bg = dialog("Appeal this decision", `<label for="apT">Why should it be reconsidered?</label><textarea id="apT" maxlength="1000"></textarea><div class="mo-err" id="apE"></div><div class="mo-row"><button class="mo-btn pri" id="apGo">Send appeal</button><button class="mo-btn" id="apNo">Cancel</button></div><p class="mo-sub">A person reviews appeals. You can appeal each video once.</p>`); bg.querySelector("#apNo").onclick = () => bg.remove(); bg.querySelector("#apGo").onclick = async () => { try { await api("POST", "appeal-create", { id: b.dataset.ap, text: bg.querySelector("#apT").value }); bg.remove(); d = await api("GET", "studio"); draw(); } catch(e){ bg.querySelector("#apE").textContent = e.message; } }; });
-        el.querySelectorAll("[data-an]").forEach(b => b.onclick = async () => { try { const a = await api("GET", "video-analytics", { id: b.dataset.an }); const s = a.series.map(x => Object.assign({ watchMin: Math.round(x.watchSeconds / 60) }, x)); const bg = dialog("Analytics · " + a.title, `<div class="mo-stats"><div class="mo-stat"><small>Verified views</small><b>${fmtNum(a.totals.verifiedViews)}</b></div><div class="mo-stat"><small>Plays</small><b>${fmtNum(a.totals.plays)}</b></div><div class="mo-stat"><small>Watch time</small><b>${fmtWatch(a.totals.watchSeconds)}</b></div><div class="mo-stat"><small>Likes / comments</small><b>${fmtNum(a.totals.likes)} / ${fmtNum(a.totals.comments)}</b></div></div><h4>Verified views, last 28 days</h4>${chart(s, "verified", "Verified views")}<h4>Watch minutes</h4>${chart(s, "watchMin", "Watch minutes")}<button class="mo-btn" id="anX">Close</button>`); bg.querySelector("#anX").onclick = () => bg.remove(); } catch(e){ toast(e.message); } });
+        const row = v => {
+            const live = v.status === "approved" && v.visibility !== "private";
+            return `<article class="mo-vrow" data-row="${esc(v.id)}">
+              <a class="mo-vthumb" href="/moments/watch/${esc(v.id)}" data-go aria-label="Open ${esc(v.title)}">${v.thumbUrl ? `<img src="${esc(v.thumbUrl)}" alt="" loading="lazy">` : '<span class="mo-vnothumb">🎞</span>'}<span class="mo-dur">${fmtDur(v.durationSec)}</span></a>
+              <div class="mo-vinfo">
+                <a href="/moments/watch/${esc(v.id)}" data-go class="mo-vtitle">${esc(v.title)}</a>
+                <div class="mo-row" style="gap:8px;margin:6px 0"><span class="mo-pill ${esc(v.status)}">${esc(v.status === "uploading" ? "unfinished upload" : v.status.replace("_", " "))}</span>
+                  <select class="mo-in" style="width:auto;padding:4px 30px 4px 10px" data-vis="${esc(v.id)}" aria-label="Visibility of ${esc(v.title)}"><option value="public" ${v.visibility === "public" ? "selected" : ""}>🌍 Public</option><option value="unlisted" ${v.visibility === "unlisted" ? "selected" : ""}>🔗 Unlisted</option><option value="private" ${v.visibility === "private" ? "selected" : ""}>🔒 Private</option></select></div>
+                ${v.status === "pending" ? '<div class="mo-sub">⏳ Waiting for review — it stays private until approved.</div>' : ""}
+                ${v.status === "uploading" ? '<div class="mo-sub">This upload never finished. Delete it and upload again.</div>' : ""}
+                ${v.status === "under_review" ? '<div class="mo-sub">Temporarily hidden while it is re-reviewed.</div>' : ""}
+                ${v.rejection ? `<div class="mo-note mo-warn" style="margin:6px 0"><b>${esc(REASONS[v.rejection.category] || "Not published")}</b> — ${esc(v.rejection.reason)}</div>` : ""}
+                ${v.appeal ? `<div class="mo-sub">Appeal: ${esc(v.appeal.status)}${v.appeal.note ? " — " + esc(v.appeal.note) : ""}</div>` : ""}
+                <div class="mo-vstats"><span title="Verified views">👁 ${fmtNum(v.verifiedViews)}</span><span title="Plays started">▶ ${fmtNum(v.plays)}</span><span title="Likes">👍 ${fmtNum(v.likes)}</span><span title="Comments">💬 ${fmtNum(v.comments)}</span><span>${timeAgo(v.createdAt)}</span></div>
+              </div>
+              <div class="mo-vact">
+                ${v.status !== "uploading" ? `<button class="mo-btn" data-ed="${esc(v.id)}">✏ Edit</button><button class="mo-btn" data-an="${esc(v.id)}">📊 Analytics</button>` : ""}
+                ${live ? `<button class="mo-btn" data-cp="${esc(v.id)}">🔗 Copy link</button>` : ""}
+                ${v.status === "rejected" && !v.appeal ? `<button class="mo-btn pri" data-ap="${esc(v.id)}">Appeal</button>` : ""}
+                <button class="mo-btn danger" data-rm="${esc(v.id)}">🗑 Delete</button>
+              </div></article>`;
+        };
+        el.innerHTML = `<div class="mo-vlist">${d.videos.map(row).join("")}</div>`;
+        const find = id => d.videos.find(x => x.id === id);
+        el.querySelectorAll("[data-vis]").forEach(sel => sel.onchange = async () => { try { const r = await api("POST", "video-update", { id: sel.dataset.vis, visibility: sel.value }); find(sel.dataset.vis).visibility = sel.value; toast(r.needsReview ? "Saved — needs review again." : "Visibility updated"); draw(); } catch(e){ toast(e.message, "bad"); } });
+        el.querySelectorAll("[data-cp]").forEach(b => b.onclick = () => copyText(location.origin + "/moments/watch/" + b.dataset.cp));
+        el.querySelectorAll("[data-rm]").forEach(b => b.onclick = async () => {
+            const v = find(b.dataset.rm); if(!v) return;
+            const yes = await confirmBox({ title: "Delete this video?", message: `“${v.title}” will be permanently deleted with its comments, likes and statistics. This can't be undone.`, yes: "Delete video" });
+            if(!yes) return;
+            b.disabled = true;
+            try {
+                await api("POST", "video-delete", { id: v.id });
+                d.videos = d.videos.filter(x => x.id !== v.id);
+                toast("Video deleted"); draw();
+                api("GET", "studio").then(fresh => { d = fresh; if(tab === "overview" || tab === "videos") draw(); }).catch(() => {});
+            } catch(e){ b.disabled = false; toast(e.message, "bad"); }
+        });
+        el.querySelectorAll("[data-ed]").forEach(b => b.onclick = async () => {
+            const v = find(b.dataset.ed); if(!v) return;
+            let full = { title: v.title, description: "", tags: [] };
+            try { full = (await api("GET", "watch", { id: v.id })).video; } catch(e){}
+            const bg = dialog("Edit video", `<label for="edT">Title</label><input type="text" id="edT" maxlength="100" value="${esc(full.title)}"><label for="edD">Description</label><textarea id="edD" maxlength="2000">${esc(full.description || "")}</textarea><label for="edG">Tags (comma separated)</label><input type="text" id="edG" maxlength="120" value="${esc((full.tags || []).join(", "))}"><div class="mo-note">If you change the text of a live video, we run the automated checks again. Anything that looks risky goes back to review.</div><div class="mo-err" id="edE"></div><div class="mo-row"><button class="mo-btn pri" id="edS">Save</button><button class="mo-btn" id="edX">Cancel</button></div>`);
+            bg.querySelector("#edX").onclick = () => bg.remove();
+            bg.querySelector("#edS").onclick = async () => { const sb = bg.querySelector("#edS"); setBusy(sb, true, "Saving…"); try { const r = await api("POST", "video-update", { id: v.id, title: bg.querySelector("#edT").value, description: bg.querySelector("#edD").value, tags: bg.querySelector("#edG").value }); bg.remove(); toast(r.needsReview ? "Saved — sent back for review." : "Saved"); d = await api("GET", "studio"); draw(); } catch(e){ bg.querySelector("#edE").textContent = e.message; setBusy(sb, false); } };
+        });
+        el.querySelectorAll("[data-ap]").forEach(b => b.onclick = () => { const bg = dialog("Appeal this decision", `<label for="apT">Why should it be reconsidered?</label><textarea id="apT" maxlength="1000"></textarea><div class="mo-err" id="apE"></div><div class="mo-row"><button class="mo-btn pri" id="apGo">Send appeal</button><button class="mo-btn" id="apNo">Cancel</button></div><p class="mo-sub">A person reviews appeals. You can appeal each video once.</p>`); bg.querySelector("#apNo").onclick = () => bg.remove(); bg.querySelector("#apGo").onclick = async () => { try { await api("POST", "appeal-create", { id: b.dataset.ap, text: bg.querySelector("#apT").value }); bg.remove(); toast("Appeal sent"); d = await api("GET", "studio"); draw(); } catch(e){ bg.querySelector("#apE").textContent = e.message; } }; });
+        el.querySelectorAll("[data-an]").forEach(b => b.onclick = async () => { try { const a = await api("GET", "video-analytics", { id: b.dataset.an }); const s = a.series.map(x => Object.assign({ watchMin: Math.round(x.watchSeconds / 60) }, x)); const bg = dialog("Analytics · " + a.title, `<div class="mo-stats"><div class="mo-stat"><small>Verified views</small><b>${fmtNum(a.totals.verifiedViews)}</b></div><div class="mo-stat"><small>Plays</small><b>${fmtNum(a.totals.plays)}</b></div><div class="mo-stat"><small>Watch time</small><b>${fmtWatch(a.totals.watchSeconds)}</b></div><div class="mo-stat"><small>Likes / comments</small><b>${fmtNum(a.totals.likes)} / ${fmtNum(a.totals.comments)}</b></div></div><h4>Verified views, last 28 days</h4>${chart(s, "verified", "Verified views")}<h4>Watch minutes</h4>${chart(s, "watchMin", "Watch minutes")}<button class="mo-btn" id="anX">Close</button>`); bg.querySelector("#anX").onclick = () => bg.remove(); } catch(e){ toast(e.message, "bad"); } });
     }
     function tRewards(el){
         const e = d.eligibility;
@@ -11290,6 +11361,14 @@ async function viewStudio(){
           <label class="mo-check"><input type="checkbox" id="seCm" ${c.commentsEnabled ? "checked" : ""}><span>Allow comments on my videos</span></label>
           <div class="mo-err" id="seErr"></div><button class="mo-btn pri" id="seSave">Save channel</button></div>
         <div class="mo-panel mo-form"><h3>Notifications</h3>${[["subscribers", "New subscribers"], ["likes", "Likes"], ["comments", "Comments"], ["published", "Video published"], ["bugUpdates", "Bug report updates"], ["achievements", "Achievements"], ["rewards", "Reward decisions"]].map(([k, l]) => `<label class="mo-check"><input type="checkbox" data-pref="${k}" ${p[k] !== false ? "checked" : ""}><span>${l}</span></label>`).join("")}<div class="mo-note">Video rejections and moderation decisions are always delivered, so you can use the appeal option.</div></div></div>`;
+        el.insertAdjacentHTML("beforeend", `<div class="mo-panel mo-danger"><h3>Danger zone</h3><p class="mo-sub" style="margin:0 0 12px">Deleting your channel permanently removes all of its videos, comments, subscribers and statistics. Your Zyntra account is not affected. This can't be undone.</p><button class="mo-btn danger" id="seDel">🗑 Delete channel…</button></div>`);
+        $("seDel").onclick = async () => {
+            const yes = await confirmBox({ title: "Delete your channel?", message: "All videos, comments on them, subscribers and statistics will be permanently deleted. Your handle becomes available to others.", yes: "Delete channel forever", typeToConfirm: "@" + c.handle });
+            if(!yes) return;
+            const btn = $("seDel"); setBusy(btn, true, "Deleting…");
+            try { await api("POST", "channel-delete", { confirmHandle: c.handle }); me = null; await loadMe(true); toast("Channel deleted"); go("/moments"); }
+            catch(e){ setBusy(btn, false); toast(e.message, "bad"); }
+        };
         $("seSave").onclick = async () => { const b = $("seSave"); setBusy(b, true, "Saving…"); $("seErr").textContent = ""; try { const body = { name: $("seName").value, description: $("seDesc").value, links: $("seLinks").value.split("\n").map(s => s.trim()).filter(Boolean), showSubscriberCount: $("seSubs").checked, commentsEnabled: $("seCm").checked }; const a = $("seAv").files[0], n = $("seBn").files[0]; if(a) body.avatarPath = await uploadFile("avatar", null, await imgBlob(a, 256, 256, true)); if(n) body.bannerPath = await uploadFile("banner", null, await imgBlob(n, 1280, 320, true, 0.8)); await api("POST", "channel-update", body); await loadMe(true); toast("Saved"); } catch(e){ $("seErr").textContent = e.message; } setBusy(b, false); };
         el.querySelectorAll("[data-pref]").forEach(i => i.onchange = async () => { try { await api("POST", "prefs-set", { [i.dataset.pref]: i.checked }); me.prefs[i.dataset.pref] = i.checked; } catch(e){ toast(e.message); i.checked = !i.checked; } });
     }
