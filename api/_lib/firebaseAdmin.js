@@ -54,3 +54,17 @@ export function increment(n) {
 export function arrayRemove(...values) {
   return admin.firestore.FieldValue.arrayRemove(...values);
 }
+
+// ---- added for Zyntra Moments (additive) ----
+export function deleteField() {
+  return admin.firestore.FieldValue.delete();
+}
+export function getAdminBucket() {
+  ensureInitialized();
+  let name = process.env.MOMENTS_BUCKET;
+  if (!name) {
+    const projectId = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT).project_id;
+    name = `${projectId}.firebasestorage.app`;
+  }
+  return admin.storage().bucket(name);
+}
