@@ -37,7 +37,7 @@ function fail(status, message) { return { status, message }; }
 function realDeps() {
   return {
     db: getAdminDb(),
-    verifyToken: (t) => getAdminAuth().verifyIdToken(t, true),
+    verifyToken: (t, strict) => getAdminAuth().verifyIdToken(t, !!strict), // revocation check only when strict (admin actions)
     bucket: getAdminBucket(),
     inc: increment,
     del: deleteField,
@@ -47,9 +47,8 @@ function realDeps() {
   };
 }
 
-const mem = new Map(); // best-effort per-instance rate limiting (durable limits use Firestore)
-
 export function createMomentsHandler(getDeps = realDeps) {
+  const mem = new Map(); // best-effort per-instance rate limiting (durable limits use Firestore)
   return async function handler(req, res) {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -57,7 +56,7 @@ export function createMomentsHandler(getDeps = realDeps) {
     if (req.method === "OPTIONS") return res.status(200).end();
     try {
       const deps = getDeps();
-      const api = buildApi(deps);
+      const api = buildApi(deps, mem);
       const isPost = req.method === "POST";
       if (!isPost && req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
       const input = isPost ? (req.body || {}) : (req.query || {});
@@ -74,7 +73,7 @@ export function createMomentsHandler(getDeps = realDeps) {
   };
 }
 
-function buildApi(deps) {
+function buildApi(deps, mem) {
   const { db, bucket, inc, del } = deps;
   const now = () => deps.now();
   const env = deps.env || {};
@@ -82,12 +81,12 @@ function buildApi(deps) {
   const ok = (res, data, cache) => { if (cache) res.setHeader("Cache-Control", cache); return res.status(200).json(data); };
 
   // ---------------- auth ----------------
-  async function getUser(req, required) {
+  async function getUser(req, required, strict) {
     const h = req.headers?.authorization || "";
     const tok = h.startsWith("Bearer ") ? h.slice(7) : null;
     if (!tok) { if (required) throw fail(401, "Sign in required."); return null; }
     try {
-      const d = await deps.verifyToken(tok);
+      const d = await deps.verifyToken(tok, !!strict);
       return { uid: d.uid, name: d.name || null };
     } catch (e) {
       if (required) throw fail(401, "Your session has ended — please sign in again.");
@@ -97,7 +96,7 @@ function buildApi(deps) {
   const adminUids = () => String(env.ADMIN_UID || "").split(",").map((x) => x.trim()).filter(Boolean);
   const isAdmin = (uid) => !!uid && adminUids().includes(uid);
   async function requireAdmin(req) {
-    const u = await getUser(req, true);
+    const u = await getUser(req, true, true);
     if (!isAdmin(u.uid)) throw fail(403, "Administrators only.");
     return u;
   }
@@ -246,7 +245,7 @@ function buildApi(deps) {
     if (!env.GROQ_API_KEY) return null;
     try {
       const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const timer = ctl ? setTimeout(() => ctl.abort(), 20000) : null;
+      const timer = ctl ? setTimeout(() => ctl.abort(), 8000) : null;
       const r = await deps.fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST", signal: ctl?.signal,
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.GROQ_API_KEY}` },
@@ -261,13 +260,13 @@ function buildApi(deps) {
   const MOD_INSTR = "You pre-screen user-generated content for a creator platform. Categories: sexual, exploitative, graphic, harassment, dangerous, spam_scam, private_info. Reply ONLY with JSON: {\"flags\":[{\"category\":string,\"confidence\":number between 0 and 1,\"note\":string}]}. Use an empty flags array when nothing concerning is visible. You are a pre-screen only; a human makes the final decision.";
   async function autoCheck(video, frames) {
     const out = { at: now(), secrets: L.scanSecrets(`${video.title}\n${video.description}\n${(video.tags || []).join(" ")}`), pii: L.scanPII(`${video.title}\n${video.description}`), text: { status: "unavailable", flags: [] }, frames: { status: "unavailable", flags: [], count: 0 } };
-    const t = await groqJSON(env.MODERATION_TEXT_MODEL || "openai/gpt-oss-20b", [{ role: "system", content: MOD_INSTR }, { role: "user", content: `Title: ${video.title}\nDescription: ${video.description}\nTags: ${(video.tags || []).join(", ")}` }]);
-    if (t && Array.isArray(t.flags)) out.text = { status: "checked", flags: t.flags.filter((f) => Number(f.confidence) >= 0.5).slice(0, 8) };
     const fr = (Array.isArray(frames) ? frames : []).filter((f) => typeof f === "string" && f.startsWith("data:image/jpeg;base64,") && f.length < 160000).slice(0, 6);
+    const textJob = groqJSON(env.MODERATION_TEXT_MODEL || "openai/gpt-oss-20b", [{ role: "system", content: MOD_INSTR }, { role: "user", content: `Title: ${video.title}\nDescription: ${video.description}\nTags: ${(video.tags || []).join(", ")}` }]);
+    const frameJob = fr.length ? groqJSON(env.MODERATION_VISION_MODEL || "qwen/qwen3.6-27b", [{ role: "system", content: MOD_INSTR }, { role: "user", content: [{ type: "text", text: "These are frames sampled from one user video. Pre-screen them." }].concat(fr.map((u) => ({ type: "image_url", image_url: { url: u } }))) }]) : Promise.resolve(null);
+    const [t, v] = await Promise.all([textJob, frameJob]); // in parallel so uploads finish quickly
+    if (t && Array.isArray(t.flags)) out.text = { status: "checked", flags: t.flags.filter((f) => Number(f.confidence) >= 0.5).slice(0, 8) };
     if (fr.length) {
       out.frames.count = fr.length;
-      const content = [{ type: "text", text: "These are frames sampled from one user video. Pre-screen them." }].concat(fr.map((u) => ({ type: "image_url", image_url: { url: u } })));
-      const v = await groqJSON(env.MODERATION_VISION_MODEL || "qwen/qwen3.6-27b", [{ role: "system", content: MOD_INSTR }, { role: "user", content }]);
       if (v && Array.isArray(v.flags)) out.frames = { status: "checked", count: fr.length, flags: v.flags.filter((f) => Number(f.confidence) >= 0.5).slice(0, 8) };
     }
     out.summary = (out.secrets.length || out.text.flags.length || out.frames.flags.length || out.pii.length) ? "flagged" : "no_flags_found";
@@ -482,7 +481,16 @@ function buildApi(deps) {
       col("dailyStats").where("kind", "==", "c").where("id", "==", user.uid).limit(120).get(),
       col("rewardClaims").where("channelId", "==", user.uid).limit(50).get()
     ]);
-    const vids = vsnap.docs.map(withId).filter((v) => v.status !== "removed").sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    // uploads that never finished (tab closed, network lost) for over a day: remove the record and any stray files
+    const allVideos = vsnap.docs.map(withId);
+    for (const v of allVideos) {
+      if (v.status === "uploading" && now() - (v.createdAt || 0) > DAY) {
+        for (const pth of [v.videoPath, v.thumbPath]) if (pth) await bucket.file(pth).delete().catch(() => {});
+        await col("videos").doc(v.id).update({ status: "removed", removedAt: now() });
+        v.status = "removed";
+      }
+    }
+    const vids = allVideos.filter((v) => v.status !== "removed").sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     const videos = await Promise.all(vids.slice(0, 50).map(async (v) => ({ id: v.id, title: v.title, status: v.status, visibility: v.visibility, createdAt: v.createdAt, publishedAt: v.publishedAt || null, durationSec: v.durationSec, plays: v.views || 0, verifiedViews: v.verifiedViews || 0, likes: v.likes || 0, comments: v.comments || 0, watchSeconds: Math.round(v.watchSeconds || 0), rejection: v.rejection || null, appeal: v.appeal ? { status: v.appeal.status, note: v.appeal.note || null } : null, thumbUrl: v.thumbPath ? await signedRead(v.thumbPath, 300) : null })));
     const cfg = await rewardSettings();
     const totals = { subscribers: ch.subscribers || 0, videos: ch.videos || 0, plays: vids.reduce((s, v) => s + (v.views || 0), 0), verifiedViews: ch.verifiedViews || 0, likes: ch.likes || 0, comments: vids.reduce((s, v) => s + (v.comments || 0), 0), watchSeconds: Math.round(ch.watchSeconds || 0) };
