@@ -10840,6 +10840,7 @@ renderGuestMeter();
 "use strict";
 
 const API = "/api/moments";
+const BASE_TITLE = document.title;
 const DISCORD_URL = "https://discord.gg/x6DAeYc9XY";
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -11410,6 +11411,10 @@ async function viewBugs(){
 
 // ---------------- notifications ----------------
 function notifText(n){
+    const html = notifBody(n), d = n.data || {};
+    return d.videoId && n.type !== "video_rejected" ? html + ` <a href="/moments/watch/${esc(d.videoId)}" data-go style="text-decoration:underline">View</a>` : html;
+}
+function notifBody(n){
     const d = n.data || {}, t = d.title ? `“${esc(d.title)}”` : "your video";
     switch(n.type){
         case "new_subscriber": return "👤 Someone subscribed to your channel.";
@@ -11436,6 +11441,8 @@ async function viewNotifications(){
     $("ntAll").onclick = async () => { try { await api("POST", "notif-read", { all: true }); me.unread = 0; cursor = null; load(); shell0(); } catch(e){ toast(e.message); } };
     const shell0 = () => { const b = root.querySelector(".mo-badge"); if(b) b.remove(); };
     await load();
+    // opening the page counts as reading: clear the bell (items already on screen stay dimmed/undimmed as loaded)
+    if(me.unread){ api("POST", "notif-read", { all: true }).then(() => { me.unread = 0; const b = root.querySelector(".mo-badge"); if(b) b.remove(); }).catch(() => {}); }
 }
 
 // ---------------- admin (every call is re-checked on the server) ----------------
@@ -11557,7 +11564,7 @@ document.addEventListener("click", e => {
 // stop playback/timers when the user leaves Moments via the sidebar
 function watchActive(){
     const v = $("momentsView"); if(!v || v.__mo) return; v.__mo = true;
-    new MutationObserver(() => { if(!v.classList.contains("active") && cleanup){ try { cleanup(); } catch(e){} cleanup = null; } }).observe(v, { attributes: true, attributeFilter: ["class"] });
+    new MutationObserver(() => { if(!v.classList.contains("active")){ if(cleanup){ try { cleanup(); } catch(e){} cleanup = null; } if(document.title.endsWith("Zyntra Moments")) document.title = BASE_TITLE; } }).observe(v, { attributes: true, attributeFilter: ["class"] });
 }
 function hookAuth(){
     if(typeof activeAuth !== "function"){ setTimeout(hookAuth, 800); return; }
