@@ -11069,7 +11069,7 @@ async function viewWatch(id){
     let cmCursor = null;
     const cms = $("moCms");
     const cmHTML = c => `<div class="mo-cm" data-cid="${esc(c.id)}"><div class="mo-av" aria-hidden="true">${esc((c.authorName || "Z")[0].toUpperCase())}</div><div style="flex:1"><div><b>${esc(c.authorName)}</b> ${c.authorHandle ? `<span class="mo-sub">@${esc(c.authorHandle)}</span>` : ""} <span class="mo-sub">${timeAgo(c.createdAt)}</span></div><div style="white-space:pre-wrap;word-break:break-word">${esc(c.text)}</div>
-      <div class="mo-row" style="margin-top:4px">${c.mine || d.owner ? `<button class="mo-btn" data-del="${esc(c.id)}" style="padding:2px 10px">Delete</button>` : ""}${!c.mine ? `<button class="mo-btn" data-rep="${esc(c.id)}" style="padding:2px 10px">Report</button>` : ""}</div></div></div>`;
+      <div class="mo-row" style="margin-top:4px">${c.mine || d.owner ? `<button class="mo-btn" data-del="${esc(c.id)}" style="padding:2px 10px">Delete</button>` : ""}${d.owner && !c.mine ? `<button class="mo-btn" data-blk="${esc(c.id)}" style="padding:2px 10px">Block</button>` : ""}${!c.mine ? `<button class="mo-btn" data-rep="${esc(c.id)}" style="padding:2px 10px">Report</button>` : ""}</div></div></div>`;
     async function loadComments(){
         try { const r = await api("GET", "comments", { id, cursor: cmCursor || "" }); cms.insertAdjacentHTML("beforeend", r.comments.map(cmHTML).join("")); cmCursor = r.next; $("moCmMore").innerHTML = cmCursor ? '<button class="mo-btn" id="moCmMoreBtn">Show more comments</button>' : ""; if(cmCursor) $("moCmMoreBtn").onclick = loadComments; }
         catch(e){ $("moCmMore").innerHTML = `<p class="mo-err">${esc(e.message)}</p>`; }
@@ -11078,6 +11078,12 @@ async function viewWatch(id){
         const del = e.target.closest("[data-del]"), rp = e.target.closest("[data-rep]");
         if(del){ try { await api("POST", "comment-delete", { videoId: id, commentId: del.dataset.del }); del.closest(".mo-cm").remove(); } catch(er){ toast(er.message); } }
         if(rp){ if(needSignIn()) return; reportDialog("comment", rp.dataset.rep, id); }
+        const blk = e.target.closest("[data-blk]");
+        if(blk){
+            const yes = await confirmBox({ title: "Block this person?", message: "Their comment is deleted and they won't be able to comment on your videos again. You can unblock them in Studio → Settings.", yes: "Block and delete comment" });
+            if(!yes) return;
+            try { await api("POST", "comment-block", { videoId: id, commentId: blk.dataset.blk }); blk.closest(".mo-cm").remove(); $("moCmCount").textContent = fmtNum(Math.max(0, --v.comments)); toast("Blocked"); } catch(er){ toast(er.message, "bad"); }
+        }
     });
     const send = $("moCmSend");
     if(send) send.onclick = async () => {
@@ -11221,6 +11227,10 @@ async function viewCreateChannel(){
 async function viewUpload(){
     shell(""); setTitle("Upload");
     await loadMe(); shell(""); if(!guard(true)) return;
+    if(me.uploads && !me.uploads.allowed){
+        $("moMain").innerHTML = `<div class="mo-panel" style="max-width:640px;margin:0 auto;text-align:center"><div style="font-size:44px">🎬</div><h2 style="margin-top:6px">Uploads aren't open to everyone yet</h2><p class="mo-sub" style="font-size:14px;line-height:1.55">${esc(me.uploads.reason)}</p><div class="mo-row" style="justify-content:center;margin-top:14px"><a class="mo-btn pri" href="${DISCORD_URL}" target="_blank" rel="noopener noreferrer">💬 Join our Discord</a><a class="mo-btn" href="/moments" data-go>Back to Moments</a></div></div>`;
+        return;
+    }
     const L = me.limits;
     $("moMain").innerHTML = `<div class="mo-panel mo-form" style="max-width:720px;margin:0 auto"><h2 style="margin-top:0">Upload a video</h2>
       <div class="mo-note">Every upload is <b>reviewed before it's published</b>. Automated checks are only a first pass and aren't perfect, so a person looks at anything that goes public. Max ${L.videoMb} MB and ${Math.round(L.durationSec / 60)} minutes · MP4, WebM or MOV.</div>
@@ -11363,6 +11373,8 @@ async function viewStudio(){
           <label class="mo-check"><input type="checkbox" id="seCm" ${c.commentsEnabled ? "checked" : ""}><span>Allow comments on my videos</span></label>
           <div class="mo-err" id="seErr"></div><button class="mo-btn pri" id="seSave">Save channel</button></div>
         <div class="mo-panel mo-form"><h3>Notifications</h3>${[["subscribers", "New subscribers"], ["likes", "Likes"], ["comments", "Comments"], ["published", "Video published"], ["bugUpdates", "Bug report updates"], ["achievements", "Achievements"], ["rewards", "Reward decisions"]].map(([k, l]) => `<label class="mo-check"><input type="checkbox" data-pref="${k}" ${p[k] !== false ? "checked" : ""}><span>${l}</span></label>`).join("")}<div class="mo-note">Video rejections and moderation decisions are always delivered, so you can use the appeal option.</div></div></div>`;
+        el.insertAdjacentHTML("beforeend", `<div class="mo-panel"><h3>Blocked commenters</h3>${(d.blocked || []).length ? d.blocked.map(b => `<div class="mo-row" style="justify-content:space-between;padding:6px 0"><span>${esc(b.name)}</span><button class="mo-btn" data-unblk="${esc(b.uid)}">Unblock</button></div>`).join("") : '<p class="mo-sub" style="margin:0">Nobody is blocked. You can block someone from the comments under your videos.</p>'}</div>`);
+        el.querySelectorAll("[data-unblk]").forEach(b => b.onclick = async () => { try { await api("POST", "comment-unblock", { uid: b.dataset.unblk }); d = await api("GET", "studio"); draw(); } catch(e){ toast(e.message, "bad"); } });
         el.insertAdjacentHTML("beforeend", `<div class="mo-panel mo-danger"><h3>Danger zone</h3><p class="mo-sub" style="margin:0 0 12px">Deleting your channel permanently removes all of its videos, comments, subscribers and statistics. Your Zyntra account is not affected. This can't be undone.</p><button class="mo-btn danger" id="seDel">🗑 Delete channel…</button></div>`);
         $("seDel").onclick = async () => {
             const yes = await confirmBox({ title: "Delete your channel?", message: "All videos, comments on them, subscribers and statistics will be permanently deleted. Your handle becomes available to others.", yes: "Delete channel forever", typeToConfirm: "@" + c.handle });
@@ -11456,7 +11468,7 @@ function autoCheckHTML(a){
 async function viewAdmin(){
     shell(skeletons(2)); setTitle("Admin"); await loadMe(); shell("");
     if(!me.isAdmin){ $("moMain").innerHTML = emptyBox("🔒", "Administrators only."); return; }
-    const TABS = { stats: "Overview", queue: "Review queue", reports: "Reports", appeals: "Appeals", bugs: "Bug reports", channels: "Channels", suspicious: "Suspicious views", rewards: "Rewards", log: "Moderation log" };
+    const TABS = { stats: "Overview", launch: "Launch controls", queue: "Review queue", reports: "Reports", appeals: "Appeals", bugs: "Bug reports", channels: "Channels", suspicious: "Suspicious views", rewards: "Rewards", log: "Moderation log" };
     let tab = (location.hash || "#stats").slice(1); if(!TABS[tab]) tab = "stats";
     $("moMain").innerHTML = `<h2>Admin</h2><div class="mo-tabs" role="tablist">${Object.keys(TABS).map(k => `<button class="mo-tab" role="tab" data-t="${k}" aria-selected="${k === tab}">${TABS[k]}</button>`).join("")}</div><div id="adBody">${skeletons(2)}</div>`;
     root.querySelectorAll("[data-t]").forEach(b => b.onclick = () => { history.replaceState({}, "", "#" + b.dataset.t); viewAdmin(); });
@@ -11469,6 +11481,21 @@ async function viewAdmin(){
         if(tab === "stats"){
             const s = await api("GET", "admin-stats");
             el.innerHTML = `<div class="mo-stats">${[["Channels", s.channels], ["Waiting for review", s.videos.pending], ["Held after reports", s.videos.underReview], ["Approved videos", s.videos.approved], ["Rejected", s.videos.rejected], ["Open reports", s.openReports], ["Open appeals", s.openAppeals], ["Suspicious flags", s.suspicious], ["Reward claims", s.pendingClaims], ["Verified views (platform)", s.verifiedViewsPlatform], ["Bugs received", s.bugs.received], ["Bugs investigating", s.bugs.investigating], ["Bugs in progress", s.bugs.in_progress], ["Bugs fixed", s.bugs.fixed]].map(([l, n]) => `<div class="mo-stat"><small>${l}</small><b>${n == null ? "—" : fmtNum(n)}</b></div>`).join("")}</div>`;
+        } else if(tab === "launch"){
+            const r = await api("GET", "admin-launch"); const c = r.config, u = r.usage;
+            const pct = (a, b) => Math.min(100, Math.round(a / b * 100));
+            el.innerHTML = `<div class="mo-stats">
+              <div class="mo-stat"><small>Video storage used</small><b>${fmtNum(u.storageMB)} MB</b><div class="mo-bar" style="margin-top:8px"><i style="width:${pct(u.storageMB, c.maxStorageMB)}%"></i></div><small>limit ${fmtNum(c.maxStorageMB)} MB</small></div>
+              <div class="mo-stat"><small>Estimated playback today</small><b>${fmtNum(u.egressTodayMB)} MB</b><div class="mo-bar" style="margin-top:8px"><i style="width:${pct(u.egressTodayMB, c.dailyEgressMB)}%"></i></div><small>limit ${fmtNum(c.dailyEgressMB)} MB / day</small></div>
+              <div class="mo-stat"><small>Channels allowed to upload</small><b>${fmtNum(u.allowedChannels)}</b></div></div>
+            <div class="mo-panel mo-form"><h3>Who can upload videos?</h3>
+              ${[["closed", "Closed", "Nobody except admins. People can still browse, watch, comment and create channels."], ["allowlist", "Invited creators only", "Only channels you allow in the Channels tab. Best for the first weeks."], ["open", "Open to every channel", "Anyone with a channel. Videos are still reviewed before they go public."]].map(([v, t, d]) => `<label class="mo-check"><input type="radio" name="lm" value="${v}" ${c.uploads === v ? "checked" : ""}><span><b>${t}</b><br><span class="mo-sub">${d}</span></span></label>`).join("")}
+              <h3 style="margin-top:20px">Free-tier guard rails</h3>
+              <label for="lcM">Max storage per channel (MB)</label><input type="number" id="lcM" class="mo-in" min="10" value="${c.maxChannelMB}">
+              <label for="lcS">Max total video storage (MB)</label><input type="number" id="lcS" class="mo-in" min="10" value="${c.maxStorageMB}"><div class="hint">Uploads pause when this is reached.</div>
+              <label for="lcE">Max playback per day (MB, estimated)</label><input type="number" id="lcE" class="mo-in" min="50" value="${c.dailyEgressMB}"><div class="hint">Watching pauses for non-owners until tomorrow when reached. Keep these below your Firebase plan's free quota (check firebase.google.com/pricing) — the defaults are cautious guesses, not official limits.</div>
+              <div class="mo-note">Changes take effect within about 30 seconds.</div><div class="mo-err" id="lcE2"></div><button class="mo-btn pri" id="lcSave">Save launch settings</button></div>`;
+            $("lcSave").onclick = async () => { try { await api("POST", "admin-launch-set", { uploads: el.querySelector("input[name=lm]:checked").value, maxChannelMB: $("lcM").value, maxStorageMB: $("lcS").value, dailyEgressMB: $("lcE").value }); toast("Saved"); $("lcE2").textContent = ""; reload(); } catch(e){ $("lcE2").textContent = e.message; } };
         } else if(tab === "queue" || tab === "appeals"){
             const r = await api("GET", tab === "queue" ? "admin-queue" : "admin-appeals");
             el.innerHTML = r.items.length ? r.items.map(v => `<div class="mo-panel mo-form" data-v="${esc(v.id)}"><div class="mo-row" style="align-items:flex-start">${v.thumbUrl ? `<img src="${esc(v.thumbUrl)}" alt="" style="width:200px;border-radius:12px">` : ""}<div style="flex:1;min-width:220px"><h3 style="margin:0">${esc(v.title)}</h3><div class="mo-sub">@${esc(v.channel.handle)} · strikes: ${v.channel.strikes} · ${esc(v.visibility)} · ${fmtDur(v.durationSec)} · ${timeAgo(v.submittedAt)} ${v.reportCount ? `· <b>${v.reportCount} reports</b>` : ""}</div><p style="white-space:pre-wrap">${esc(v.description)}</p>${v.rejection ? `<div class="mo-sub">Rejected: ${esc(v.rejection.category)} — ${esc(v.rejection.reason)}</div>` : ""}${v.appeal ? `<div class="mo-note"><b>Creator's appeal:</b> ${esc(v.appeal.text)}</div>` : ""}</div></div>${autoCheckHTML(v.autoCheck)}<div class="slot"></div>
@@ -11494,8 +11521,9 @@ async function viewAdmin(){
         } else if(tab === "channels"){
             const q = (window.__moChQ || "");
             const r = await api("GET", "admin-channels", { q });
-            el.innerHTML = `<div class="mo-row"><input class="mo-in" id="chQ" placeholder="Search handle prefix" value="${esc(q)}" style="max-width:260px"><button class="mo-btn" id="chS">Search</button></div><div class="mo-table-wrap"><table class="mo-table"><tbody>${r.items.map(c => `<tr><td><a href="/moments/c/${esc(c.handle)}" data-go><b>${esc(c.name)}</b></a><div class="mo-sub">@${esc(c.handle)}</div></td><td>${fmtNum(c.subscribers)} subs · ${fmtNum(c.verifiedViews)} verified</td><td>${c.strikes} strikes${c.rewardHold ? " · reward hold" : ""}${c.suspended ? ' · <b class="mo-err">suspended</b>' : ""}</td><td><button class="mo-btn ${c.suspended ? "" : "danger"}" data-sus="${esc(c.id)}" data-to="${c.suspended ? "0" : "1"}">${c.suspended ? "Restore" : "Suspend"}</button></td></tr>`).join("")}</tbody></table></div>`;
+            el.innerHTML = `<div class="mo-row"><input class="mo-in" id="chQ" placeholder="Search handle prefix" value="${esc(q)}" style="max-width:260px"><button class="mo-btn" id="chS">Search</button></div><div class="mo-table-wrap"><table class="mo-table"><tbody>${r.items.map(c => `<tr><td><a href="/moments/c/${esc(c.handle)}" data-go><b>${esc(c.name)}</b></a><div class="mo-sub">@${esc(c.handle)}</div></td><td>${fmtNum(c.subscribers)} subs · ${fmtNum(c.verifiedViews)} verified</td><td>${c.strikes} strikes${c.rewardHold ? " · reward hold" : ""}${c.suspended ? ' · <b class="mo-err">suspended</b>' : ""}</td><td><div class="mo-row"><button class="mo-btn ${c.canUpload ? "on" : ""}" data-up="${esc(c.id)}" data-to="${c.canUpload ? "0" : "1"}">${c.canUpload ? "✔ Can upload" : "Allow uploads"}</button><button class="mo-btn ${c.suspended ? "" : "danger"}" data-sus="${esc(c.id)}" data-to="${c.suspended ? "0" : "1"}">${c.suspended ? "Restore" : "Suspend"}</button></div></td></tr>`).join("")}</tbody></table></div>`;
             $("chS").onclick = () => { window.__moChQ = $("chQ").value; reload(); };
+            act("[data-up]", async b => { await api("POST", "admin-channel-uploads", { id: b.dataset.up, allow: b.dataset.to === "1" }); reload(); });
             act("[data-sus]", async b => { const on = b.dataset.to === "1"; const reason = on ? prompt("Reason for suspension:", "") : ""; if(on && reason === null) return; await api("POST", "admin-channel-set", { id: b.dataset.sus, suspended: on, reason }); reload(); });
         } else if(tab === "suspicious"){
             const r = await api("GET", "admin-suspicious");
