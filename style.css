@@ -11039,4 +11039,15 @@ body.light-mode .mo-root select option,body.light-mode .mo-dialog select option{
 .mo-confirm-yes.danger{background:var(--mo-bad);border-color:transparent;color:#fff;font-weight:600}
 .mo-confirm-yes[disabled]{opacity:.45}
 @media(max-width:760px){.mo-lbl{display:none}.mo-top{gap:8px}.mo-brand{font-size:16px}.mo-search{order:5;flex:1 1 100%;max-width:none}.mo-top .mo-btn{padding:8px 12px}.mo-hero{padding:24px 18px}}
+
+/* dialogs live outside .mo-root, so give them the same base styles */
+.mo-dialog-bg *{box-sizing:border-box}
+.mo-dialog-bg button,.mo-dialog-bg input,.mo-dialog-bg select,.mo-dialog-bg textarea{font:inherit;color:inherit}
+.mo-dialog-bg a{color:inherit;text-decoration:none}
+.mo-dialog-bg :focus-visible{outline:2px solid var(--mo-acc);outline-offset:2px;border-radius:8px}
+.mo-dialog-bg .mo-btn{color:var(--mo-text)}.mo-dialog-bg .mo-btn.pri{color:#fff}.mo-dialog-bg .mo-btn.danger{color:var(--mo-bad)}
+.mo-dialog-bg .mo-confirm-yes.danger{color:#fff}
+.mo-dialog-bg .mo-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:12px}
+.mo-dialog-bg .mo-stat{background:var(--mo-bg);border:1px solid var(--mo-line);border-radius:14px;padding:12px}.mo-dialog-bg .mo-stat b{display:block;font-size:20px;margin-top:2px}.mo-dialog-bg .mo-stat small{color:var(--mo-dim)}
+.mo-dialog-bg .mo-chart{width:100%;height:170px}
 /* ===== ZYNTRA MOMENTS END ===== */
