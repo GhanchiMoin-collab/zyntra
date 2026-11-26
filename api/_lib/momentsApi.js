@@ -49,6 +49,7 @@ function realDeps() {
 
 export function createMomentsHandler(getDeps = realDeps) {
   const mem = new Map(); // best-effort per-instance rate limiting (durable limits use Firestore)
+  const shared = {};     // per-instance settings caches
   return async function handler(req, res) {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -56,7 +57,7 @@ export function createMomentsHandler(getDeps = realDeps) {
     if (req.method === "OPTIONS") return res.status(200).end();
     try {
       const deps = getDeps();
-      const api = buildApi(deps, mem);
+      const api = buildApi(deps, mem, shared);
       const isPost = req.method === "POST";
       if (!isPost && req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
       const input = isPost ? (req.body || {}) : (req.query || {});
@@ -73,7 +74,7 @@ export function createMomentsHandler(getDeps = realDeps) {
   };
 }
 
-function buildApi(deps, mem) {
+function buildApi(deps, mem, shared) {
   const { db, bucket, inc, del } = deps;
   const now = () => deps.now();
   const env = deps.env || {};
@@ -277,13 +278,31 @@ function buildApi(deps, mem) {
     await col("moderation").add(Object.assign({ at: now() }, rec));
   }
 
+  // ---------------- launch controls (staged rollout + free-tier guard rails) ----------------
+  // uploads: "closed" (nobody but admins) | "allowlist" (only channels an admin allowed) | "open" (any channel)
+  const LAUNCH_DEFAULTS = { uploads: "closed", maxChannelMB: 500, maxStorageMB: 3000, dailyEgressMB: 800 };
+  async function launchSettings() {
+    if (shared.launch && now() - shared.launch.at < 30000) return shared.launch.cfg;
+    const s = await col("settings").doc("momentsLaunch").get();
+    const cfg = Object.assign({}, LAUNCH_DEFAULTS, s.exists ? s.data() : {});
+    shared.launch = { at: now(), cfg };
+    return cfg;
+  }
+  function uploadGate(cfg, uid, ch) {
+    if (isAdmin(uid)) return { allowed: true, mode: cfg.uploads };
+    if (cfg.uploads === "open") return { allowed: true, mode: cfg.uploads };
+    if (cfg.uploads === "allowlist" && ch && ch.canUpload === true) return { allowed: true, mode: cfg.uploads };
+    return { allowed: false, mode: cfg.uploads, reason: cfg.uploads === "allowlist" ? "Video uploads are limited to invited creators during our early launch. Ask for access in our Discord." : "Video uploads aren't open yet. You can still browse, create a channel and join the community." };
+  }
+  const MB = 1048576;
+  const statsDoc = () => col("stats").doc("moments");
+
   // ---------------- rewards settings / milestones ----------------
-  let settingsCache = null;
   async function rewardSettings() {
-    if (settingsCache && now() - settingsCache.at < 60000) return settingsCache.cfg;
+    if (shared.rewards && now() - shared.rewards.at < 60000) return shared.rewards.cfg;
     const s = await col("settings").doc("momentsRewards").get();
     const cfg = s.exists ? s.data() : L.DEFAULT_REWARDS;
-    settingsCache = { at: now(), cfg };
+    shared.rewards = { at: now(), cfg };
     return cfg;
   }
   async function checkMilestones(channelId) {
@@ -393,6 +412,13 @@ function buildApi(deps, mem) {
     const ch = cs.exists ? cs.data() : null;
     if (!ch || !canView(v, ch, user?.uid)) throw fail(404, "Video not found.");
     const owner = user?.uid === v.channelId;
+    if (!owner && !isAdmin(user?.uid) && v.videoSize) {
+      // protect the free hosting quota: estimate today's playback from the sizes of videos served
+      const cfg = await launchSettings(); const eref = col("stats").doc("egress_" + L.dayKey(now()));
+      const es = await eref.get();
+      if ((es.exists ? es.data().bytes || 0 : 0) >= cfg.dailyEgressMB * MB) throw fail(503, "Video playback is paused for today to stay within our free hosting limits. Please come back tomorrow!");
+      await eref.set({ bytes: inc(v.videoSize) }, { merge: true });
+    }
     let liked = false, subscribed = false;
     if (user) {
       const [l, s] = await Promise.all([col("videos").doc(v.id).collection("likes").doc(user.uid).get(), col("subscriptions").doc(`${user.uid}__${v.channelId}`).get()]);
@@ -448,7 +474,7 @@ function buildApi(deps, mem) {
       col("notifications").doc(user.uid).collection("items").where("read", "==", false).limit(50).get()
     ]);
     const ch = cs.exists ? cs.data() : null;
-    return ok(res, { channel: ch ? Object.assign(channelCard(ch), { description: ch.description, links: ch.links || [], showSubscriberCount: ch.showSubscriberCount !== false, commentsEnabled: ch.commentsEnabled !== false, bannerUrl: ch.bannerPath ? mediaUrl("banner", ch.uid) : null }) : null, prefs: Object.assign({ subscribers: true, likes: true, comments: true, published: true, bugUpdates: true, achievements: true, rewards: true }, pr.exists ? pr.data() : {}), unread: un.docs.length, isAdmin: isAdmin(user.uid), limits: { videoMb: L.LIMITS.VIDEO_BYTES / 1048576, durationSec: L.LIMITS.DURATION_SEC, bugMb: L.LIMITS.BUG_VIDEO_BYTES / 1048576 } }, "private, no-store");
+    return ok(res, { channel: ch ? Object.assign(channelCard(ch), { description: ch.description, links: ch.links || [], showSubscriberCount: ch.showSubscriberCount !== false, commentsEnabled: ch.commentsEnabled !== false, bannerUrl: ch.bannerPath ? mediaUrl("banner", ch.uid) : null }) : null, prefs: Object.assign({ subscribers: true, likes: true, comments: true, published: true, bugUpdates: true, achievements: true, rewards: true }, pr.exists ? pr.data() : {}), unread: un.docs.length, isAdmin: isAdmin(user.uid), limits: { videoMb: L.LIMITS.VIDEO_BYTES / 1048576, durationSec: L.LIMITS.DURATION_SEC, bugMb: L.LIMITS.BUG_VIDEO_BYTES / 1048576 }, uploads: uploadGate(await launchSettings(), user.uid, ch) }, "private, no-store");
   };
 
   get.notifications = async (req, res, q) => {
@@ -497,7 +523,7 @@ function buildApi(deps, mem) {
     totals.engagementRate = totals.verifiedViews ? (totals.likes + totals.comments) / totals.verifiedViews : 0;
     const claimMap = {}; claims.docs.forEach((d) => { claimMap[d.data().milestoneId] = d.data(); });
     const rewards = cfg.milestones.filter((m) => m.enabled !== false).map((m) => ({ id: m.id, title: m.title, metric: m.metric, threshold: m.threshold, progress: L.metricValue(ch, m.metric), reward: m.reward, claim: claimMap[m.id] ? { status: claimMap[m.id].status, note: claimMap[m.id].note || null, decidedAt: claimMap[m.id].decidedAt || null, createdAt: claimMap[m.id].createdAt } : null }));
-    return ok(res, { channel: { handle: ch.handle, name: ch.name, badges: ch.badges || [], decorations: ch.decorations || [], strikes: ch.strikes || 0 }, totals, series: seriesFrom(dsnap.docs, 28), videos, rewards, eligibility: cfg.eligibility }, "private, no-store");
+    return ok(res, { channel: { handle: ch.handle, name: ch.name, badges: ch.badges || [], decorations: ch.decorations || [], strikes: ch.strikes || 0 }, blocked: (ch.blockedCommenters || []).map((x) => ({ uid: x.uid, name: x.name })), totals, series: seriesFrom(dsnap.docs, 28), videos, rewards, eligibility: cfg.eligibility }, "private, no-store");
   };
 
   get["video-analytics"] = async (req, res, q) => {
@@ -629,7 +655,16 @@ function buildApi(deps, mem) {
   // ---------------- videos ----------------
   post["video-create"] = async (req, res, b) => {
     const user = await getUser(req, true);
-    await myChannel(user.uid);
+    const myCh = await myChannel(user.uid);
+    const cfg = await launchSettings();
+    const gate = uploadGate(cfg, user.uid, myCh);
+    if (!gate.allowed) throw fail(403, gate.reason);
+    // free-tier guard rails: total platform storage and per-channel storage
+    const st = await statsDoc().get();
+    if (!isAdmin(user.uid) && (st.exists ? st.data().storageBytes || 0 : 0) >= cfg.maxStorageMB * MB) throw fail(503, "Uploads are paused because Zyntra Moments reached its storage limit. Please try again later.");
+    const mine = await col("videos").where("channelId", "==", user.uid).limit(200).get();
+    const usedBytes = mine.docs.map((d) => d.data()).filter((v) => ["pending", "approved", "rejected", "under_review"].includes(v.status)).reduce((a, v) => a + (v.videoSize || 0), 0);
+    if (!isAdmin(user.uid) && usedBytes + Number(b.size || 0) > cfg.maxChannelMB * MB) throw fail(400, `Your channel has reached its ${cfg.maxChannelMB} MB storage limit. Delete older videos to upload more.`);
     await limitDurable(`vid_${user.uid}`, L.LIMITS.UPLOADS_PER_DAY, DAY);
     const title = L.clean(b.title, L.LIMITS.TITLE); if (title.length < 2) throw fail(400, "Give your video a title.");
     const description = L.clean(b.description, L.LIMITS.DESC); const tags = L.cleanTags(b.tags);
@@ -656,11 +691,13 @@ function buildApi(deps, mem) {
     if (check.secrets.length) {
       const reason = `Possible exposed credential in the title or description (${check.secrets[0]}). Remove it and upload again.`;
       await ref.update({ status: "rejected", videoSize: vi.size, autoCheck: check, rejection: { category: "private_info", reason, auto: true, at: now() } });
+      await statsDoc().set({ storageBytes: inc(vi.size) }, { merge: true });
       await logModeration({ videoId: v.id, channelId: v.channelId, decision: "reject", source: "auto", category: "private_info", reason });
       await notify(user.uid, "video_rejected", { videoId: v.id, title: v.title, category: "private_info", reason });
       return ok(res, { status: "rejected", reason });
     }
     await ref.update({ status: "pending", videoSize: vi.size, submittedAt: now(), autoCheck: check });
+    await statsDoc().set({ storageBytes: inc(vi.size) }, { merge: true });
     await logModeration({ videoId: v.id, channelId: v.channelId, decision: "submitted", source: "auto", autoSummary: check.summary });
     return ok(res, { status: "pending" });
   };
@@ -696,6 +733,7 @@ function buildApi(deps, mem) {
     await col("videos").doc(v.id).update({ status: "removed", removedAt: now() });
     await relist(v.id);
     for (const p of [v.videoPath, v.thumbPath]) if (p) await bucket.file(p).delete().catch(() => {});
+    if (["pending", "approved", "rejected", "under_review"].includes(v.status) && v.videoSize) await statsDoc().set({ storageBytes: inc(-v.videoSize) }, { merge: true });
     return ok(res, { ok: true });
   };
 
@@ -736,6 +774,7 @@ function buildApi(deps, mem) {
     const v = vs.data(); const cs = await col("channels").doc(v.channelId).get(); const ch = cs.exists ? cs.data() : null;
     if (!canView(v, ch, user.uid) || v.status !== "approved") throw fail(404, "Video not found.");
     if (ch.commentsEnabled === false && user.uid !== v.channelId) throw fail(403, "Comments are turned off for this channel.");
+    if ((ch.blockedCommenters || []).some((x) => x.uid === user.uid)) throw fail(403, "You can't comment on this channel.");
     const mine = await col("channels").doc(user.uid).get();
     const authorName = mine.exists ? mine.data().name : (user.name ? String(user.name).slice(0, 30) : "Zyntra user");
     const ref = await vref.collection("comments").add({ uid: user.uid, authorName, authorHandle: mine.exists ? mine.data().handle : null, text, createdAt: now() });
@@ -756,6 +795,32 @@ function buildApi(deps, mem) {
     await cref.delete();
     await col("momentsMyComments").doc(cs.id).delete();
     await vref.update({ comments: inc(-1), engagement: inc(-2) });
+    return ok(res, { ok: true });
+  };
+
+  // channel owner blocks someone from commenting (and deletes that comment)
+  post["comment-block"] = async (req, res, b) => {
+    const user = await getUser(req, true);
+    const vref = col("videos").doc(String(b.videoId || "x")); const vs = await vref.get();
+    if (!vs.exists || vs.data().channelId !== user.uid) throw fail(404, "Not found.");
+    const cref = vref.collection("comments").doc(String(b.commentId || "x")); const cs = await cref.get();
+    if (!cs.exists) throw fail(404, "Not found.");
+    const target = cs.data();
+    if (target.uid === user.uid) throw fail(400, "You can't block yourself.");
+    const chs = await col("channels").doc(user.uid).get(); const list = chs.data().blockedCommenters || [];
+    if (!list.some((x) => x.uid === target.uid)) {
+      if (list.length >= 200) throw fail(400, "Your block list is full (200).");
+      await col("channels").doc(user.uid).update({ blockedCommenters: list.concat([{ uid: target.uid, name: String(target.authorName || "Zyntra user").slice(0, 40), at: now() }]) });
+    }
+    await cref.delete(); await col("momentsMyComments").doc(cs.id).delete();
+    await vref.update({ comments: inc(-1), engagement: inc(-2) });
+    return ok(res, { ok: true });
+  };
+  post["comment-unblock"] = async (req, res, b) => {
+    const user = await getUser(req, true);
+    const chs = await col("channels").doc(user.uid).get();
+    if (!chs.exists) throw fail(404, "Not found.");
+    await col("channels").doc(user.uid).update({ blockedCommenters: (chs.data().blockedCommenters || []).filter((x) => x.uid !== String(b.uid || "")) });
     return ok(res, { ok: true });
   };
 
@@ -1009,7 +1074,7 @@ function buildApi(deps, mem) {
     await requireAdmin(req);
     const t = L.clean(q.q, 30).toLowerCase().replace(/^@/, "");
     const s = t ? await col("channels").orderBy("handle").startAt(t).endAt(t + "\uf8ff").limit(50).get() : await col("channels").orderBy("createdAt", "desc").limit(50).get();
-    return ok(res, { items: s.docs.map((d) => d.data()).map((c) => ({ id: c.uid, handle: c.handle, name: c.name, subscribers: c.subscribers || 0, videos: c.videos || 0, verifiedViews: c.verifiedViews || 0, strikes: c.strikes || 0, suspended: !!c.suspended, rewardHold: !!c.rewardHold, createdAt: c.createdAt })) }, "private, no-store");
+    return ok(res, { items: s.docs.map((d) => d.data()).map((c) => ({ id: c.uid, handle: c.handle, name: c.name, subscribers: c.subscribers || 0, videos: c.videos || 0, verifiedViews: c.verifiedViews || 0, strikes: c.strikes || 0, suspended: !!c.suspended, rewardHold: !!c.rewardHold, canUpload: c.canUpload === true, createdAt: c.createdAt })) }, "private, no-store");
   };
   get["admin-suspicious"] = async (req, res) => {
     await requireAdmin(req);
@@ -1026,6 +1091,11 @@ function buildApi(deps, mem) {
       return { id: c.id, title: c.title, reward: c.reward, metric: c.metric, threshold: c.threshold, createdAt: c.createdAt, channel: { handle: ch.handle, name: ch.name, strikes: ch.strikes || 0, rewardHold: !!ch.rewardHold, suspended: !!ch.suspended, verifiedViews: ch.verifiedViews || 0, subscribers: ch.subscribers || 0 }, problemsExcludingOriginality: L.eligibilityProblems(ch, cfg.eligibility, now(), m, true) };
     }));
     return ok(res, { items }, "private, no-store");
+  };
+  get["admin-launch"] = async (req, res) => {
+    await requireAdmin(req);
+    const cfg = await launchSettings(); const [st, eg, ca] = await Promise.all([statsDoc().get(), col("stats").doc("egress_" + L.dayKey(now())).get(), count(col("channels").where("canUpload", "==", true))]);
+    return ok(res, { config: cfg, usage: { storageMB: Math.round(((st.exists ? st.data().storageBytes : 0) || 0) / MB), egressTodayMB: Math.round(((eg.exists ? eg.data().bytes : 0) || 0) / MB), allowedChannels: ca } }, "private, no-store");
   };
   get["admin-rewards-config"] = async (req, res) => { await requireAdmin(req); return ok(res, { config: await rewardSettings() }, "private, no-store"); };
   get["admin-moderation-log"] = async (req, res) => {
@@ -1166,12 +1236,31 @@ function buildApi(deps, mem) {
     return ok(res, { ok: true, fulfillment });
   };
 
+  post["admin-launch-set"] = async (req, res, b) => {
+    await requireAdmin(req);
+    const modes = ["closed", "allowlist", "open"];
+    if (!modes.includes(b.uploads)) throw fail(400, "Pick closed, allowlist or open.");
+    const num = (v, lo, hi, name) => { const n = Math.floor(Number(v)); if (!(n >= lo && n <= hi)) throw fail(400, `${name} must be between ${lo} and ${hi}.`); return n; };
+    const cfg = { uploads: b.uploads, maxChannelMB: num(b.maxChannelMB, 10, 100000, "Per-channel storage (MB)"), maxStorageMB: num(b.maxStorageMB, 10, 10000000, "Total storage (MB)"), dailyEgressMB: num(b.dailyEgressMB, 50, 10000000, "Daily playback (MB)") };
+    await col("settings").doc("momentsLaunch").set(cfg);
+    shared.launch = null;
+    return ok(res, { ok: true, config: cfg });
+  };
+  post["admin-channel-uploads"] = async (req, res, b) => {
+    const admin = await requireAdmin(req);
+    const cs = await col("channels").doc(String(b.id || "x")).get();
+    if (!cs.exists) throw fail(404, "Channel not found.");
+    await col("channels").doc(cs.id).update({ canUpload: b.allow === true });
+    await logModeration({ channelId: cs.id, decision: b.allow === true ? "upload_access_granted" : "upload_access_removed", source: "admin", by: admin.uid });
+    if (b.allow === true) await notify(cs.id, "moderation", { decision: "upload_access_granted" });
+    return ok(res, { ok: true });
+  };
   post["admin-rewards-config-set"] = async (req, res, b) => {
     await requireAdmin(req);
     const v = L.validateRewardsConfig(b.config);
     if (v.error) throw fail(400, v.error);
     await col("settings").doc("momentsRewards").set(v.config);
-    settingsCache = null;
+    shared.rewards = null;
     return ok(res, { ok: true, config: v.config });
   };
 
