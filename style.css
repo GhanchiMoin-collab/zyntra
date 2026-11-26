@@ -11050,4 +11050,10 @@ body.light-mode .mo-root select option,body.light-mode .mo-dialog select option{
 .mo-dialog-bg .mo-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:12px}
 .mo-dialog-bg .mo-stat{background:var(--mo-bg);border:1px solid var(--mo-line);border-radius:14px;padding:12px}.mo-dialog-bg .mo-stat b{display:block;font-size:20px;margin-top:2px}.mo-dialog-bg .mo-stat small{color:var(--mo-dim)}
 .mo-dialog-bg .mo-chart{width:100%;height:170px}
+
+.mo-root input[type=radio]{-webkit-appearance:none;appearance:none;flex:none;width:22px;height:22px;margin:1px 0 0;border:2px solid var(--mo-line);border-radius:50%;background:var(--mo-bg);cursor:pointer;display:inline-grid;place-content:center;transition:border-color .15s}
+.mo-root input[type=radio]:hover{border-color:var(--mo-acc)}
+.mo-root input[type=radio]:checked{border-color:var(--mo-acc)}
+.mo-root input[type=radio]:checked::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--mo-grad)}
+.mo-root input[type=number]{max-width:260px}
 /* ===== ZYNTRA MOMENTS END ===== */
