@@ -37,8 +37,11 @@ function makeHelpers(deps) {
 export async function purgeMomentsChannel(deps, uid) {
   const { db, col, rmFiles, each, del } = makeHelpers(deps);
 
+  let freed = 0;
   await each(col("videos").where("channelId", "==", uid), async (d) => {
     const vid = d.id;
+    const vd = d.data();
+    if (["pending", "approved", "rejected", "under_review"].includes(vd.status)) freed += vd.videoSize || 0;
     await rmFiles(`videos/${vid}/`);
     await del(col("dailyStats").where("kind", "==", "v").where("id", "==", vid));
     await del(col("hourly").where("videoId", "==", vid));
@@ -49,6 +52,8 @@ export async function purgeMomentsChannel(deps, uid) {
     await del(col("suspicious").where("videoId", "==", vid));
     await db.recursiveDelete(d.ref); // comments + likes sub-collections
   });
+
+  if (freed > 0 && deps.inc) await col("stats").doc("moments").set({ storageBytes: deps.inc(-freed) }, { merge: true });
 
   const cs = await col("channels").doc(uid).get();
   if (cs.exists) {
