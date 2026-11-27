@@ -1289,6 +1289,7 @@ function buildApi(deps, mem, shared) {
     const cors = [{ origin: origins, method: ["POST", "GET", "HEAD"], responseHeader: ["Content-Type", "Range", "Accept-Ranges", "Content-Length", "Content-Range"], maxAgeSeconds: 3600 }];
     try { await bucket.setCorsConfiguration(cors); return ok(res, { ok: true, origins }); }
     catch (e) {
+      if (/does not exist|not found|404/i.test(errText(e))) return ok(res, { ok: false, error: errText(e), corsJson: JSON.stringify(cors, null, 2), hint: `The bucket "${bucket.name}" doesn't exist yet, so there is nothing to change. Turn on storage first: Firebase console → Storage → Get started (needs the Blaze plan). Then press "Run check again" and "Fix upload settings (CORS)".` });
       return ok(res, { ok: false, error: errText(e), corsJson: JSON.stringify(cors, null, 2), hint: `The server's Google account isn't allowed to change bucket settings. Set it by hand: Google Cloud Console → Cloud Storage → "${bucket.name}" → Configuration → CORS, or run: gcloud storage buckets update gs://${bucket.name} --cors-file=cors.json (using the JSON shown here).` });
     }
   };
