@@ -68,3 +68,9 @@ export function getAdminBucket() {
   }
   return admin.storage().bucket(name);
 }
+
+// A bucket by explicit name (used by the Moments storage check to look for the other default name).
+export function getAdminBucketNamed(name) {
+  ensureInitialized();
+  return admin.storage().bucket(name);
+}
