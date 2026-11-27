@@ -1,4 +1,4 @@
-import { getAdminAuth, getAdminDb, getAdminBucket, increment, deleteField } from "./firebaseAdmin.js";
+import { getAdminAuth, getAdminDb, getAdminBucket, getAdminBucketNamed, increment, deleteField } from "./firebaseAdmin.js";
 import { computeNextPlan } from "./plan.js";
 import * as L from "./momentsLogic.js";
 import { purgeMomentsChannel } from "./momentsPurge.js";
@@ -39,6 +39,7 @@ function realDeps() {
     db: getAdminDb(),
     verifyToken: (t, strict) => getAdminAuth().verifyIdToken(t, !!strict), // revocation check only when strict (admin actions)
     bucket: getAdminBucket(),
+    bucketNamed: getAdminBucketNamed,
     inc: increment,
     del: deleteField,
     now: () => Date.now(),
@@ -1097,6 +1098,40 @@ function buildApi(deps, mem, shared) {
     const cfg = await launchSettings(); const [st, eg, ca] = await Promise.all([statsDoc().get(), col("stats").doc("egress_" + L.dayKey(now())).get(), count(col("channels").where("canUpload", "==", true))]);
     return ok(res, { config: cfg, usage: { storageMB: Math.round(((st.exists ? st.data().storageBytes : 0) || 0) / MB), egressTodayMB: Math.round(((eg.exists ? eg.data().bytes : 0) || 0) / MB), allowedChannels: ca } }, "private, no-store");
   };
+  // ---- storage diagnostics: why do uploads fail? (admin only) ----
+  const siteOrigin = (req) => {
+    const host = String(req.headers?.["x-forwarded-host"] || req.headers?.host || "").split(",")[0].trim();
+    const proto = String(req.headers?.["x-forwarded-proto"] || "https").split(",")[0].trim();
+    return host ? `${proto}://${host}` : null;
+  };
+  const errText = (e) => String((e && (e.message || e.code)) || e).slice(0, 300);
+  const corsAllows = (cors, origin, method) => (cors || []).some((c) => (c.origin || []).some((o) => o === "*" || o === origin) && (c.method || []).some((m) => m === method || m === "*"));
+  get["admin-storage-check"] = async (req, res) => {
+    await requireAdmin(req);
+    const origin = siteOrigin(req);
+    const out = { bucket: bucket.name, origin, exists: null, location: null, cors: null, corsOk: null, canWrite: null, canSign: null, problems: [] };
+    try { const [ex] = await bucket.exists(); out.exists = !!ex; }
+    catch (e) { out.exists = null; out.problems.push(`The server couldn't look at the bucket "${bucket.name}": ${errText(e)}. Its Google service account probably needs the "Storage Admin" (or at least "Storage Object Admin") role.`); }
+    if (out.exists === false && deps.bucketNamed) {
+      // older Firebase projects use <project>.appspot.com, newer ones <project>.firebasestorage.app
+      let pid = null; try { pid = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT).project_id; } catch (e) {}
+      for (const n of pid ? [`${pid}.appspot.com`, `${pid}.firebasestorage.app`] : []) {
+        if (n === bucket.name) continue;
+        try { const [ex] = await deps.bucketNamed(n).exists(); if (ex) { out.altBucket = n; out.problems.push(`Found a different bucket named "${n}". In Vercel, add the environment variable MOMENTS_BUCKET = ${n}, then redeploy.`); } } catch (e) { /* ignore */ }
+      }
+    }
+    if (out.exists === false) out.problems.push(`The storage bucket "${bucket.name}" doesn't exist. In the Firebase console open Storage → Get started (this needs the Blaze plan), or set the MOMENTS_BUCKET environment variable in Vercel to your real bucket name and redeploy.`);
+    if (out.exists) {
+      try { const [meta] = await bucket.getMetadata(); out.cors = meta.cors || []; out.location = meta.location || null; out.corsOk = corsAllows(out.cors, origin, "POST"); if (!out.corsOk) out.problems.push(`The bucket doesn't allow uploads from ${origin}. This is the usual cause of "Network problem during the upload". Press "Fix upload settings (CORS)".`); }
+      catch (e) { out.problems.push(`Couldn't read the bucket's settings: ${errText(e)}.`); }
+      try { const f = bucket.file("_health/check.txt"); await f.save("ok", { contentType: "text/plain" }); await f.delete(); out.canWrite = true; }
+      catch (e) { out.canWrite = false; out.problems.push(`The server can't write to the bucket: ${errText(e)}. Give the Firebase service account the "Storage Object Admin" role in Google Cloud → IAM.`); }
+      try { await bucket.file("_health/sign.txt").generateSignedPostPolicyV4({ expires: now() + 60000, conditions: [["content-length-range", 1, 10]], fields: { "Content-Type": "text/plain" } }); out.canSign = true; }
+      catch (e) { out.canSign = false; out.problems.push(`Couldn't create signed upload links: ${errText(e)}.`); }
+    }
+    out.ok = out.exists === true && out.corsOk === true && out.canWrite === true && out.canSign === true;
+    return ok(res, out, "private, no-store");
+  };
   get["admin-rewards-config"] = async (req, res) => { await requireAdmin(req); return ok(res, { config: await rewardSettings() }, "private, no-store"); };
   get["admin-moderation-log"] = async (req, res) => {
     await requireAdmin(req);
@@ -1245,6 +1280,17 @@ function buildApi(deps, mem, shared) {
     await col("settings").doc("momentsLaunch").set(cfg);
     shared.launch = null;
     return ok(res, { ok: true, config: cfg });
+  };
+  // sets the bucket's CORS so browsers on THIS site may upload/play (replaces the bucket's existing CORS list)
+  post["admin-storage-setup"] = async (req, res) => {
+    await requireAdmin(req);
+    const origins = [...new Set([siteOrigin(req)].concat(String(env.MOMENTS_ORIGINS || "").split(",").map((x) => x.trim())).filter(Boolean))];
+    if (!origins.length) throw fail(400, "Couldn't work out this site's address.");
+    const cors = [{ origin: origins, method: ["POST", "GET", "HEAD"], responseHeader: ["Content-Type", "Range", "Accept-Ranges", "Content-Length", "Content-Range"], maxAgeSeconds: 3600 }];
+    try { await bucket.setCorsConfiguration(cors); return ok(res, { ok: true, origins }); }
+    catch (e) {
+      return ok(res, { ok: false, error: errText(e), corsJson: JSON.stringify(cors, null, 2), hint: `The server's Google account isn't allowed to change bucket settings. Set it by hand: Google Cloud Console → Cloud Storage → "${bucket.name}" → Configuration → CORS, or run: gcloud storage buckets update gs://${bucket.name} --cors-file=cors.json (using the JSON shown here).` });
+    }
   };
   post["admin-channel-uploads"] = async (req, res, b) => {
     const admin = await requireAdmin(req);
