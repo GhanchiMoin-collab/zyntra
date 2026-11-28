@@ -2,6 +2,7 @@ import { getAdminAuth, getAdminDb, getAdminBucket, getAdminBucketNamed, incremen
 import { computeNextPlan } from "./plan.js";
 import * as L from "./momentsLogic.js";
 import { purgeMomentsChannel } from "./momentsPurge.js";
+import { getMomentsBucket } from "./momentsStorage.js";
 
 // ----------------------------------------------------------------------
 // Zyntra Moments — ONE serverless function for the whole feature (the
@@ -38,7 +39,7 @@ function realDeps() {
   return {
     db: getAdminDb(),
     verifyToken: (t, strict) => getAdminAuth().verifyIdToken(t, !!strict), // revocation check only when strict (admin actions)
-    bucket: getAdminBucket(),
+    bucket: getMomentsBucket(process.env), // S3-compatible storage if S3_* env vars are set, otherwise Firebase Storage
     bucketNamed: getAdminBucketNamed,
     inc: increment,
     del: deleteField,
@@ -139,8 +140,15 @@ function buildApi(deps, mem, shared) {
     const [url] = await bucket.file(path).getSignedUrl({ action: "read", expires: now() + seconds * 1000, version: "v4" });
     return url;
   }
-  async function policyFor(path, contentType, maxBytes) {
-    const [p] = await bucket.file(path).generateSignedPostPolicyV4({
+  async function policyFor(path, contentType, maxBytes, size) {
+    const f = bucket.file(path);
+    if (f.presignPut) {
+      // S3-compatible storage: a presigned PUT whose signature covers the content type (and the exact size).
+      if (!(size > 0 && size <= maxBytes)) throw fail(400, `File must be between 1 byte and ${Math.round(maxBytes / 1048576)} MB.`);
+      const p = await f.presignPut({ contentType, size, expiresMs: 15 * 60 * 1000 });
+      return { method: "PUT", url: p.url, headers: p.headers, path, maxBytes };
+    }
+    const [p] = await f.generateSignedPostPolicyV4({
       expires: now() + 15 * 60 * 1000,
       conditions: [["content-length-range", 1, maxBytes], ["eq", "$Content-Type", contentType]],
       fields: { "Content-Type": contentType }
@@ -158,7 +166,7 @@ function buildApi(deps, mem, shared) {
     if (!(size > 0 && size <= maxBytes)) { await f.delete().catch(() => {}); throw fail(400, "File is empty or too large."); }
     const [head] = await f.download({ start: 0, end: 31 });
     const kind = L.sniffKind(head);
-    if (!kind || !allowed.includes(kind) || !L.sniffMatches(String(meta.contentType || kind), kind)) {
+    if (!kind || !allowed.includes(kind) || (bucket.kind !== "s3" && !L.sniffMatches(String(meta.contentType || kind), kind))) {
       await f.delete().catch(() => {});
       throw fail(400, "That file's contents don't match an allowed format.");
     }
@@ -588,7 +596,7 @@ function buildApi(deps, mem, shared) {
       await col("bugReports").doc(s.id).update({ recordingPath: path });
     } else throw fail(400, "Unknown upload type.");
     if (Number(b.size) > max) throw fail(400, `File too large (max ${Math.round(max / 1048576)} MB).`);
-    return ok(res, await policyFor(path, ct, max));
+    return ok(res, await policyFor(path, ct, max, Number(b.size)));
   };
 
   // ---------------- channels ----------------
@@ -1108,28 +1116,57 @@ function buildApi(deps, mem, shared) {
   const corsAllows = (cors, origin, method) => (cors || []).some((c) => (c.origin || []).some((o) => o === "*" || o === origin) && (c.method || []).some((m) => m === method || m === "*"));
   get["admin-storage-check"] = async (req, res) => {
     await requireAdmin(req);
-    const origin = siteOrigin(req);
-    const out = { bucket: bucket.name, origin, exists: null, location: null, cors: null, corsOk: null, canWrite: null, canSign: null, problems: [] };
+    const origin = siteOrigin(req); const isS3 = bucket.kind === "s3"; const needMethod = isS3 ? "PUT" : "POST";
+    const out = { provider: isS3 ? "S3-compatible storage" : "Google Cloud Storage", bucket: bucket.name, origin, exists: null, location: null, cors: null, corsOk: null, canWrite: null, canSign: null, problems: [] };
     try { const [ex] = await bucket.exists(); out.exists = !!ex; }
-    catch (e) { out.exists = null; out.problems.push(`The server couldn't look at the bucket "${bucket.name}": ${errText(e)}. Its Google service account probably needs the "Storage Admin" (or at least "Storage Object Admin") role.`); }
-    if (out.exists === false && deps.bucketNamed) {
-      // older Firebase projects use <project>.appspot.com, newer ones <project>.firebasestorage.app
-      let pid = null; try { pid = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT).project_id; } catch (e) {}
-      for (const n of pid ? [`${pid}.appspot.com`, `${pid}.firebasestorage.app`] : []) {
-        if (n === bucket.name) continue;
-        try { const [ex] = await deps.bucketNamed(n).exists(); if (ex) { out.altBucket = n; out.problems.push(`Found a different bucket named "${n}". In Vercel, add the environment variable MOMENTS_BUCKET = ${n}, then redeploy.`); } } catch (e) { /* ignore */ }
+    catch (e) { out.exists = null; out.problems.push(isS3 ? `The server couldn't reach bucket "${bucket.name}" at ${bucket.endpointHost}: ${errText(e)}. Check the S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY variables in Vercel (the key must be allowed to read and write this bucket).` : `The server couldn't look at the bucket "${bucket.name}": ${errText(e)}. Its Google service account probably needs the "Storage Admin" (or at least "Storage Object Admin") role.`); }
+    if (out.exists === false) {
+      out.problems.push(isS3 ? `Bucket "${bucket.name}" wasn't found at ${bucket.endpointHost}. Check the bucket name (S3_BUCKET) and endpoint (S3_ENDPOINT).` : `The storage bucket "${bucket.name}" doesn't exist. In the Firebase console open Storage → Get started (this needs the Blaze plan), or set the MOMENTS_BUCKET environment variable in Vercel to your real bucket name and redeploy. No card? Use free S3-compatible storage instead (S3_* variables).`);
+      if (!isS3 && deps.bucketNamed) {
+        // older Firebase projects use <project>.appspot.com, newer ones <project>.firebasestorage.app
+        let pid = null; try { pid = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT).project_id; } catch (e) {}
+        for (const n of pid ? [`${pid}.appspot.com`, `${pid}.firebasestorage.app`] : []) {
+          if (n === bucket.name) continue;
+          try { const [ex] = await deps.bucketNamed(n).exists(); if (ex) { out.altBucket = n; out.problems.push(`Found a different bucket named "${n}". In Vercel, add the environment variable MOMENTS_BUCKET = ${n}, then redeploy.`); } } catch (e) { /* ignore */ }
+        }
       }
     }
-    if (out.exists === false) out.problems.push(`The storage bucket "${bucket.name}" doesn't exist. In the Firebase console open Storage → Get started (this needs the Blaze plan), or set the MOMENTS_BUCKET environment variable in Vercel to your real bucket name and redeploy.`);
     if (out.exists) {
-      try { const [meta] = await bucket.getMetadata(); out.cors = meta.cors || []; out.location = meta.location || null; out.corsOk = corsAllows(out.cors, origin, "POST"); if (!out.corsOk) out.problems.push(`The bucket doesn't allow uploads from ${origin}. This is the usual cause of "Network problem during the upload". Press "Fix upload settings (CORS)".`); }
-      catch (e) { out.problems.push(`Couldn't read the bucket's settings: ${errText(e)}.`); }
+      try {
+        const [meta] = await bucket.getMetadata(); out.location = meta.location || null;
+        if (meta.corsUnknown) { out.cors = null; out.corsOk = null; out.problems.push(`This storage provider doesn't let us read its CORS rules, so I can't check that automatically. Press "Fix upload settings (CORS)" to try setting them, or set them in the provider's dashboard (allow ${origin} with the methods PUT, GET and HEAD and any headers). Then just try an upload.`); }
+        else { out.cors = meta.cors || []; out.corsOk = corsAllows(out.cors, origin, needMethod); if (!out.corsOk) out.problems.push(`The bucket doesn't allow uploads from ${origin}. This is the usual cause of "Network problem during the upload". Press "Fix upload settings (CORS)".`); }
+      } catch (e) { out.problems.push(`Couldn't read the bucket's settings: ${errText(e)}.`); }
       try { const f = bucket.file("_health/check.txt"); await f.save("ok", { contentType: "text/plain" }); await f.delete(); out.canWrite = true; }
-      catch (e) { out.canWrite = false; out.problems.push(`The server can't write to the bucket: ${errText(e)}. Give the Firebase service account the "Storage Object Admin" role in Google Cloud → IAM.`); }
-      try { await bucket.file("_health/sign.txt").generateSignedPostPolicyV4({ expires: now() + 60000, conditions: [["content-length-range", 1, 10]], fields: { "Content-Type": "text/plain" } }); out.canSign = true; }
-      catch (e) { out.canSign = false; out.problems.push(`Couldn't create signed upload links: ${errText(e)}.`); }
+      catch (e) { out.canWrite = false; out.problems.push(isS3 ? `The server can't write to the bucket: ${errText(e)}. The access key needs read and write permission on this bucket.` : `The server can't write to the bucket: ${errText(e)}. Give the Firebase service account the "Storage Object Admin" role in Google Cloud → IAM.`); }
+      try {
+        const f = bucket.file("_health/sign.txt");
+        if (!f.presignPut) { await f.generateSignedPostPolicyV4({ expires: now() + 60000, conditions: [["content-length-range", 1, 10]], fields: { "Content-Type": "text/plain" } }); out.canSign = true; }
+        else {
+          // a REAL round-trip from the server: presigned upload, presigned download, delete — proves our signatures are accepted by this provider
+          const roundtrip = async (signLength) => {
+            const p = await f.presignPut({ contentType: "text/plain", size: 4, signLength });
+            const put = await bucket.fetch(p.url, { method: "PUT", headers: p.headers, body: "test" });
+            if (put.status < 200 || put.status >= 300) return `upload link rejected (HTTP ${put.status})`;
+            const [gurl] = await f.getSignedUrl({ action: "read", expires: now() + 60000 });
+            const get = await bucket.fetch(gurl, { method: "GET" });
+            const txt = get.status === 200 ? await get.text() : "";
+            await f.delete().catch(() => {});
+            return get.status === 200 && txt === "test" ? null : `download link rejected (HTTP ${get.status})`;
+          };
+          const first = await roundtrip(undefined);
+          if (!first) out.canSign = true;
+          else {
+            out.canSign = false;
+            const second = bucket.signsContentLength ? await roundtrip(false) : first;
+            if (!second && bucket.signsContentLength) out.problems.push(`This provider rejects uploads whose size is part of the signature. In Vercel add the environment variable S3_SIGN_CONTENT_LENGTH = 0, then redeploy. (Size is still checked after each upload; this only loosens the first line of defence.)`);
+            else out.problems.push(`Signed upload/download links don't work with this provider: ${first}. Check S3_ENDPOINT, S3_REGION (for Backblaze it is the middle of the endpoint, e.g. us-west-004) and the access key.`);
+          }
+        }
+      } catch (e) { out.canSign = false; out.problems.push(`Couldn't create or test signed links: ${errText(e)}.`); }
     }
-    out.ok = out.exists === true && out.corsOk === true && out.canWrite === true && out.canSign === true;
+    out.ok = out.exists === true && (out.corsOk === true || out.corsOk === null) && out.canWrite === true && out.canSign === true && !(out.corsOk === null && !out.problems.length);
+    out.corsUnverified = out.corsOk === null && out.exists === true;
     return ok(res, out, "private, no-store");
   };
   get["admin-rewards-config"] = async (req, res) => { await requireAdmin(req); return ok(res, { config: await rewardSettings() }, "private, no-store"); };
@@ -1284,13 +1321,16 @@ function buildApi(deps, mem, shared) {
   // sets the bucket's CORS so browsers on THIS site may upload/play (replaces the bucket's existing CORS list)
   post["admin-storage-setup"] = async (req, res) => {
     await requireAdmin(req);
+    const isS3 = bucket.kind === "s3";
     const origins = [...new Set([siteOrigin(req)].concat(String(env.MOMENTS_ORIGINS || "").split(",").map((x) => x.trim())).filter(Boolean))];
     if (!origins.length) throw fail(400, "Couldn't work out this site's address.");
-    const cors = [{ origin: origins, method: ["POST", "GET", "HEAD"], responseHeader: ["Content-Type", "Range", "Accept-Ranges", "Content-Length", "Content-Range"], maxAgeSeconds: 3600 }];
+    const cors = [{ origin: origins, method: isS3 ? ["PUT", "GET", "HEAD"] : ["POST", "GET", "HEAD"], responseHeader: ["Content-Type", "Range", "Accept-Ranges", "Content-Length", "Content-Range"], maxAgeSeconds: 3600 }];
     try { await bucket.setCorsConfiguration(cors); return ok(res, { ok: true, origins }); }
     catch (e) {
-      if (/does not exist|not found|404/i.test(errText(e))) return ok(res, { ok: false, error: errText(e), corsJson: JSON.stringify(cors, null, 2), hint: `The bucket "${bucket.name}" doesn't exist yet, so there is nothing to change. Turn on storage first: Firebase console → Storage → Get started (needs the Blaze plan). Then press "Run check again" and "Fix upload settings (CORS)".` });
-      return ok(res, { ok: false, error: errText(e), corsJson: JSON.stringify(cors, null, 2), hint: `The server's Google account isn't allowed to change bucket settings. Set it by hand: Google Cloud Console → Cloud Storage → "${bucket.name}" → Configuration → CORS, or run: gcloud storage buckets update gs://${bucket.name} --cors-file=cors.json (using the JSON shown here).` });
+      const base = { ok: false, error: errText(e), corsJson: JSON.stringify(cors, null, 2) };
+      if (isS3) return ok(res, Object.assign(base, { hint: `This storage provider didn't accept CORS settings through its API, so set them in its dashboard: allow the origin ${origins.join(", ")} with methods PUT, GET, HEAD and allowed headers *. (Backblaze B2: Buckets → your bucket → CORS Rules; Supabase and others: see their docs.) The JSON below shows the values.` }));
+      if (/does not exist|not found|404/i.test(errText(e))) return ok(res, Object.assign(base, { hint: `The bucket "${bucket.name}" doesn't exist yet, so there is nothing to change. Turn on storage first: Firebase console → Storage → Get started (needs the Blaze plan). Then press "Run check again" and "Fix upload settings (CORS)".` }));
+      return ok(res, Object.assign(base, { hint: `The server's Google account isn't allowed to change bucket settings. Set it by hand: Google Cloud Console → Cloud Storage → "${bucket.name}" → Configuration → CORS, or run: gcloud storage buckets update gs://${bucket.name} --cors-file=cors.json (using the JSON shown here).` }));
     }
   };
   post["admin-channel-uploads"] = async (req, res, b) => {
