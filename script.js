@@ -11152,20 +11152,24 @@ function imgBlob(file, w, h, cover, q){
 // apart from "storage refused this site" (CORS / bucket not set up).
 async function explainUploadFailure(url){
     if(navigator.onLine === false) return "You appear to be offline. Check your internet connection and try again.";
-    try { await fetch(url, { mode: "no-cors", cache: "no-store" }); }
+    try { await fetch(new URL(url).origin + "/", { mode: "no-cors", cache: "no-store" }); }
     catch(e){ return "Couldn't reach the storage server. Check your connection and turn off any ad-blocker, VPN or firewall that might block Google Storage."; }
     return "Your internet is fine, but the storage server didn't accept the upload from this site. This usually means the storage bucket isn't set up for uploads yet (CORS). The site owner can fix it in Admin → Launch controls → Storage check.";
 }
 function postPolicy(policy, blob, onProg, signal){
     return new Promise((resolve, reject) => {
-        const fd = new FormData(); Object.keys(policy.fields).forEach(k => fd.append(k, policy.fields[k])); fd.append("file", blob);
-        const x = new XMLHttpRequest(); x.open("POST", policy.url);
+        const x = new XMLHttpRequest(); let body;
+        if(policy.method === "PUT"){                       // S3-compatible storage (Backblaze B2, Supabase, R2…): presigned PUT
+            x.open("PUT", policy.url); Object.keys(policy.headers || {}).forEach(k => x.setRequestHeader(k, policy.headers[k])); body = blob;
+        } else {                                           // Google Cloud Storage: signed POST form
+            const fd = new FormData(); Object.keys(policy.fields).forEach(k => fd.append(k, policy.fields[k])); fd.append("file", blob); x.open("POST", policy.url); body = fd;
+        }
         x.upload.onprogress = e => { if(e.lengthComputable && onProg) onProg(e.loaded / e.total); };
-        x.onload = () => (x.status >= 200 && x.status < 300) ? resolve() : reject(Object.assign(new Error("Upload failed (" + x.status + "). If this keeps happening, the storage bucket's CORS settings may not allow this site yet."), { retry: x.status >= 500 }));
+        x.onload = () => (x.status >= 200 && x.status < 300) ? resolve() : reject(Object.assign(new Error("Upload failed (" + x.status + "). If this keeps happening, the storage settings may not allow this site yet — the site owner can run Admin → Launch controls → Storage check."), { retry: x.status >= 500 }));
         x.onerror = () => explainUploadFailure(policy.url).then(msg => reject(Object.assign(new Error(msg), { retry: true })));
         x.onabort = () => reject(Object.assign(new Error("Upload cancelled."), { cancelled: true }));
         if(signal) signal.addEventListener("abort", () => x.abort());
-        x.send(fd);
+        x.send(body);
     });
 }
 // Retries transient failures with a fresh signed policy. NOTE: uploads are not resumable —
@@ -11503,13 +11507,13 @@ async function viewAdmin(){
               <label for="lcS">Max total video storage (MB)</label><input type="number" id="lcS" class="mo-in" min="10" value="${c.maxStorageMB}"><div class="hint">Uploads pause when this is reached.</div>
               <label for="lcE">Max playback per day (MB, estimated)</label><input type="number" id="lcE" class="mo-in" min="50" value="${c.dailyEgressMB}"><div class="hint">Watching pauses for non-owners until tomorrow when reached. Keep these below your Firebase plan's free quota (check firebase.google.com/pricing) — the defaults are cautious guesses, not official limits.</div>
               <div class="mo-note">Changes take effect within about 30 seconds.</div><div class="mo-err" id="lcE2"></div><button class="mo-btn pri" id="lcSave">Save launch settings</button></div>`;
-            el.insertAdjacentHTML("afterbegin", `<div class="mo-panel"><h3>Storage check</h3><p class="mo-sub" style="margin:0 0 10px">Video and picture uploads go to Google Cloud Storage. If uploads say "Network problem", this tells you why.</p><div id="scOut" class="mo-sub">Checking…</div><div class="mo-row" style="margin-top:12px"><button class="mo-btn" id="scRun">Run check again</button><button class="mo-btn pri" id="scFix">Fix upload settings (CORS)</button></div><div id="scFixOut"></div></div>`);
+            el.insertAdjacentHTML("afterbegin", `<div class="mo-panel"><h3>Storage check</h3><p class="mo-sub" style="margin:0 0 10px">Videos and pictures are stored in cloud storage. If an upload fails, this tells you why.</p><div id="scOut" class="mo-sub">Checking…</div><div class="mo-row" style="margin-top:12px"><button class="mo-btn" id="scRun">Run check again</button><button class="mo-btn pri" id="scFix">Fix upload settings (CORS)</button></div><div id="scFixOut"></div></div>`);
             const runCheck = async () => {
                 const out = $("scOut"); out.textContent = "Checking…";
                 try {
                     const c = await api("GET", "admin-storage-check");
                     const row = (v, t) => `<div style="padding:3px 0">${v === true ? "✅" : v === false ? "❌" : "❔"} ${esc(t)}</div>`;
-                    out.innerHTML = `${row(c.exists, "Bucket “" + c.bucket + "” exists")}${row(c.corsOk, "Uploads allowed from " + (c.origin || "this site") + " (CORS)")}${row(c.canWrite, "Server can write files to the bucket")}${row(c.canSign, "Server can create upload links")}
+                    out.innerHTML = `<div class="mo-sub" style="margin-bottom:6px">Storage: ${esc(c.provider)}</div>${row(c.exists, "Bucket “" + c.bucket + "” exists")}${row(c.corsOk, "Uploads allowed from " + (c.origin || "this site") + " (CORS)")}${row(c.canWrite, "Server can write files to the bucket")}${row(c.canSign, "Server can create upload links")}
                       ${c.problems.length ? `<div class="mo-note mo-warn" style="margin-top:10px">${c.problems.map(esc).join("<br><br>")}</div>` : '<div class="mo-note" style="margin-top:10px"><b>Everything looks good.</b> If an upload still fails, tell us what the page says.</div>'}`;
                 } catch(e){ out.innerHTML = `<span class="mo-err">${esc(e.message)}</span>`; }
             };
@@ -11628,7 +11632,7 @@ function hookAuth(){
     try { activeAuth().onAuthStateChanged(() => { me = null; const v = $("momentsView"); if(v && v.classList.contains("active")) render(); }); } catch(e){ setTimeout(hookAuth, 1500); }
 }
 ensureView(); watchActive(); hookAuth();
-window.ZyntraMoments = { route, open: () => { openView(); go("/moments"); } };
+window.ZyntraMoments = { route, open: () => { openView(); go("/moments"); }, __postPolicy: postPolicy };
 })();
 
 // ===== ZYNTRA MOMENTS END =====
