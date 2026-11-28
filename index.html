@@ -652,7 +652,7 @@
                     <p style="margin-top:16px;"><strong>Creator rewards</strong></p>
                     <p>When a channel reaches a milestone, we record it. An administrator may then review the channel — including its view activity, any suspicious-activity flags and its moderation history — to decide whether to approve a reward such as temporary Zyntra Ultra access or a badge. Rewards are never automatic, may be withheld or reversed if views were artificial, content was copied, or the guidelines were broken, and we keep a history of approved and denied claims.</p>
                     <p style="margin-top:16px;"><strong>Where it is stored</strong></p>
-                    <p>Videos, thumbnails, images and bug-report recordings are stored in Google Cloud Storage (Firebase) for our project. They are not directly accessible: they are delivered through short-lived links that our servers only issue after checking who is allowed to see them. Other Moments data is stored in Firestore and can only be read or changed through our servers, which check permissions on every request.</p>
+                    <p>Videos, thumbnails, images and bug-report recordings are stored with a third-party cloud object-storage provider that we configure for the service (for example Backblaze B2 or Google Cloud Storage), in the region of that provider. They are not directly accessible: they are delivered through short-lived links that our servers only issue after checking who is allowed to see them. Other Moments data is stored in Firestore and can only be read or changed through our servers, which check permissions on every request.</p>
                 </div>
 
                 <div class="policy-section" id="privacy-sharing">
@@ -678,7 +678,8 @@
                         <li><strong>Groq</strong> — chat, Codex, Study Helper, Business Tools and Jarvis replies, speech-to-text, text-to-speech, and the automated pre-screen of Moments uploads.</li>
                         <li><strong>Pollinations AI</strong> — image generation (your image prompts are sent in the request).</li>
                         <li><strong>Tavily</strong> — web search.</li>
-                        <li><strong>Google Firebase / Google Cloud</strong> — sign-in (Authentication), database (Firestore) and file storage (Cloud Storage).</li>
+                        <li><strong>Google Firebase / Google Cloud</strong> — sign-in (Authentication) and our database (Firestore).</li>
+                        <li><strong>Cloud object-storage provider</strong> (for example Backblaze B2, or Google Cloud Storage) — stores Zyntra Moments videos, thumbnails, channel pictures and bug-report recordings.</li>
                         <li><strong>Vercel</strong> — hosting and the servers that run our back end; Vercel receives your IP address and request details like any host.</li>
                         <li><strong>Razorpay</strong> — payments (see Plans and payments).</li>
                         <li><strong>Font and script providers</strong> (Google Fonts, cdnjs, jsDelivr) — your browser loads some fonts and code libraries from them, so they see your IP address.</li>
